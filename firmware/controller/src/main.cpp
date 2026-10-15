@@ -109,23 +109,158 @@ static lv_obj_t *create_status_card(lv_obj_t *parent, lv_coord_t y, lv_coord_t h
     return card;
 }
 
-static void create_route_row(lv_obj_t *card, lv_coord_t y, const char *label) {
-    const lv_color_t primary = lv_color_hex(0xE6EDF5);
-    const lv_color_t muted = lv_color_hex(0x91A3B8);
-    create_status_label(card, label, 10, y, 82, 18, &lv_font_montserrat_14, muted);
-    create_status_label(card, "--", 92, y, 16, 18, &lv_font_montserrat_14, primary, LV_TEXT_ALIGN_RIGHT);
+static lv_obj_t *create_diagram_shape(
+    lv_obj_t *parent,
+    lv_coord_t x,
+    lv_coord_t y,
+    lv_coord_t width,
+    lv_coord_t height,
+    lv_color_t color,
+    lv_coord_t radius = 0
+) {
+    lv_obj_t *shape = lv_obj_create(parent);
+    lv_obj_set_pos(shape, x, y);
+    lv_obj_set_size(shape, width, height);
+    lv_obj_clear_flag(shape, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(shape, color, 0);
+    lv_obj_set_style_bg_opa(shape, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(shape, 0, 0);
+    lv_obj_set_style_radius(shape, radius, 0);
+    lv_obj_set_style_pad_all(shape, 0, 0);
+    return shape;
 }
 
-static void create_monitor(lv_obj_t *parent, lv_coord_t x) {
+enum class HostId : uint8_t {
+    Pc,
+    Mac,
+    Guest1,
+    Guest2
+};
+
+struct HostRoute {
+    HostId host;
+    uint8_t monitor_mask;
+    uint8_t hub_mask;
+};
+
+static const char *host_label(HostId host) {
+    switch (host) {
+        case HostId::Pc: return "PC";
+        case HostId::Mac: return "MAC";
+        case HostId::Guest1: return "3";
+        case HostId::Guest2: return "4";
+    }
+    return "";
+}
+
+static lv_color_t host_color(HostId host) {
+    switch (host) {
+        case HostId::Pc: return lv_color_hex(0x55E6D2);
+        case HostId::Mac: return lv_color_hex(0xB99AFF);
+        case HostId::Guest1: return lv_color_hex(0xFFC857);
+        case HostId::Guest2: return lv_color_hex(0xFF8B7B);
+    }
+    return lv_color_hex(0x91A3B8);
+}
+
+static HostRoute *find_or_add_host_route(
+    HostRoute *routes,
+    uint8_t &route_count,
+    HostId host
+) {
+    for (uint8_t i = 0; i < route_count; ++i) {
+        if (routes[i].host == host) {
+            return &routes[i];
+        }
+    }
+
+    HostRoute *route = &routes[route_count++];
+    route->host = host;
+    route->monitor_mask = 0;
+    route->hub_mask = 0;
+    return route;
+}
+
+static void create_host_node(
+    lv_obj_t *parent,
+    lv_coord_t center_x,
+    lv_coord_t y,
+    HostId host
+) {
+    const lv_color_t color = host_color(host);
+    lv_obj_t *node = create_diagram_shape(
+        parent,
+        center_x - 20,
+        y,
+        40,
+        18,
+        lv_color_hex(0x101C2B),
+        5
+    );
+    lv_obj_set_style_border_color(node, color, 0);
+    lv_obj_set_style_border_width(node, 1, 0);
+    create_status_label(node, host_label(host), 0, 1, 40, 16, &lv_font_montserrat_14, color, LV_TEXT_ALIGN_CENTER);
+}
+
+static void create_keyboard_icon(lv_obj_t *parent, lv_coord_t center_x) {
+    const lv_color_t icon_color = lv_color_hex(0xE6EDF5);
+    lv_obj_t *body = lv_obj_create(parent);
+    lv_obj_set_pos(body, center_x - 14, 135);
+    lv_obj_set_size(body, 28, 15);
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(body, lv_color_hex(0x101C2B), 0);
+    lv_obj_set_style_bg_opa(body, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(body, icon_color, 0);
+    lv_obj_set_style_border_width(body, 1, 0);
+    lv_obj_set_style_radius(body, 3, 0);
+    lv_obj_set_style_pad_all(body, 0, 0);
+
+    for (lv_coord_t row = 0; row < 2; ++row) {
+        for (lv_coord_t column = 0; column < 6; ++column) {
+            create_diagram_shape(
+                body,
+                3 + column * 3,
+                3 + row * 4,
+                2,
+                2,
+                icon_color,
+                1
+            );
+        }
+    }
+    create_diagram_shape(body, 9, 11, 10, 1, icon_color);
+}
+
+static void create_headset_icon(lv_obj_t *parent, lv_coord_t center_x) {
+    const lv_color_t icon_color = lv_color_hex(0xE6EDF5);
+    lv_obj_t *body = lv_obj_create(parent);
+    lv_obj_set_pos(body, center_x - 10, 135);
+    lv_obj_set_size(body, 20, 15);
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(body, lv_color_hex(0x101C2B), 0);
+    lv_obj_set_style_bg_opa(body, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(body, icon_color, 0);
+    lv_obj_set_style_border_width(body, 1, 0);
+    lv_obj_set_style_radius(body, 4, 0);
+    lv_obj_set_style_pad_all(body, 0, 0);
+    create_diagram_shape(body, 2, 2, 3, 9, icon_color, 2);
+    create_diagram_shape(body, 15, 2, 3, 9, icon_color, 2);
+    create_diagram_shape(body, 6, 1, 8, 2, icon_color, 2);
+    create_diagram_shape(body, 2, 9, 4, 5, icon_color, 2);
+    create_diagram_shape(body, 14, 9, 4, 5, icon_color, 2);
+}
+
+static void create_monitor(lv_obj_t *parent, lv_coord_t x, HostId host) {
     const lv_color_t primary = lv_color_hex(0xE6EDF5);
+    const lv_color_t color = host_color(host);
 
     lv_obj_t *bezel = lv_obj_create(parent);
-    lv_obj_set_pos(bezel, x, 28);
+    lv_obj_set_pos(bezel, x, 8);
     lv_obj_set_size(bezel, 50, 48);
     lv_obj_clear_flag(bezel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(bezel, lv_color_hex(0x101C2B), 0);
     lv_obj_set_style_bg_opa(bezel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(bezel, lv_color_hex(0x34536A), 0);
+    lv_obj_set_style_border_color(bezel, color, 0);
     lv_obj_set_style_border_width(bezel, 2, 0);
     lv_obj_set_style_radius(bezel, 5, 0);
     lv_obj_set_style_pad_all(bezel, 0, 0);
@@ -139,10 +274,10 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x) {
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_radius(screen, 2, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
-    create_status_label(screen, "--", 0, 11, 40, 18, &lv_font_montserrat_14, primary, LV_TEXT_ALIGN_CENTER);
+    create_status_label(screen, host_label(host), 0, 11, 40, 18, &lv_font_montserrat_14, primary, LV_TEXT_ALIGN_CENTER);
 
     lv_obj_t *stand = lv_obj_create(parent);
-    lv_obj_set_pos(stand, x + 22, 76);
+    lv_obj_set_pos(stand, x + 22, 56);
     lv_obj_set_size(stand, 6, 5);
     lv_obj_set_style_bg_color(stand, lv_color_hex(0x34536A), 0);
     lv_obj_set_style_bg_opa(stand, LV_OPA_COVER, 0);
@@ -151,13 +286,144 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x) {
     lv_obj_set_style_pad_all(stand, 0, 0);
 
     lv_obj_t *foot = lv_obj_create(parent);
-    lv_obj_set_pos(foot, x + 15, 81);
+    lv_obj_set_pos(foot, x + 15, 61);
     lv_obj_set_size(foot, 20, 2);
     lv_obj_set_style_bg_color(foot, lv_color_hex(0x34536A), 0);
     lv_obj_set_style_bg_opa(foot, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(foot, 0, 0);
     lv_obj_set_style_radius(foot, 1, 0);
     lv_obj_set_style_pad_all(foot, 0, 0);
+}
+
+static void create_routing_diagram(
+    lv_obj_t *parent,
+    const HostId monitor_hosts[2],
+    const HostId hub_hosts[2]
+) {
+    const lv_coord_t monitor_centers[2] = {40, 95};
+    HostRoute routes[4];
+    uint8_t route_count = 0;
+
+    for (uint8_t monitor = 0; monitor < 2; ++monitor) {
+        HostRoute *route = find_or_add_host_route(routes, route_count, monitor_hosts[monitor]);
+        route->monitor_mask |= static_cast<uint8_t>(1U << monitor);
+    }
+    for (uint8_t hub = 0; hub < 2; ++hub) {
+        HostRoute *route = find_or_add_host_route(routes, route_count, hub_hosts[hub]);
+        route->hub_mask |= static_cast<uint8_t>(1U << hub);
+    }
+
+    create_monitor(parent, 15, monitor_hosts[0]);
+    create_monitor(parent, 70, monitor_hosts[1]);
+
+    for (uint8_t route_index = 0; route_index < route_count; ++route_index) {
+        const HostRoute &route = routes[route_index];
+        if (route.hub_mask == 0) {
+            continue;
+        }
+
+        const lv_color_t color = host_color(route.host);
+        lv_coord_t device_centers[2];
+        uint8_t device_count = 0;
+        for (uint8_t hub = 0; hub < 2; ++hub) {
+            if ((route.hub_mask & (1U << hub)) == 0) {
+                continue;
+            }
+
+            if (route.hub_mask == 3) {
+                if (route.monitor_mask == 1) {
+                    device_centers[device_count++] = hub == 0 ? 26 : 55;
+                } else if (route.monitor_mask == 2) {
+                    device_centers[device_count++] = hub == 0 ? 80 : 109;
+                } else {
+                    device_centers[device_count++] = hub == 0 ? 44 : 93;
+                }
+            } else if (route.monitor_mask == 1) {
+                device_centers[device_count++] = monitor_centers[0];
+            } else if (route.monitor_mask == 2) {
+                device_centers[device_count++] = monitor_centers[1];
+            } else if (route.monitor_mask == 3) {
+                device_centers[device_count++] = 68;
+            } else {
+                device_centers[device_count++] = hub == 0 ? 44 : 93;
+            }
+        }
+
+        lv_coord_t route_center;
+        if (route.monitor_mask == 1) {
+            route_center = monitor_centers[0];
+        } else if (route.monitor_mask == 2) {
+            route_center = monitor_centers[1];
+        } else if (route.monitor_mask == 3 || route.hub_mask == 3) {
+            route_center = 68;
+        } else {
+            route_center = device_centers[0];
+        }
+
+        if (route.monitor_mask == 3) {
+            for (uint8_t monitor = 0; monitor < 2; ++monitor) {
+                create_diagram_shape(parent, monitor_centers[monitor] - 1, 64, 2, 14, color);
+            }
+            create_diagram_shape(parent, monitor_centers[0], 77, 57, 2, color);
+            create_diagram_shape(parent, route_center - 1, 78, 2, 41, color);
+        } else if (route.monitor_mask != 0) {
+            const uint8_t monitor = route.monitor_mask == 1 ? 0 : 1;
+            create_diagram_shape(
+                parent,
+                monitor_centers[monitor] - 1,
+                64,
+                2,
+                55,
+                color
+            );
+        } else {
+            create_host_node(parent, route_center, 78, route.host);
+            create_diagram_shape(parent, route_center - 1, 96, 2, 23, color);
+        }
+
+        if (device_count == 2) {
+            create_diagram_shape(
+                parent,
+                device_centers[0],
+                118,
+                device_centers[1] - device_centers[0] + 1,
+                2,
+                color
+            );
+            for (uint8_t device = 0; device < device_count; ++device) {
+                create_diagram_shape(parent, device_centers[device] - 1, 119, 2, 16, color);
+            }
+        } else {
+            if (route_center != device_centers[0]) {
+                create_diagram_shape(
+                    parent,
+                    route_center < device_centers[0] ? route_center : device_centers[0],
+                    118,
+                    (route_center < device_centers[0]
+                        ? device_centers[0] - route_center
+                        : route_center - device_centers[0]) + 1,
+                    2,
+                    color
+                );
+            }
+            create_diagram_shape(parent, device_centers[0] - 1, 119, 2, 16, color);
+        }
+
+        for (uint8_t hub = 0; hub < 2; ++hub) {
+            if ((route.hub_mask & (1U << hub)) == 0) {
+                continue;
+            }
+
+            const lv_coord_t center_x = route.hub_mask == 3
+                ? (hub == 0 ? 44 : 93)
+                : device_centers[0];
+            if (hub == 0) {
+                create_keyboard_icon(parent, center_x);
+            } else {
+                create_headset_icon(parent, center_x);
+            }
+        }
+    }
 }
 
 static void create_status_screen(void) {
@@ -169,13 +435,9 @@ static void create_status_screen(void) {
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x08111D), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
-    create_monitor(screen, 15);
-    create_monitor(screen, 70);
-
-    create_status_label(screen, "USB HUBS", 8, 108, 119, 16, &lv_font_montserrat_14, accent);
-    lv_obj_t *hub_card = create_status_card(screen, 123, 49);
-    create_route_row(hub_card, 7, "HUB 1");
-    create_route_row(hub_card, 27, "HUB 2");
+    const HostId monitor_hosts[2] = {HostId::Pc, HostId::Pc};
+    const HostId hub_hosts[2] = {HostId::Mac, HostId::Mac};
+    create_routing_diagram(screen, monitor_hosts, hub_hosts);
 
     create_status_label(screen, "VOLUME", 8, 178, 60, 16, &lv_font_montserrat_14, accent);
     create_status_label(screen, "APP", 82, 178, 45, 16, &lv_font_montserrat_14, muted, LV_TEXT_ALIGN_RIGHT);

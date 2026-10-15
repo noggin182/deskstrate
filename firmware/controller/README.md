@@ -33,15 +33,20 @@ pressing either key shifts the animation colors.
 
 ## Status screen and controls
 
-The TFT status screen is portrait (135 x 240). Its initial view groups monitor
-routing, USB hub routing, and PC/Mac volume. `--` and `--%` are intentional
-placeholders: host assignments and volume are not connected to live KVM or
-companion-app state yet.
+The TFT status screen is portrait (135 x 240). Its routing diagram is drawn
+from monitor and hub host assignments; the current example has both monitors
+on PC and both hubs on Mac. Hubs matching a monitor host draw a direct route
+from the matching display(s); if both displays share the host, their routes
+join into a bus. A hub host not used by either display gets its own node below.
+Hub names are represented by keyboard and headset icons rather than labels.
+The example assignments are static; live KVM routing and companion-app volume
+data are not connected yet. Volume readings remain `--%` placeholders.
 
-The planned host choices are PC, Mac, Guest 1, and Guest 2. Monitor 1 and
-Monitor 2 each have a host assignment; Hub 1 carries the mouse and keyboard,
-and Hub 2 carries the webcam and headset. Volume is planned for PC and Mac only
-and depends on a companion app running on those hosts.
+Guest 1 and Guest 2 appear as numbered host nodes when they are not assigned
+to a monitor. Monitor 1 and Monitor 2 each have a host assignment; Hub 1 carries
+the mouse and keyboard, and Hub 2 carries the webcam and headset. Volume is
+planned for PC and Mac only and depends on a companion app running on those
+hosts.
 
 The four planned keys are A, B, Menu, and Function. In normal mode, A switches
 to PC and B switches to Mac. Function enters split mode, assigning one monitor
