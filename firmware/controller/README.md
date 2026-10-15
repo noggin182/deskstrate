@@ -30,3 +30,22 @@ each other's broadcasts.
 The NeoKey FeatherWing uses Feather D5 and D6 for its active-low switches and
 D9 for its two chained NeoPixels. The pixels animate through the color wheel;
 pressing either key shifts the animation colors.
+
+## Status screen and controls
+
+The TFT status screen is portrait (135 x 240). Its initial view groups monitor
+routing, USB hub routing, and PC/Mac volume. `--` and `--%` are intentional
+placeholders: host assignments and volume are not connected to live KVM or
+companion-app state yet.
+
+The planned host choices are PC, Mac, Guest 1, and Guest 2. Monitor 1 and
+Monitor 2 each have a host assignment; Hub 1 carries the mouse and keyboard,
+and Hub 2 carries the webcam and headset. Volume is planned for PC and Mac only
+and depends on a companion app running on those hosts.
+
+The four planned keys are A, B, Menu, and Function. In normal mode, A switches
+to PC and B switches to Mac. Function enters split mode, assigning one monitor
+to each of PC and Mac; in split mode, A and B select which host receives Hub 1.
+Menu opens the menu, where A/B move up/down, Menu selects, and Function returns
+one level. These controls and switching behaviors are not implemented yet;
+the current firmware only reads the two NeoKey switches for its pixel demo.

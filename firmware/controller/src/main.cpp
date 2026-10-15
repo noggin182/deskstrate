@@ -75,6 +75,87 @@ static void hue_to_rgb(uint8_t hue, uint8_t &red, uint8_t &green, uint8_t &blue)
     }
 }
 
+static lv_obj_t *create_status_label(
+    lv_obj_t *parent,
+    const char *text,
+    lv_coord_t x,
+    lv_coord_t y,
+    lv_coord_t width,
+    lv_coord_t height,
+    const lv_font_t *font,
+    lv_color_t color,
+    lv_text_align_t align = LV_TEXT_ALIGN_LEFT
+) {
+    lv_obj_t *label = lv_label_create(parent);
+    lv_label_set_text(label, text);
+    lv_obj_set_pos(label, x, y);
+    lv_obj_set_size(label, width, height);
+    lv_obj_set_style_text_font(label, font, 0);
+    lv_obj_set_style_text_color(label, color, 0);
+    lv_obj_set_style_text_align(label, align, 0);
+    return label;
+}
+
+static lv_obj_t *create_status_card(lv_obj_t *parent, lv_coord_t y, lv_coord_t height) {
+    lv_obj_t *card = lv_obj_create(parent);
+    lv_obj_set_pos(card, 8, y);
+    lv_obj_set_size(card, 119, height);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x101C2B), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(card, lv_color_hex(0x24364A), 0);
+    lv_obj_set_style_border_width(card, 1, 0);
+    lv_obj_set_style_radius(card, 7, 0);
+    lv_obj_set_style_pad_all(card, 0, 0);
+    return card;
+}
+
+static void create_route_row(lv_obj_t *card, lv_coord_t y, const char *label) {
+    const lv_color_t primary = lv_color_hex(0xE6EDF5);
+    const lv_color_t muted = lv_color_hex(0x91A3B8);
+    create_status_label(card, label, 10, y, 82, 18, &lv_font_montserrat_14, muted);
+    create_status_label(card, "--", 92, y, 16, 18, &lv_font_montserrat_14, primary, LV_TEXT_ALIGN_RIGHT);
+}
+
+static void create_status_screen(void) {
+    const lv_color_t primary = lv_color_hex(0xE6EDF5);
+    const lv_color_t muted = lv_color_hex(0x91A3B8);
+    const lv_color_t accent = lv_color_hex(0x55E6D2);
+    lv_obj_t *screen = lv_scr_act();
+
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x08111D), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+
+    create_status_label(screen, "KVM", 8, 5, 58, 26, &lv_font_montserrat_22, primary);
+    create_status_label(screen, "STATUS", 78, 9, 49, 18, &lv_font_montserrat_14, accent, LV_TEXT_ALIGN_RIGHT);
+
+    lv_obj_t *divider = lv_obj_create(screen);
+    lv_obj_set_pos(divider, 8, 32);
+    lv_obj_set_size(divider, 119, 1);
+    lv_obj_set_style_bg_color(divider, lv_color_hex(0x24364A), 0);
+    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(divider, 0, 0);
+    lv_obj_set_style_radius(divider, 0, 0);
+    lv_obj_set_style_pad_all(divider, 0, 0);
+
+    create_status_label(screen, "DISPLAYS", 8, 38, 119, 16, &lv_font_montserrat_14, accent);
+    lv_obj_t *display_card = create_status_card(screen, 53, 49);
+    create_route_row(display_card, 7, "MONITOR 1");
+    create_route_row(display_card, 27, "MONITOR 2");
+
+    create_status_label(screen, "USB HUBS", 8, 108, 119, 16, &lv_font_montserrat_14, accent);
+    lv_obj_t *hub_card = create_status_card(screen, 123, 49);
+    create_route_row(hub_card, 7, "HUB 1");
+    create_route_row(hub_card, 27, "HUB 2");
+
+    create_status_label(screen, "VOLUME", 8, 178, 60, 16, &lv_font_montserrat_14, accent);
+    create_status_label(screen, "APP", 82, 178, 45, 16, &lv_font_montserrat_14, muted, LV_TEXT_ALIGN_RIGHT);
+    lv_obj_t *volume_card = create_status_card(screen, 193, 40);
+    create_status_label(volume_card, "PC", 10, 5, 45, 16, &lv_font_montserrat_14, muted);
+    create_status_label(volume_card, "--%", 10, 21, 45, 17, &lv_font_montserrat_14, primary);
+    create_status_label(volume_card, "MAC", 65, 5, 43, 16, &lv_font_montserrat_14, muted);
+    create_status_label(volume_card, "--%", 65, 21, 43, 17, &lv_font_montserrat_14, primary);
+}
+
 static void display_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_map) {
     auto panel_handle = static_cast<esp_lcd_panel_handle_t>(disp_drv->user_data);
     ESP_ERROR_CHECK(esp_lcd_panel_draw_bitmap(
@@ -206,21 +287,21 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
     // --------------------------------
 
-    // Now you can rotate and configure it
-    ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, true));
+    // Use the TFT's native portrait orientation (135 x 240).
+    ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel_handle, false));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel_handle, false, false));
 
-    // The Adafruit 1.14" TFT uses 40-column and 53-row offsets.
+    // This unmirrored orientation uses the 52-pixel X offset for the odd-width panel.
     ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel_handle, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 40, 53));
+    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel_handle, 52, 40));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel_handle, true));
 
     // --- 7. Initialize LVGL ---
     lv_init();
     
     // Allocate a draw buffer (1/10th of the screen size is standard for microcontrollers)
-    const uint16_t screen_width = 240;
-    const uint16_t screen_height = 135;
+    const uint16_t screen_width = 135;
+    const uint16_t screen_height = 240;
     
     // Allocate the buffer in DMA-capable internal memory
     size_t buffer_size = (screen_width * screen_height / 10) * sizeof(lv_color_t);
@@ -238,12 +319,8 @@ extern "C" void app_main(void) {
     disp_drv.user_data = panel_handle; // Pass the hardware handle into the callback
     lv_disp_drv_register(&disp_drv);
 
-    // --- 8. Draw "Hello World" ---
-    lv_obj_t *label = lv_label_create(lv_scr_act()); // Create label on the active screen
-    lv_label_set_text(label, "Hello, George!");
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_22, 0);
-
-    lv_obj_center(label);                            // Automatically calculate coordinates
+    // --- 8. Draw the portrait KVM status screen ---
+    create_status_screen();
 
     printf("UI Rendered. Entering main loop.\n");
     
