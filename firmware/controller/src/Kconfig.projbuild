@@ -1,0 +1,15 @@
+menu "Deskstrate Controller"
+
+    config DESKSTRATE_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+        help
+            SSID of the 2.4 GHz Wi-Fi network the controller should join.
+
+    config DESKSTRATE_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+        help
+            Password for the Wi-Fi network. Leave blank for an open network.
+
+endmenu
