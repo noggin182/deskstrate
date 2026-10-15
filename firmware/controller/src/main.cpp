@@ -116,6 +116,50 @@ static void create_route_row(lv_obj_t *card, lv_coord_t y, const char *label) {
     create_status_label(card, "--", 92, y, 16, 18, &lv_font_montserrat_14, primary, LV_TEXT_ALIGN_RIGHT);
 }
 
+static void create_monitor(lv_obj_t *parent, lv_coord_t x) {
+    const lv_color_t primary = lv_color_hex(0xE6EDF5);
+
+    lv_obj_t *bezel = lv_obj_create(parent);
+    lv_obj_set_pos(bezel, x, 28);
+    lv_obj_set_size(bezel, 50, 48);
+    lv_obj_clear_flag(bezel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(bezel, lv_color_hex(0x101C2B), 0);
+    lv_obj_set_style_bg_opa(bezel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(bezel, lv_color_hex(0x34536A), 0);
+    lv_obj_set_style_border_width(bezel, 2, 0);
+    lv_obj_set_style_radius(bezel, 5, 0);
+    lv_obj_set_style_pad_all(bezel, 0, 0);
+
+    lv_obj_t *screen = lv_obj_create(bezel);
+    lv_obj_set_pos(screen, 3, 3);
+    lv_obj_set_size(screen, 40, 40);
+    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(0x12283A), 0);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(screen, 0, 0);
+    lv_obj_set_style_radius(screen, 2, 0);
+    lv_obj_set_style_pad_all(screen, 0, 0);
+    create_status_label(screen, "--", 0, 11, 40, 18, &lv_font_montserrat_14, primary, LV_TEXT_ALIGN_CENTER);
+
+    lv_obj_t *stand = lv_obj_create(parent);
+    lv_obj_set_pos(stand, x + 22, 76);
+    lv_obj_set_size(stand, 6, 5);
+    lv_obj_set_style_bg_color(stand, lv_color_hex(0x34536A), 0);
+    lv_obj_set_style_bg_opa(stand, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(stand, 0, 0);
+    lv_obj_set_style_radius(stand, 0, 0);
+    lv_obj_set_style_pad_all(stand, 0, 0);
+
+    lv_obj_t *foot = lv_obj_create(parent);
+    lv_obj_set_pos(foot, x + 15, 81);
+    lv_obj_set_size(foot, 20, 2);
+    lv_obj_set_style_bg_color(foot, lv_color_hex(0x34536A), 0);
+    lv_obj_set_style_bg_opa(foot, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(foot, 0, 0);
+    lv_obj_set_style_radius(foot, 1, 0);
+    lv_obj_set_style_pad_all(foot, 0, 0);
+}
+
 static void create_status_screen(void) {
     const lv_color_t primary = lv_color_hex(0xE6EDF5);
     const lv_color_t muted = lv_color_hex(0x91A3B8);
@@ -125,22 +169,8 @@ static void create_status_screen(void) {
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x08111D), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
-    create_status_label(screen, "KVM", 8, 5, 58, 26, &lv_font_montserrat_22, primary);
-    create_status_label(screen, "STATUS", 78, 9, 49, 18, &lv_font_montserrat_14, accent, LV_TEXT_ALIGN_RIGHT);
-
-    lv_obj_t *divider = lv_obj_create(screen);
-    lv_obj_set_pos(divider, 8, 32);
-    lv_obj_set_size(divider, 119, 1);
-    lv_obj_set_style_bg_color(divider, lv_color_hex(0x24364A), 0);
-    lv_obj_set_style_bg_opa(divider, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(divider, 0, 0);
-    lv_obj_set_style_radius(divider, 0, 0);
-    lv_obj_set_style_pad_all(divider, 0, 0);
-
-    create_status_label(screen, "DISPLAYS", 8, 38, 119, 16, &lv_font_montserrat_14, accent);
-    lv_obj_t *display_card = create_status_card(screen, 53, 49);
-    create_route_row(display_card, 7, "MONITOR 1");
-    create_route_row(display_card, 27, "MONITOR 2");
+    create_monitor(screen, 15);
+    create_monitor(screen, 70);
 
     create_status_label(screen, "USB HUBS", 8, 108, 119, 16, &lv_font_montserrat_14, accent);
     lv_obj_t *hub_card = create_status_card(screen, 123, 49);
