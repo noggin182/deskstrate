@@ -27,9 +27,10 @@ errors in the ESP-IDF log. UDP broadcast is limited to the local network;
 router client isolation or firewall rules may prevent devices from receiving
 each other's broadcasts.
 
-The NeoKey FeatherWing uses Feather D5 and D6 for its active-low switches and
-D9 for its four chained NeoPixels. The pixels animate through the color wheel;
-pressing either key shifts the animation colors.
+The NeoKey switches use Feather D5 (A), D6 (B), D10 (Menu), and D11
+(Function), configured as active-low inputs with internal pull-ups. The four
+chained NeoPixels share D9 and animate through the color wheel; pressing any
+key shifts the animation colors.
 
 ## Status screen and controls
 
@@ -54,10 +55,9 @@ routes remain unconnected. Host labels appear below the hub icons, including
 guest numbers. Volume is planned for PC and Mac only and depends on a
 companion app running on those hosts.
 
-The four planned keys are A, B, Menu, and Function. In normal mode, A switches
+The four keys are A, B, Menu, and Function. In normal mode, A switches
 to PC and B switches to Mac. Function enters split mode, assigning one monitor
 to each of PC and Mac; in split mode, A and B select which host receives Hub 1.
 Menu opens the menu, where A/B move up/down, Menu selects, and Function returns
-one level. These controls and switching behaviors are not implemented yet;
-the two available NeoKey switches currently randomize the displayed routing
-scenario for UI testing.
+one level. These controls and switching behaviors are not implemented yet; all
+four keys currently randomize the displayed routing scenario for UI testing.

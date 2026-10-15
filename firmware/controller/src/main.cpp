@@ -27,6 +27,8 @@
 
 #define PIN_NEOKEY_SWITCH_A GPIO_NUM_5
 #define PIN_NEOKEY_SWITCH_B GPIO_NUM_6
+#define PIN_NEOKEY_SWITCH_MENU GPIO_NUM_10
+#define PIN_NEOKEY_SWITCH_FUNCTION GPIO_NUM_11
 #define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
 #define NEOKEY_NEOPIXEL_COUNT 4
 
@@ -620,10 +622,13 @@ extern "C" void app_main(void) {
     led_strip_set_pixel(led_strip, 0, 0, 255, 0);
     led_strip_refresh(led_strip);
 
-    // The NeoKey FeatherWing switches are active-low and its NeoPixels share D9.
+    // NeoKey switches are active-low; their NeoPixels share D9.
     gpio_config_t neokey_gpio_config = {};
     neokey_gpio_config.pin_bit_mask =
-        (1ULL << PIN_NEOKEY_SWITCH_A) | (1ULL << PIN_NEOKEY_SWITCH_B);
+        (1ULL << PIN_NEOKEY_SWITCH_A)
+        | (1ULL << PIN_NEOKEY_SWITCH_B)
+        | (1ULL << PIN_NEOKEY_SWITCH_MENU)
+        | (1ULL << PIN_NEOKEY_SWITCH_FUNCTION);
     neokey_gpio_config.mode = GPIO_MODE_INPUT;
     neokey_gpio_config.pull_up_en = GPIO_PULLUP_ENABLE;
     neokey_gpio_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -733,6 +738,8 @@ extern "C" void app_main(void) {
     uint8_t animation_ticks = 0;
     KeyDebounceState key_a_state;
     KeyDebounceState key_b_state;
+    KeyDebounceState key_menu_state;
+    KeyDebounceState key_function_state;
 
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
@@ -747,6 +754,16 @@ extern "C" void app_main(void) {
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_B, key_b_state)) {
             key_hue_offset += 96;
+            randomize_scenario(current_kvm_state);
+            scenario_changed = true;
+        }
+        if (key_press_detected(PIN_NEOKEY_SWITCH_MENU, key_menu_state)) {
+            key_hue_offset += 144;
+            randomize_scenario(current_kvm_state);
+            scenario_changed = true;
+        }
+        if (key_press_detected(PIN_NEOKEY_SWITCH_FUNCTION, key_function_state)) {
+            key_hue_offset += 192;
             randomize_scenario(current_kvm_state);
             scenario_changed = true;
         }
