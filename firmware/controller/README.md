@@ -33,18 +33,19 @@ pressing either key shifts the animation colors.
 
 ## Status screen and controls
 
-The TFT status screen is portrait (135 x 240). Its routing diagram is drawn
-from monitor and hub host assignments; the current example has both monitors
-on PC and both hubs on Mac. Hubs matching a monitor host draw a direct route
-from the matching display(s); if both displays share the host, their routes
-join into a bus. A hub host not used by either display gets its own node below.
-Hub names are represented by keyboard and headset icons rather than labels.
-The example assignments are static; live KVM routing and companion-app volume
-data are not connected yet. Volume readings remain `--%` placeholders.
+The TFT status screen is portrait (135 x 240). Its routing diagram shows the
+host routed to each monitor (PC, Mac, Guest 3, or Guest 4) and the assigned
+host for each hub. USB-C, DP, and HDMI remain internal monitor input state and
+are not rendered as labels. Hubs matching a monitor host draw a route from the
+matching display(s); if both displays share the host, their routes join into a
+bus. A hub host not used by either display gets its own node below. Hub names
+are represented by keyboard and headset icons rather than labels. Each NeoKey
+press randomizes the displayed scenario to preview different combinations;
+this is only a UI demo and does not switch the KVM. Companion-app volume data
+is not connected yet, so volume readings remain `--%`.
 
-Guest 1 and Guest 2 appear as numbered host nodes when they are not assigned
-to a monitor. Monitor 1 and Monitor 2 each have a host assignment; Hub 1 carries
-the mouse and keyboard, and Hub 2 carries the webcam and headset. Volume is
+The HDMI monitor input is represented as Guest 3 in the route diagram. Hub 1
+carries the mouse and keyboard; Hub 2 carries the webcam and headset. Volume is
 planned for PC and Mac only and depends on a companion app running on those
 hosts.
 
@@ -53,4 +54,5 @@ to PC and B switches to Mac. Function enters split mode, assigning one monitor
 to each of PC and Mac; in split mode, A and B select which host receives Hub 1.
 Menu opens the menu, where A/B move up/down, Menu selects, and Function returns
 one level. These controls and switching behaviors are not implemented yet;
-the current firmware only reads the two NeoKey switches for its pixel demo.
+the two available NeoKey switches currently randomize the displayed routing
+scenario for UI testing.

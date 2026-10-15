@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "esp_random.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
@@ -137,11 +138,32 @@ enum class HostId : uint8_t {
     Guest2
 };
 
+enum class MonitorInput : uint8_t {
+    UsbC,
+    DisplayPort,
+    Hdmi
+};
+
+struct KvmState {
+    MonitorInput monitor1_input;
+    MonitorInput monitor2_input;
+    HostId hub1_host;
+    HostId hub2_host;
+};
+
 struct HostRoute {
     HostId host;
     uint8_t monitor_mask;
     uint8_t hub_mask;
 };
+
+static KvmState current_kvm_state = {
+    MonitorInput::DisplayPort,
+    MonitorInput::DisplayPort,
+    HostId::Mac,
+    HostId::Mac
+};
+static lv_obj_t *routing_diagram = nullptr;
 
 static const char *host_label(HostId host) {
     switch (host) {
@@ -151,6 +173,39 @@ static const char *host_label(HostId host) {
         case HostId::Guest2: return "4";
     }
     return "";
+}
+
+static HostId input_host(MonitorInput input) {
+    switch (input) {
+        case MonitorInput::UsbC: return HostId::Mac;
+        case MonitorInput::DisplayPort: return HostId::Pc;
+        case MonitorInput::Hdmi: return HostId::Guest1;
+    }
+    return HostId::Guest1;
+}
+
+static uint16_t scenario_index(const KvmState &state) {
+    return static_cast<uint16_t>(state.monitor1_input)
+        + 3 * static_cast<uint16_t>(state.monitor2_input)
+        + 9 * static_cast<uint16_t>(state.hub1_host)
+        + 36 * static_cast<uint16_t>(state.hub2_host);
+}
+
+static void set_scenario_index(KvmState &state, uint16_t index) {
+    state.monitor1_input = static_cast<MonitorInput>(index % 3);
+    index /= 3;
+    state.monitor2_input = static_cast<MonitorInput>(index % 3);
+    index /= 3;
+    state.hub1_host = static_cast<HostId>(index % 4);
+    index /= 4;
+    state.hub2_host = static_cast<HostId>(index % 4);
+}
+
+static void randomize_scenario(KvmState &state) {
+    const uint16_t next_index = static_cast<uint16_t>(
+        (scenario_index(state) + 1 + esp_random() % 143) % 144
+    );
+    set_scenario_index(state, next_index);
 }
 
 static lv_color_t host_color(HostId host) {
@@ -250,13 +305,14 @@ static void create_headset_icon(lv_obj_t *parent, lv_coord_t center_x) {
     create_diagram_shape(body, 14, 9, 4, 5, icon_color, 2);
 }
 
-static void create_monitor(lv_obj_t *parent, lv_coord_t x, HostId host) {
+static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input) {
+    const HostId host = input_host(input);
     const lv_color_t primary = lv_color_hex(0xE6EDF5);
     const lv_color_t color = host_color(host);
 
     lv_obj_t *bezel = lv_obj_create(parent);
     lv_obj_set_pos(bezel, x, 8);
-    lv_obj_set_size(bezel, 50, 48);
+    lv_obj_set_size(bezel, 52, 48);
     lv_obj_clear_flag(bezel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(bezel, lv_color_hex(0x101C2B), 0);
     lv_obj_set_style_bg_opa(bezel, LV_OPA_COVER, 0);
@@ -267,14 +323,24 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x, HostId host) {
 
     lv_obj_t *screen = lv_obj_create(bezel);
     lv_obj_set_pos(screen, 3, 3);
-    lv_obj_set_size(screen, 40, 40);
+    lv_obj_set_size(screen, 44, 40);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x12283A), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_radius(screen, 2, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
-    create_status_label(screen, host_label(host), 0, 11, 40, 18, &lv_font_montserrat_14, primary, LV_TEXT_ALIGN_CENTER);
+    create_status_label(
+        screen,
+        host_label(host),
+        0,
+        11,
+        44,
+        18,
+        &lv_font_montserrat_14,
+        primary,
+        LV_TEXT_ALIGN_CENTER
+    );
 
     lv_obj_t *stand = lv_obj_create(parent);
     lv_obj_set_pos(stand, x + 22, 56);
@@ -297,10 +363,14 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x, HostId host) {
 
 static void create_routing_diagram(
     lv_obj_t *parent,
-    const HostId monitor_hosts[2],
-    const HostId hub_hosts[2]
+    const KvmState &state
 ) {
     const lv_coord_t monitor_centers[2] = {40, 95};
+    const HostId monitor_hosts[2] = {
+        input_host(state.monitor1_input),
+        input_host(state.monitor2_input)
+    };
+    const HostId hub_hosts[2] = {state.hub1_host, state.hub2_host};
     HostRoute routes[4];
     uint8_t route_count = 0;
 
@@ -313,8 +383,8 @@ static void create_routing_diagram(
         route->hub_mask |= static_cast<uint8_t>(1U << hub);
     }
 
-    create_monitor(parent, 15, monitor_hosts[0]);
-    create_monitor(parent, 70, monitor_hosts[1]);
+    create_monitor(parent, 14, state.monitor1_input);
+    create_monitor(parent, 69, state.monitor2_input);
 
     for (uint8_t route_index = 0; route_index < route_count; ++route_index) {
         const HostRoute &route = routes[route_index];
@@ -435,9 +505,14 @@ static void create_status_screen(void) {
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x08111D), 0);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
 
-    const HostId monitor_hosts[2] = {HostId::Pc, HostId::Pc};
-    const HostId hub_hosts[2] = {HostId::Mac, HostId::Mac};
-    create_routing_diagram(screen, monitor_hosts, hub_hosts);
+    routing_diagram = lv_obj_create(screen);
+    lv_obj_set_pos(routing_diagram, 0, 0);
+    lv_obj_set_size(routing_diagram, 135, 170);
+    lv_obj_clear_flag(routing_diagram, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(routing_diagram, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(routing_diagram, 0, 0);
+    lv_obj_set_style_pad_all(routing_diagram, 0, 0);
+    create_routing_diagram(routing_diagram, current_kvm_state);
 
     create_status_label(screen, "VOLUME", 8, 178, 60, 16, &lv_font_montserrat_14, accent);
     create_status_label(screen, "APP", 82, 178, 45, 16, &lv_font_montserrat_14, muted, LV_TEXT_ALIGN_RIGHT);
@@ -446,6 +521,11 @@ static void create_status_screen(void) {
     create_status_label(volume_card, "--%", 10, 21, 45, 17, &lv_font_montserrat_14, primary);
     create_status_label(volume_card, "MAC", 65, 5, 43, 16, &lv_font_montserrat_14, muted);
     create_status_label(volume_card, "--%", 65, 21, 43, 17, &lv_font_montserrat_14, primary);
+}
+
+static void render_current_scenario(void) {
+    lv_obj_clean(routing_diagram);
+    create_routing_diagram(routing_diagram, current_kvm_state);
 }
 
 static void display_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_map) {
@@ -629,11 +709,19 @@ extern "C" void app_main(void) {
         lv_tick_inc(10);
         lv_timer_handler(); 
 
+        bool scenario_changed = false;
         if (key_press_detected(PIN_NEOKEY_SWITCH_A, key_a_state)) {
             key_hue_offset += 48;
+            randomize_scenario(current_kvm_state);
+            scenario_changed = true;
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_B, key_b_state)) {
             key_hue_offset += 96;
+            randomize_scenario(current_kvm_state);
+            scenario_changed = true;
+        }
+        if (scenario_changed) {
+            render_current_scenario();
         }
 
         if (++animation_ticks >= 3) {
