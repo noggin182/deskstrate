@@ -28,6 +28,7 @@
 #define PIN_NEOKEY_SWITCH_A GPIO_NUM_5
 #define PIN_NEOKEY_SWITCH_B GPIO_NUM_6
 #define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
+#define NEOKEY_NEOPIXEL_COUNT 4
 
 static lv_disp_drv_t disp_drv;
 
@@ -151,10 +152,10 @@ struct KvmState {
     HostId hub2_host;
 };
 
-struct HostRoute {
-    HostId host;
-    uint8_t monitor_mask;
-    uint8_t hub_mask;
+enum class HubLayout : uint8_t {
+    Joint,
+    Split,
+    SplitSwapped
 };
 
 static KvmState current_kvm_state = {
@@ -175,11 +176,12 @@ static const char *host_label(HostId host) {
     return "";
 }
 
-static HostId input_host(MonitorInput input) {
+static HostId input_host(MonitorInput input, uint8_t monitor_index) {
     switch (input) {
         case MonitorInput::UsbC: return HostId::Mac;
         case MonitorInput::DisplayPort: return HostId::Pc;
-        case MonitorInput::Hdmi: return HostId::Guest1;
+        case MonitorInput::Hdmi:
+            return monitor_index == 0 ? HostId::Guest1 : HostId::Guest2;
     }
     return HostId::Guest1;
 }
@@ -218,24 +220,6 @@ static lv_color_t host_color(HostId host) {
     return lv_color_hex(0x91A3B8);
 }
 
-static HostRoute *find_or_add_host_route(
-    HostRoute *routes,
-    uint8_t &route_count,
-    HostId host
-) {
-    for (uint8_t i = 0; i < route_count; ++i) {
-        if (routes[i].host == host) {
-            return &routes[i];
-        }
-    }
-
-    HostRoute *route = &routes[route_count++];
-    route->host = host;
-    route->monitor_mask = 0;
-    route->hub_mask = 0;
-    return route;
-}
-
 static void create_host_node(
     lv_obj_t *parent,
     lv_coord_t center_x,
@@ -257,10 +241,10 @@ static void create_host_node(
     create_status_label(node, host_label(host), 0, 1, 40, 16, &lv_font_montserrat_14, color, LV_TEXT_ALIGN_CENTER);
 }
 
-static void create_keyboard_icon(lv_obj_t *parent, lv_coord_t center_x) {
+static void create_keyboard_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t y) {
     const lv_color_t icon_color = lv_color_hex(0xE6EDF5);
     lv_obj_t *body = lv_obj_create(parent);
-    lv_obj_set_pos(body, center_x - 14, 135);
+    lv_obj_set_pos(body, center_x - 14, y);
     lv_obj_set_size(body, 28, 15);
     lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(body, lv_color_hex(0x101C2B), 0);
@@ -286,28 +270,24 @@ static void create_keyboard_icon(lv_obj_t *parent, lv_coord_t center_x) {
     create_diagram_shape(body, 9, 11, 10, 1, icon_color);
 }
 
-static void create_headset_icon(lv_obj_t *parent, lv_coord_t center_x) {
+static void create_camera_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t y) {
     const lv_color_t icon_color = lv_color_hex(0xE6EDF5);
-    lv_obj_t *body = lv_obj_create(parent);
-    lv_obj_set_pos(body, center_x - 10, 135);
-    lv_obj_set_size(body, 20, 15);
-    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(body, lv_color_hex(0x101C2B), 0);
-    lv_obj_set_style_bg_opa(body, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(body, icon_color, 0);
-    lv_obj_set_style_border_width(body, 1, 0);
-    lv_obj_set_style_radius(body, 4, 0);
-    lv_obj_set_style_pad_all(body, 0, 0);
-    create_diagram_shape(body, 2, 2, 3, 9, icon_color, 2);
-    create_diagram_shape(body, 15, 2, 3, 9, icon_color, 2);
-    create_diagram_shape(body, 6, 1, 8, 2, icon_color, 2);
-    create_diagram_shape(body, 2, 9, 4, 5, icon_color, 2);
-    create_diagram_shape(body, 14, 9, 4, 5, icon_color, 2);
+    lv_obj_t *camera = lv_obj_create(parent);
+    lv_obj_set_pos(camera, center_x - 10, y + 2);
+    lv_obj_set_size(camera, 16, 12);
+    lv_obj_clear_flag(camera, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(camera, lv_color_hex(0x101C2B), 0);
+    lv_obj_set_style_bg_opa(camera, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(camera, icon_color, 0);
+    lv_obj_set_style_border_width(camera, 1, 0);
+    lv_obj_set_style_radius(camera, 3, 0);
+    lv_obj_set_style_pad_all(camera, 0, 0);
+    create_diagram_shape(camera, 5, 3, 6, 6, icon_color, 3);
+    create_diagram_shape(parent, center_x + 6, y + 4, 4, 8, icon_color, 1);
 }
 
-static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input) {
-    const HostId host = input_host(input);
-    const lv_color_t primary = lv_color_hex(0xE6EDF5);
+static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input, uint8_t monitor_index) {
+    const HostId host = input_host(input, monitor_index);
     const lv_color_t color = host_color(host);
 
     lv_obj_t *bezel = lv_obj_create(parent);
@@ -330,17 +310,6 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input) {
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_radius(screen, 2, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
-    create_status_label(
-        screen,
-        host_label(host),
-        0,
-        11,
-        44,
-        18,
-        &lv_font_montserrat_14,
-        primary,
-        LV_TEXT_ALIGN_CENTER
-    );
 
     lv_obj_t *stand = lv_obj_create(parent);
     lv_obj_set_pos(stand, x + 22, 56);
@@ -361,137 +330,198 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input) {
     lv_obj_set_style_pad_all(foot, 0, 0);
 }
 
-static void create_routing_diagram(
-    lv_obj_t *parent,
-    const KvmState &state
-) {
+static HubLayout hub_layout(const KvmState &state, HostId monitor1_host) {
+    if (state.hub1_host == state.hub2_host) {
+        return HubLayout::Joint;
+    }
+    return state.hub2_host == monitor1_host
+        ? HubLayout::SplitSwapped
+        : HubLayout::Split;
+}
+
+static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     const lv_coord_t monitor_centers[2] = {40, 95};
+    const lv_coord_t monitor_bottom_y = 64;
+    const lv_coord_t match_bus_y = 72;
+    const lv_coord_t hub_icon_y = 91;
+    const lv_coord_t host_node_y = 128;
     const HostId monitor_hosts[2] = {
-        input_host(state.monitor1_input),
-        input_host(state.monitor2_input)
+        input_host(state.monitor1_input, 0),
+        input_host(state.monitor2_input, 1)
     };
     const HostId hub_hosts[2] = {state.hub1_host, state.hub2_host};
-    HostRoute routes[4];
-    uint8_t route_count = 0;
+    const bool joint = state.hub1_host == state.hub2_host;
+    const HubLayout layout = hub_layout(state, monitor_hosts[0]);
+    const lv_coord_t hub_centers[2] = {
+        layout == HubLayout::Joint ? static_cast<lv_coord_t>(51) :
+            (layout == HubLayout::Split ? monitor_centers[0] : monitor_centers[1]),
+        layout == HubLayout::Joint ? static_cast<lv_coord_t>(89) :
+            (layout == HubLayout::Split ? monitor_centers[1] : monitor_centers[0])
+    };
+    const lv_coord_t group_center = 68;
 
-    for (uint8_t monitor = 0; monitor < 2; ++monitor) {
-        HostRoute *route = find_or_add_host_route(routes, route_count, monitor_hosts[monitor]);
-        route->monitor_mask |= static_cast<uint8_t>(1U << monitor);
-    }
-    for (uint8_t hub = 0; hub < 2; ++hub) {
-        HostRoute *route = find_or_add_host_route(routes, route_count, hub_hosts[hub]);
-        route->hub_mask |= static_cast<uint8_t>(1U << hub);
-    }
+    create_monitor(parent, 14, state.monitor1_input, 0);
+    create_monitor(parent, 69, state.monitor2_input, 1);
 
-    create_monitor(parent, 14, state.monitor1_input);
-    create_monitor(parent, 69, state.monitor2_input);
-
-    for (uint8_t route_index = 0; route_index < route_count; ++route_index) {
-        const HostRoute &route = routes[route_index];
-        if (route.hub_mask == 0) {
-            continue;
-        }
-
-        const lv_color_t color = host_color(route.host);
-        lv_coord_t device_centers[2];
-        uint8_t device_count = 0;
-        for (uint8_t hub = 0; hub < 2; ++hub) {
-            if ((route.hub_mask & (1U << hub)) == 0) {
-                continue;
-            }
-
-            if (route.hub_mask == 3) {
-                if (route.monitor_mask == 1) {
-                    device_centers[device_count++] = hub == 0 ? 26 : 55;
-                } else if (route.monitor_mask == 2) {
-                    device_centers[device_count++] = hub == 0 ? 80 : 109;
-                } else {
-                    device_centers[device_count++] = hub == 0 ? 44 : 93;
-                }
-            } else if (route.monitor_mask == 1) {
-                device_centers[device_count++] = monitor_centers[0];
-            } else if (route.monitor_mask == 2) {
-                device_centers[device_count++] = monitor_centers[1];
-            } else if (route.monitor_mask == 3) {
-                device_centers[device_count++] = 68;
-            } else {
-                device_centers[device_count++] = hub == 0 ? 44 : 93;
+    if (joint) {
+        uint8_t matching_monitors = 0;
+        for (uint8_t monitor = 0; monitor < 2; ++monitor) {
+            if (monitor_hosts[monitor] == hub_hosts[0]) {
+                ++matching_monitors;
             }
         }
-
-        lv_coord_t route_center;
-        if (route.monitor_mask == 1) {
-            route_center = monitor_centers[0];
-        } else if (route.monitor_mask == 2) {
-            route_center = monitor_centers[1];
-        } else if (route.monitor_mask == 3 || route.hub_mask == 3) {
-            route_center = 68;
-        } else {
-            route_center = device_centers[0];
-        }
-
-        if (route.monitor_mask == 3) {
-            for (uint8_t monitor = 0; monitor < 2; ++monitor) {
-                create_diagram_shape(parent, monitor_centers[monitor] - 1, 64, 2, 14, color);
-            }
-            create_diagram_shape(parent, monitor_centers[0], 77, 57, 2, color);
-            create_diagram_shape(parent, route_center - 1, 78, 2, 41, color);
-        } else if (route.monitor_mask != 0) {
-            const uint8_t monitor = route.monitor_mask == 1 ? 0 : 1;
+        const lv_color_t color = host_color(hub_hosts[0]);
+        if (matching_monitors == 2) {
+            create_diagram_shape(
+                parent,
+                monitor_centers[0] - 1,
+                monitor_bottom_y,
+                2,
+                6,
+                color
+            );
+            create_diagram_shape(
+                parent,
+                monitor_centers[0],
+                70,
+                monitor_centers[1] - monitor_centers[0] + 1,
+                2,
+                color
+            );
+            create_diagram_shape(
+                parent,
+                group_center - 1,
+                72,
+                2,
+                hub_icon_y - 72 - 2,
+                color
+            );
+        } else if (matching_monitors == 1) {
+            const uint8_t monitor = monitor_hosts[0] == hub_hosts[0] ? 0 : 1;
             create_diagram_shape(
                 parent,
                 monitor_centers[monitor] - 1,
-                64,
+                monitor_bottom_y,
                 2,
-                55,
+                match_bus_y - monitor_bottom_y,
                 color
             );
-        } else {
-            create_host_node(parent, route_center, 78, route.host);
-            create_diagram_shape(parent, route_center - 1, 96, 2, 23, color);
-        }
-
-        if (device_count == 2) {
+            const lv_coord_t left = monitor_centers[monitor] < group_center
+                ? monitor_centers[monitor]
+                : group_center;
             create_diagram_shape(
                 parent,
-                device_centers[0],
-                118,
-                device_centers[1] - device_centers[0] + 1,
+                left,
+                match_bus_y,
+                (monitor_centers[monitor] > group_center
+                    ? monitor_centers[monitor] - group_center
+                    : group_center - monitor_centers[monitor]) + 1,
                 2,
                 color
             );
-            for (uint8_t device = 0; device < device_count; ++device) {
-                create_diagram_shape(parent, device_centers[device] - 1, 119, 2, 16, color);
-            }
-        } else {
-            if (route_center != device_centers[0]) {
-                create_diagram_shape(
-                    parent,
-                    route_center < device_centers[0] ? route_center : device_centers[0],
-                    118,
-                    (route_center < device_centers[0]
-                        ? device_centers[0] - route_center
-                        : route_center - device_centers[0]) + 1,
-                    2,
-                    color
-                );
-            }
-            create_diagram_shape(parent, device_centers[0] - 1, 119, 2, 16, color);
+            create_diagram_shape(
+                parent,
+                group_center - 1,
+                match_bus_y + 2,
+                2,
+                hub_icon_y - match_bus_y - 2,
+                color
+            );
         }
-
-        for (uint8_t hub = 0; hub < 2; ++hub) {
-            if ((route.hub_mask & (1U << hub)) == 0) {
+    } else {
+        for (uint8_t monitor = 0; monitor < 2; ++monitor) {
+            uint8_t hub = 0;
+            if (monitor_hosts[monitor] == hub_hosts[1]) {
+                hub = 1;
+            } else if (monitor_hosts[monitor] != hub_hosts[0]) {
                 continue;
             }
 
-            const lv_coord_t center_x = route.hub_mask == 3
-                ? (hub == 0 ? 44 : 93)
-                : device_centers[0];
-            if (hub == 0) {
-                create_keyboard_icon(parent, center_x);
+            const lv_color_t color = host_color(hub_hosts[hub]);
+            if (monitor_centers[monitor] == hub_centers[hub]) {
+                create_diagram_shape(
+                    parent,
+                    monitor_centers[monitor] - 1,
+                    monitor_bottom_y,
+                    2,
+                    hub_icon_y - monitor_bottom_y - 2,
+                    color
+                );
             } else {
-                create_headset_icon(parent, center_x);
+                const lv_coord_t left = monitor_centers[monitor] < hub_centers[hub]
+                    ? monitor_centers[monitor]
+                    : hub_centers[hub];
+                create_diagram_shape(
+                    parent,
+                    monitor_centers[monitor] - 1,
+                    monitor_bottom_y,
+                    2,
+                    match_bus_y - monitor_bottom_y,
+                    color
+                );
+                create_diagram_shape(
+                    parent,
+                    left,
+                    match_bus_y,
+                    (monitor_centers[monitor] > hub_centers[hub]
+                        ? monitor_centers[monitor] - hub_centers[hub]
+                        : hub_centers[hub] - monitor_centers[monitor]) + 1,
+                    2,
+                    color
+                );
+                create_diagram_shape(
+                    parent,
+                    hub_centers[hub] - 1,
+                    match_bus_y + 2,
+                    2,
+                    hub_icon_y - match_bus_y - 2,
+                    color
+                );
             }
+        }
+    }
+
+    if (layout == HubLayout::Joint) {
+        const lv_color_t color = host_color(hub_hosts[0]);
+        create_diagram_shape(
+            parent,
+            group_center - 1,
+            hub_icon_y + 15,
+            2,
+            host_node_y - hub_icon_y - 15,
+            color
+        );
+        create_keyboard_icon(parent, hub_centers[0], hub_icon_y);
+        create_status_label(
+            parent,
+            "/",
+            67,
+            hub_icon_y - 1,
+            10,
+            17,
+            &lv_font_montserrat_14,
+            lv_color_hex(0x91A3B8),
+            LV_TEXT_ALIGN_CENTER
+        );
+        create_camera_icon(parent, hub_centers[1], hub_icon_y);
+        create_host_node(parent, group_center, host_node_y, hub_hosts[0]);
+    } else {
+        for (uint8_t hub = 0; hub < 2; ++hub) {
+            const lv_color_t color = host_color(hub_hosts[hub]);
+            create_diagram_shape(
+                parent,
+                hub_centers[hub] - 1,
+                hub_icon_y + 15,
+                2,
+                host_node_y - hub_icon_y - 15,
+                color
+            );
+            if (hub == 0) {
+                create_keyboard_icon(parent, hub_centers[hub], hub_icon_y);
+            } else {
+                create_camera_icon(parent, hub_centers[hub], hub_icon_y);
+            }
+            create_host_node(parent, hub_centers[hub], host_node_y, hub_hosts[hub]);
         }
     }
 }
@@ -590,7 +620,7 @@ extern "C" void app_main(void) {
     led_strip_set_pixel(led_strip, 0, 0, 255, 0);
     led_strip_refresh(led_strip);
 
-    // The NeoKey FeatherWing switches are active-low and its two NeoPixels share D9.
+    // The NeoKey FeatherWing switches are active-low and its NeoPixels share D9.
     gpio_config_t neokey_gpio_config = {};
     neokey_gpio_config.pin_bit_mask =
         (1ULL << PIN_NEOKEY_SWITCH_A) | (1ULL << PIN_NEOKEY_SWITCH_B);
@@ -602,7 +632,7 @@ extern "C" void app_main(void) {
 
     led_strip_config_t neokey_strip_config = {};
     neokey_strip_config.strip_gpio_num = PIN_NEOKEY_NEOPIXEL;
-    neokey_strip_config.max_leds = 2;
+    neokey_strip_config.max_leds = NEOKEY_NEOPIXEL_COUNT;
     neokey_strip_config.led_model = LED_MODEL_WS2812;
 
     led_strip_handle_t neokey_strip;
@@ -728,12 +758,13 @@ extern "C" void app_main(void) {
             animation_ticks = 0;
             ++animation_hue;
 
-            for (uint32_t pixel = 0; pixel < 2; ++pixel) {
+            for (uint32_t pixel = 0; pixel < NEOKEY_NEOPIXEL_COUNT; ++pixel) {
                 uint8_t red;
                 uint8_t green;
                 uint8_t blue;
                 const uint8_t hue = static_cast<uint8_t>(
-                    animation_hue + key_hue_offset + pixel * 128
+                    animation_hue + key_hue_offset
+                    + pixel * (256 / NEOKEY_NEOPIXEL_COUNT)
                 );
                 hue_to_rgb(hue, red, green, blue);
                 ESP_ERROR_CHECK(led_strip_set_pixel(neokey_strip, pixel, red, green, blue));

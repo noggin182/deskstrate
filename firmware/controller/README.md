@@ -28,7 +28,7 @@ router client isolation or firewall rules may prevent devices from receiving
 each other's broadcasts.
 
 The NeoKey FeatherWing uses Feather D5 and D6 for its active-low switches and
-D9 for its two chained NeoPixels. The pixels animate through the color wheel;
+D9 for its four chained NeoPixels. The pixels animate through the color wheel;
 pressing either key shifts the animation colors.
 
 ## Status screen and controls
@@ -44,10 +44,15 @@ press randomizes the displayed scenario to preview different combinations;
 this is only a UI demo and does not switch the KVM. Companion-app volume data
 is not connected yet, so volume readings remain `--%`.
 
-The HDMI monitor input is represented as Guest 3 in the route diagram. Hub 1
-carries the mouse and keyboard; Hub 2 carries the webcam and headset. Volume is
-planned for PC and Mac only and depends on a companion app running on those
-hosts.
+The HDMI input on Monitor 1 is Guest 3; HDMI on Monitor 2 is Guest 4. Hub 1
+carries the mouse and keyboard; Hub 2 carries the webcam and headset. The
+keyboard and camera icons use a joint, split, or split-and-swapped layout:
+they are grouped around a slash when assigned to the same host; otherwise
+they sit under opposite monitor columns, with the camera on the left when its
+host matches Monitor 1. Matching monitor and hub routes are connected; other
+routes remain unconnected. Host labels appear below the hub icons, including
+guest numbers. Volume is planned for PC and Mac only and depends on a
+companion app running on those hosts.
 
 The four planned keys are A, B, Menu, and Function. In normal mode, A switches
 to PC and B switches to Mac. Function enters split mode, assigning one monitor
