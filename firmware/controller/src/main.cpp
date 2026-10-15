@@ -24,7 +24,56 @@
 #define PIN_TFT_DC        GPIO_NUM_39
 #define PIN_TFT_RST       GPIO_NUM_40
 
+#define PIN_NEOKEY_SWITCH_A GPIO_NUM_5
+#define PIN_NEOKEY_SWITCH_B GPIO_NUM_6
+#define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
+
 static lv_disp_drv_t disp_drv;
+
+struct KeyDebounceState {
+    bool stable_pressed = false;
+    bool raw_pressed = false;
+    uint8_t stable_samples = 0;
+};
+
+static bool key_press_detected(gpio_num_t pin, KeyDebounceState &state) {
+    const bool pressed = gpio_get_level(pin) == 0;
+    if (pressed != state.raw_pressed) {
+        state.raw_pressed = pressed;
+        state.stable_samples = 0;
+        return false;
+    }
+
+    if (pressed == state.stable_pressed) {
+        return false;
+    }
+
+    if (++state.stable_samples < 3) {
+        return false;
+    }
+
+    state.stable_pressed = pressed;
+    state.stable_samples = 0;
+    return pressed;
+}
+
+static void hue_to_rgb(uint8_t hue, uint8_t &red, uint8_t &green, uint8_t &blue) {
+    if (hue < 85) {
+        red = static_cast<uint8_t>(255 - hue * 3);
+        green = static_cast<uint8_t>(hue * 3);
+        blue = 0;
+    } else if (hue < 170) {
+        hue -= 85;
+        red = 0;
+        green = static_cast<uint8_t>(255 - hue * 3);
+        blue = static_cast<uint8_t>(hue * 3);
+    } else {
+        hue -= 170;
+        red = static_cast<uint8_t>(hue * 3);
+        green = 0;
+        blue = static_cast<uint8_t>(255 - hue * 3);
+    }
+}
 
 static void display_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_map) {
     auto panel_handle = static_cast<esp_lcd_panel_handle_t>(disp_drv->user_data);
@@ -87,6 +136,24 @@ extern "C" void app_main(void) {
     // Set NeoPixel to Green (R, G, B) to confirm boot
     led_strip_set_pixel(led_strip, 0, 0, 255, 0);
     led_strip_refresh(led_strip);
+
+    // The NeoKey FeatherWing switches are active-low and its two NeoPixels share D9.
+    gpio_config_t neokey_gpio_config = {};
+    neokey_gpio_config.pin_bit_mask =
+        (1ULL << PIN_NEOKEY_SWITCH_A) | (1ULL << PIN_NEOKEY_SWITCH_B);
+    neokey_gpio_config.mode = GPIO_MODE_INPUT;
+    neokey_gpio_config.pull_up_en = GPIO_PULLUP_ENABLE;
+    neokey_gpio_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    neokey_gpio_config.intr_type = GPIO_INTR_DISABLE;
+    ESP_ERROR_CHECK(gpio_config(&neokey_gpio_config));
+
+    led_strip_config_t neokey_strip_config = {};
+    neokey_strip_config.strip_gpio_num = PIN_NEOKEY_NEOPIXEL;
+    neokey_strip_config.max_leds = 2;
+    neokey_strip_config.led_model = LED_MODEL_WS2812;
+
+    led_strip_handle_t neokey_strip;
+    ESP_ERROR_CHECK(led_strip_new_rmt_device(&neokey_strip_config, &rmt_config, &neokey_strip));
 
     const esp_err_t network_err = network_start();
     if (network_err != ESP_OK) {
@@ -182,10 +249,40 @@ extern "C" void app_main(void) {
     
     // --- 9. The Main Loop ---
     uint16_t heartbeat_ticks = 0;
+    uint8_t animation_hue = 0;
+    uint8_t key_hue_offset = 0;
+    uint8_t animation_ticks = 0;
+    KeyDebounceState key_a_state;
+    KeyDebounceState key_b_state;
+
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
         lv_tick_inc(10);
         lv_timer_handler(); 
+
+        if (key_press_detected(PIN_NEOKEY_SWITCH_A, key_a_state)) {
+            key_hue_offset += 48;
+        }
+        if (key_press_detected(PIN_NEOKEY_SWITCH_B, key_b_state)) {
+            key_hue_offset += 96;
+        }
+
+        if (++animation_ticks >= 3) {
+            animation_ticks = 0;
+            ++animation_hue;
+
+            for (uint32_t pixel = 0; pixel < 2; ++pixel) {
+                uint8_t red;
+                uint8_t green;
+                uint8_t blue;
+                const uint8_t hue = static_cast<uint8_t>(
+                    animation_hue + key_hue_offset + pixel * 128
+                );
+                hue_to_rgb(hue, red, green, blue);
+                ESP_ERROR_CHECK(led_strip_set_pixel(neokey_strip, pixel, red, green, blue));
+            }
+            ESP_ERROR_CHECK(led_strip_refresh(neokey_strip));
+        }
 
         if (++heartbeat_ticks >= 200) {
             heartbeat_ticks = 0;

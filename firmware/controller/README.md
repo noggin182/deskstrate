@@ -26,3 +26,7 @@ sends it as one UDP datagram, up to 1400 bytes. The function returns
 errors in the ESP-IDF log. UDP broadcast is limited to the local network;
 router client isolation or firewall rules may prevent devices from receiving
 each other's broadcasts.
+
+The NeoKey FeatherWing uses Feather D5 and D6 for its active-low switches and
+D9 for its two chained NeoPixels. The pixels animate through the color wheel;
+pressing either key shifts the animation colors.
