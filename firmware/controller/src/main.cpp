@@ -4,7 +4,6 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
-#include "esp_random.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
@@ -25,12 +24,22 @@
 #define PIN_TFT_DC        GPIO_NUM_39
 #define PIN_TFT_RST       GPIO_NUM_40
 
-#define PIN_NEOKEY_SWITCH_A GPIO_NUM_5
-#define PIN_NEOKEY_SWITCH_B GPIO_NUM_6
-#define PIN_NEOKEY_SWITCH_MENU GPIO_NUM_10
-#define PIN_NEOKEY_SWITCH_FUNCTION GPIO_NUM_11
+#define PIN_NEOKEY_SWITCH_MENU GPIO_NUM_5
+#define PIN_NEOKEY_SWITCH_A GPIO_NUM_6
+#define PIN_NEOKEY_SWITCH_FUNCTION GPIO_NUM_10
+#define PIN_NEOKEY_SWITCH_B GPIO_NUM_11
 #define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
 #define NEOKEY_NEOPIXEL_COUNT 4
+
+// Reserved for future KVM SWD and monitor DDC control; not initialized yet.
+#define PIN_KVM1_SWDIO GPIO_NUM_18 // Feather A0
+#define PIN_KVM1_SWCLK GPIO_NUM_17 // Feather A1
+#define PIN_KVM2_SWDIO GPIO_NUM_16 // Feather A2
+#define PIN_KVM2_SWCLK GPIO_NUM_15 // Feather A3
+#define PIN_MONITOR1_DDC_SCL GPIO_NUM_14 // Feather A4
+#define PIN_MONITOR1_DDC_SDA GPIO_NUM_8  // Feather A5
+#define PIN_MONITOR2_DDC_SCL GPIO_NUM_2  // Feather RX
+#define PIN_MONITOR2_DDC_SDA GPIO_NUM_1  // Feather TX
 
 static lv_disp_drv_t disp_drv;
 
@@ -167,6 +176,7 @@ static KvmState current_kvm_state = {
     HostId::Mac
 };
 static lv_obj_t *routing_diagram = nullptr;
+static lv_obj_t *state_code_label = nullptr;
 
 static const char *host_label(HostId host) {
     switch (host) {
@@ -188,28 +198,27 @@ static HostId input_host(MonitorInput input, uint8_t monitor_index) {
     return HostId::Guest1;
 }
 
-static uint16_t scenario_index(const KvmState &state) {
-    return static_cast<uint16_t>(state.monitor1_input)
-        + 3 * static_cast<uint16_t>(state.monitor2_input)
-        + 9 * static_cast<uint16_t>(state.hub1_host)
-        + 36 * static_cast<uint16_t>(state.hub2_host);
-}
-
-static void set_scenario_index(KvmState &state, uint16_t index) {
-    state.monitor1_input = static_cast<MonitorInput>(index % 3);
-    index /= 3;
-    state.monitor2_input = static_cast<MonitorInput>(index % 3);
-    index /= 3;
-    state.hub1_host = static_cast<HostId>(index % 4);
-    index /= 4;
-    state.hub2_host = static_cast<HostId>(index % 4);
-}
-
-static void randomize_scenario(KvmState &state) {
-    const uint16_t next_index = static_cast<uint16_t>(
-        (scenario_index(state) + 1 + esp_random() % 143) % 144
+static void advance_monitor_input(MonitorInput &input) {
+    input = static_cast<MonitorInput>(
+        (static_cast<uint8_t>(input) + 1) % 3
     );
-    set_scenario_index(state, next_index);
+}
+
+static void advance_hub_host(HostId &host) {
+    host = static_cast<HostId>(
+        (static_cast<uint8_t>(host) + 1) % 4
+    );
+}
+
+static void update_state_code(const KvmState &state) {
+    char code[5] = {
+        static_cast<char>('1' + static_cast<uint8_t>(state.monitor1_input)),
+        static_cast<char>('1' + static_cast<uint8_t>(state.monitor2_input)),
+        static_cast<char>('1' + static_cast<uint8_t>(state.hub1_host)),
+        static_cast<char>('1' + static_cast<uint8_t>(state.hub2_host)),
+        '\0'
+    };
+    lv_label_set_text(state_code_label, code);
 }
 
 static lv_color_t host_color(HostId host) {
@@ -332,11 +341,20 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input, u
     lv_obj_set_style_pad_all(foot, 0, 0);
 }
 
-static HubLayout hub_layout(const KvmState &state, HostId monitor1_host) {
+static HubLayout hub_layout(
+    const KvmState &state,
+    HostId monitor1_host,
+    HostId monitor2_host
+) {
     if (state.hub1_host == state.hub2_host) {
         return HubLayout::Joint;
     }
-    return state.hub2_host == monitor1_host
+    const bool monitor1_matches_a_hub =
+        monitor1_host == state.hub1_host || monitor1_host == state.hub2_host;
+    const bool camera_matches_monitor1 = state.hub2_host == monitor1_host;
+    const bool keyboard_matches_monitor2 = state.hub1_host == monitor2_host;
+    return camera_matches_monitor1
+        || (!monitor1_matches_a_hub && keyboard_matches_monitor2)
         ? HubLayout::SplitSwapped
         : HubLayout::Split;
 }
@@ -344,8 +362,12 @@ static HubLayout hub_layout(const KvmState &state, HostId monitor1_host) {
 static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     const lv_coord_t monitor_centers[2] = {40, 95};
     const lv_coord_t monitor_bottom_y = 64;
+    const lv_coord_t connector_gap = 4;
+    const lv_coord_t monitor_connector_y = monitor_bottom_y + connector_gap;
     const lv_coord_t match_bus_y = 72;
     const lv_coord_t hub_icon_y = 91;
+    const lv_coord_t hub_connector_end_y = hub_icon_y - connector_gap;
+    const lv_coord_t hub_connector_start_y = hub_icon_y + 15 + connector_gap;
     const lv_coord_t host_node_y = 128;
     const HostId monitor_hosts[2] = {
         input_host(state.monitor1_input, 0),
@@ -353,7 +375,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     };
     const HostId hub_hosts[2] = {state.hub1_host, state.hub2_host};
     const bool joint = state.hub1_host == state.hub2_host;
-    const HubLayout layout = hub_layout(state, monitor_hosts[0]);
+    const HubLayout layout = hub_layout(state, monitor_hosts[0], monitor_hosts[1]);
     const lv_coord_t hub_centers[2] = {
         layout == HubLayout::Joint ? static_cast<lv_coord_t>(51) :
             (layout == HubLayout::Split ? monitor_centers[0] : monitor_centers[1]),
@@ -374,14 +396,16 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
         }
         const lv_color_t color = host_color(hub_hosts[0]);
         if (matching_monitors == 2) {
-            create_diagram_shape(
-                parent,
-                monitor_centers[0] - 1,
-                monitor_bottom_y,
-                2,
-                6,
-                color
-            );
+            for (uint8_t monitor = 0; monitor < 2; ++monitor) {
+                create_diagram_shape(
+                    parent,
+                    monitor_centers[monitor] - 1,
+                    monitor_connector_y,
+                    2,
+                    70 - monitor_connector_y,
+                    color
+                );
+            }
             create_diagram_shape(
                 parent,
                 monitor_centers[0],
@@ -395,7 +419,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                 group_center - 1,
                 72,
                 2,
-                hub_icon_y - 72 - 2,
+                hub_connector_end_y - 72,
                 color
             );
         } else if (matching_monitors == 1) {
@@ -403,9 +427,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
             create_diagram_shape(
                 parent,
                 monitor_centers[monitor] - 1,
-                monitor_bottom_y,
+                monitor_connector_y,
                 2,
-                match_bus_y - monitor_bottom_y,
+                match_bus_y - monitor_connector_y,
                 color
             );
             const lv_coord_t left = monitor_centers[monitor] < group_center
@@ -426,7 +450,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                 group_center - 1,
                 match_bus_y + 2,
                 2,
-                hub_icon_y - match_bus_y - 2,
+                hub_connector_end_y - match_bus_y - 2,
                 color
             );
         }
@@ -444,9 +468,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                 create_diagram_shape(
                     parent,
                     monitor_centers[monitor] - 1,
-                    monitor_bottom_y,
+                    monitor_connector_y,
                     2,
-                    hub_icon_y - monitor_bottom_y - 2,
+                    hub_connector_end_y - monitor_connector_y,
                     color
                 );
             } else {
@@ -456,9 +480,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                 create_diagram_shape(
                     parent,
                     monitor_centers[monitor] - 1,
-                    monitor_bottom_y,
+                    monitor_connector_y,
                     2,
-                    match_bus_y - monitor_bottom_y,
+                    match_bus_y - monitor_connector_y,
                     color
                 );
                 create_diagram_shape(
@@ -476,7 +500,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                     hub_centers[hub] - 1,
                     match_bus_y + 2,
                     2,
-                    hub_icon_y - match_bus_y - 2,
+                    hub_connector_end_y - match_bus_y - 2,
                     color
                 );
             }
@@ -488,9 +512,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
         create_diagram_shape(
             parent,
             group_center - 1,
-            hub_icon_y + 15,
+            hub_connector_start_y,
             2,
-            host_node_y - hub_icon_y - 15,
+            host_node_y - hub_connector_start_y,
             color
         );
         create_keyboard_icon(parent, hub_centers[0], hub_icon_y);
@@ -513,9 +537,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
             create_diagram_shape(
                 parent,
                 hub_centers[hub] - 1,
-                hub_icon_y + 15,
+                hub_connector_start_y,
                 2,
-                host_node_y - hub_icon_y - 15,
+                host_node_y - hub_connector_start_y,
                 color
             );
             if (hub == 0) {
@@ -553,6 +577,31 @@ static void create_status_screen(void) {
     create_status_label(volume_card, "--%", 10, 21, 45, 17, &lv_font_montserrat_14, primary);
     create_status_label(volume_card, "MAC", 65, 5, 43, 16, &lv_font_montserrat_14, muted);
     create_status_label(volume_card, "--%", 65, 21, 43, 17, &lv_font_montserrat_14, primary);
+
+    lv_obj_t *state_code_card = create_status_card(screen, 178, 55);
+    create_status_label(
+        state_code_card,
+        "M1  M2  H1  H2",
+        0,
+        4,
+        117,
+        16,
+        &lv_font_montserrat_14,
+        accent,
+        LV_TEXT_ALIGN_CENTER
+    );
+    state_code_label = create_status_label(
+        state_code_card,
+        "",
+        0,
+        23,
+        117,
+        28,
+        &lv_font_montserrat_22,
+        primary,
+        LV_TEXT_ALIGN_CENTER
+    );
+    update_state_code(current_kvm_state);
 }
 
 static void render_current_scenario(void) {
@@ -749,25 +798,26 @@ extern "C" void app_main(void) {
         bool scenario_changed = false;
         if (key_press_detected(PIN_NEOKEY_SWITCH_A, key_a_state)) {
             key_hue_offset += 48;
-            randomize_scenario(current_kvm_state);
+            advance_hub_host(current_kvm_state.hub1_host);
             scenario_changed = true;
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_B, key_b_state)) {
             key_hue_offset += 96;
-            randomize_scenario(current_kvm_state);
+            advance_hub_host(current_kvm_state.hub2_host);
             scenario_changed = true;
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_MENU, key_menu_state)) {
             key_hue_offset += 144;
-            randomize_scenario(current_kvm_state);
+            advance_monitor_input(current_kvm_state.monitor1_input);
             scenario_changed = true;
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_FUNCTION, key_function_state)) {
             key_hue_offset += 192;
-            randomize_scenario(current_kvm_state);
+            advance_monitor_input(current_kvm_state.monitor2_input);
             scenario_changed = true;
         }
         if (scenario_changed) {
+            update_state_code(current_kvm_state);
             render_current_scenario();
         }
 

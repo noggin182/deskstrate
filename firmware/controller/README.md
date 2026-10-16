@@ -27,37 +27,69 @@ errors in the ESP-IDF log. UDP broadcast is limited to the local network;
 router client isolation or firewall rules may prevent devices from receiving
 each other's broadcasts.
 
-The NeoKey switches use Feather D5 (A), D6 (B), D10 (Menu), and D11
-(Function), configured as active-low inputs with internal pull-ups. The four
+The NeoKey switches use Feather D5 (Menu/Back), D6 (A), D10 (Function/split),
+and D11 (B), configured as active-low inputs with internal pull-ups. The four
 chained NeoPixels share D9 and animate through the color wheel; pressing any
 key shifts the animation colors.
+
+## Reserved KVM and monitor-control pins
+
+The following GPIOs are reserved for future KVM SWD control and separate DDC
+I2C buses for the two monitors. The corresponding named defines are present in
+`src/main.cpp`, but the pins are not configured or used by firmware yet.
+
+| Function | Feather pin | ESP32-S3 GPIO |
+| --- | --- | --- |
+| KVM 1 SWDIO | A0 | GPIO18 |
+| KVM 1 SWCLK | A1 | GPIO17 |
+| KVM 2 SWDIO | A2 | GPIO16 |
+| KVM 2 SWCLK | A3 | GPIO15 |
+| Monitor 1 DDC SCL | A4 | GPIO14 |
+| Monitor 1 DDC SDA | A5 | GPIO8 |
+| Monitor 2 DDC SCL | RX | GPIO2 |
+| Monitor 2 DDC SDA | TX | GPIO1 |
+
+Keep the monitors' DDC buses separate. Use the installed bidirectional
+level-shifters between each monitor's DDC lines and the 3.3 V Feather GPIOs;
+ESP32-S3 GPIOs are not 5 V tolerant. Connect controller and device grounds
+together, and verify the KVM SWD voltage levels before connecting those pins.
+The Feather's USB Serial/JTAG console remains in use; RX/TX here refer to its
+header GPIO pads.
 
 ## Status screen and controls
 
 The TFT status screen is portrait (135 x 240). Its routing diagram shows the
 host routed to each monitor (PC, Mac, Guest 3, or Guest 4) and the assigned
 host for each hub. USB-C, DP, and HDMI remain internal monitor input state and
-are not rendered as labels. Hubs matching a monitor host draw a route from the
-matching display(s); if both displays share the host, their routes join into a
-bus. A hub host not used by either display gets its own node below. Hub names
-are represented by keyboard and headset icons rather than labels. Each NeoKey
-press randomizes the displayed scenario to preview different combinations;
-this is only a UI demo and does not switch the KVM. Companion-app volume data
-is not connected yet, so volume readings remain `--%`.
+are not rendered as labels. Matching monitor-to-hub assignments are shown with
+routes; mismatched assignments remain unconnected. Hub names are represented
+by keyboard and camera icons rather than labels. This is a UI demo and does not
+switch the physical KVM. Companion-app volume data is not connected yet, so
+volume readings remain `--%`.
 
 The HDMI input on Monitor 1 is Guest 3; HDMI on Monitor 2 is Guest 4. Hub 1
 carries the mouse and keyboard; Hub 2 carries the webcam and headset. The
 keyboard and camera icons use a joint, split, or split-and-swapped layout:
 they are grouped around a slash when assigned to the same host; otherwise
-they sit under opposite monitor columns, with the camera on the left when its
-host matches Monitor 1. Matching monitor and hub routes are connected; other
-routes remain unconnected. Host labels appear below the hub icons, including
-guest numbers. Volume is planned for PC and Mac only and depends on a
-companion app running on those hosts.
+they sit under opposite monitor columns. Use the split-and-swapped layout if
+the camera host matches Monitor 1, or if Monitor 1 matches neither hub and
+the keyboard host matches Monitor 2. When both monitors and both hubs share a
+host, each monitor has its own short drop into the shared bus. Matching
+monitor and hub routes are connected; other routes remain unconnected. Route
+connectors leave a four-pixel gap before the monitors and hub icons, and
+resume four pixels below each hub icon. Host labels appear below the hub
+icons, including guest numbers. Volume is planned for PC and Mac only and
+depends on a companion app running on those hosts.
 
-The four keys are A, B, Menu, and Function. In normal mode, A switches
-to PC and B switches to Mac. Function enters split mode, assigning one monitor
-to each of PC and Mac; in split mode, A and B select which host receives Hub 1.
-Menu opens the menu, where A/B move up/down, Menu selects, and Function returns
-one level. These controls and switching behaviors are not implemented yet; all
-four keys currently randomize the displayed routing scenario for UI testing.
+The four keys directly cycle the preview state: Menu/Back (top left) advances
+Monitor 1's input, Function/split (top right) advances Monitor 2's input, A
+(bottom left) advances Hub 1's host, and B (bottom right) advances Hub 2's
+host. Monitor inputs cycle USB-C, DP, HDMI; hub hosts cycle PC, Mac, Guest 3,
+Guest 4. Each key changes only its corresponding value and wraps to the first
+value after the last. A temporary code overlay covers the volume panel to make
+states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
+Hub 2. Monitor input digits are USB-C=1, DP=2, HDMI=3; hub host digits are
+PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `1111` means both monitors
+are on USB-C and both hubs are assigned to PC. This is a UI demo and does not
+switch the physical KVM; the planned switching and menu behaviors are not
+implemented yet.
