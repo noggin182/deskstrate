@@ -86,10 +86,11 @@ Monitor 1's input, Function/split (top right) advances Monitor 2's input, A
 (bottom left) advances Hub 1's host, and B (bottom right) advances Hub 2's
 host. Monitor inputs cycle USB-C, DP, HDMI; hub hosts cycle PC, Mac, Guest 3,
 Guest 4. Each key changes only its corresponding value and wraps to the first
-value after the last. A temporary code overlay covers the volume panel to make
-states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
-Hub 2. Monitor input digits are USB-C=1, DP=2, HDMI=3; hub host digits are
-PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `1111` means both monitors
+value after the last. Monitor inputs cycle DP, USB-C, HDMI; hub hosts cycle PC,
+Mac, Guest 3, Guest 4. A temporary code overlay covers the volume panel to
+make states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub
+1, Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
+PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `2211` means both monitors
 are on USB-C and both hubs are assigned to PC. This is a UI demo and does not
 switch the physical KVM; the planned switching and menu behaviors are not
 implemented yet.

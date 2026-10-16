@@ -151,8 +151,8 @@ enum class HostId : uint8_t {
 };
 
 enum class MonitorInput : uint8_t {
-    UsbC,
     DisplayPort,
+    UsbC,
     Hdmi
 };
 
@@ -223,9 +223,9 @@ static void update_state_code(const KvmState &state) {
 
 static lv_color_t host_color(HostId host) {
     switch (host) {
-        case HostId::Pc: return lv_color_hex(0x55E6D2);
-        case HostId::Mac: return lv_color_hex(0xB99AFF);
-        case HostId::Guest1: return lv_color_hex(0xFFC857);
+        case HostId::Pc: return lv_color_hex(0xFFC857);
+        case HostId::Mac: return lv_color_hex(0x4F8FEF);
+        case HostId::Guest1: return lv_color_hex(0xB99AFF);
         case HostId::Guest2: return lv_color_hex(0xFF8B7B);
     }
     return lv_color_hex(0x91A3B8);
@@ -364,7 +364,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     const lv_coord_t monitor_bottom_y = 64;
     const lv_coord_t connector_gap = 4;
     const lv_coord_t monitor_connector_y = monitor_bottom_y + connector_gap;
-    const lv_coord_t match_bus_y = 72;
+    const lv_coord_t split_route_bus_y = 72;
+    const lv_coord_t single_monitor_bus_y = 74;
+    const lv_coord_t shared_monitor_bus_y = 70;
     const lv_coord_t hub_icon_y = 91;
     const lv_coord_t hub_connector_end_y = hub_icon_y - connector_gap;
     const lv_coord_t hub_connector_start_y = hub_icon_y + 15 + connector_gap;
@@ -402,14 +404,14 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                     monitor_centers[monitor] - 1,
                     monitor_connector_y,
                     2,
-                    70 - monitor_connector_y,
+                    shared_monitor_bus_y - monitor_connector_y,
                     color
                 );
             }
             create_diagram_shape(
                 parent,
                 monitor_centers[0],
-                70,
+                shared_monitor_bus_y,
                 monitor_centers[1] - monitor_centers[0] + 1,
                 2,
                 color
@@ -417,9 +419,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
             create_diagram_shape(
                 parent,
                 group_center - 1,
-                72,
+                shared_monitor_bus_y + 2,
                 2,
-                hub_connector_end_y - 72,
+                hub_connector_end_y - shared_monitor_bus_y - 2,
                 color
             );
         } else if (matching_monitors == 1) {
@@ -429,7 +431,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                 monitor_centers[monitor] - 1,
                 monitor_connector_y,
                 2,
-                match_bus_y - monitor_connector_y,
+                single_monitor_bus_y - monitor_connector_y,
                 color
             );
             const lv_coord_t left = monitor_centers[monitor] < group_center
@@ -438,7 +440,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
             create_diagram_shape(
                 parent,
                 left,
-                match_bus_y,
+                single_monitor_bus_y,
                 (monitor_centers[monitor] > group_center
                     ? monitor_centers[monitor] - group_center
                     : group_center - monitor_centers[monitor]) + 1,
@@ -448,9 +450,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
             create_diagram_shape(
                 parent,
                 group_center - 1,
-                match_bus_y + 2,
+                single_monitor_bus_y + 2,
                 2,
-                hub_connector_end_y - match_bus_y - 2,
+                hub_connector_end_y - single_monitor_bus_y - 2,
                 color
             );
         }
@@ -482,13 +484,13 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                     monitor_centers[monitor] - 1,
                     monitor_connector_y,
                     2,
-                    match_bus_y - monitor_connector_y,
+                    split_route_bus_y - monitor_connector_y,
                     color
                 );
                 create_diagram_shape(
                     parent,
                     left,
-                    match_bus_y,
+                    split_route_bus_y,
                     (monitor_centers[monitor] > hub_centers[hub]
                         ? monitor_centers[monitor] - hub_centers[hub]
                         : hub_centers[hub] - monitor_centers[monitor]) + 1,
@@ -498,9 +500,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                 create_diagram_shape(
                     parent,
                     hub_centers[hub] - 1,
-                    match_bus_y + 2,
+                    split_route_bus_y + 2,
                     2,
-                    hub_connector_end_y - match_bus_y - 2,
+                    hub_connector_end_y - split_route_bus_y - 2,
                     color
                 );
             }
