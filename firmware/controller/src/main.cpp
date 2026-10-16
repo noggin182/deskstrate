@@ -297,6 +297,50 @@ static void create_camera_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t
     create_diagram_shape(parent, center_x + 6, y + 4, 4, 8, icon_color, 1);
 }
 
+static void create_monitor_input_icon(lv_obj_t *screen, MonitorInput input) {
+    const lv_color_t icon_color = lv_color_hex(0xDCEBFF);
+    const lv_color_t screen_color = lv_color_hex(0x12283A);
+
+    if (input == MonitorInput::DisplayPort) {
+        const lv_color_t window_color = lv_color_hex(0x58B9FF);
+        create_diagram_shape(screen, 11, 10, 9, 8, window_color);
+        create_diagram_shape(screen, 22, 9, 10, 8, window_color);
+        create_diagram_shape(screen, 11, 20, 9, 9, window_color);
+        create_diagram_shape(screen, 22, 19, 10, 9, window_color);
+    } else if (input == MonitorInput::UsbC) {
+        create_diagram_shape(screen, 14, 13, 10, 11, icon_color, 5);
+        create_diagram_shape(screen, 21, 13, 10, 11, icon_color, 5);
+        create_diagram_shape(screen, 16, 19, 13, 9, icon_color, 5);
+        create_diagram_shape(screen, 26, 13, 5, 5, screen_color, 2);
+        create_diagram_shape(screen, 20, 11, 2, 5, icon_color, 1);
+        create_diagram_shape(screen, 23, 9, 5, 3, lv_color_hex(0x78C8FF), 2);
+    } else {
+        lv_obj_t *connector = lv_obj_create(screen);
+        lv_obj_set_pos(connector, 12, 12);
+        lv_obj_set_size(connector, 20, 13);
+        lv_obj_clear_flag(connector, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_style_bg_opa(connector, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_color(connector, icon_color, 0);
+        lv_obj_set_style_border_width(connector, 2, 0);
+        lv_obj_set_style_radius(connector, 2, 0);
+        lv_obj_set_style_pad_all(connector, 0, 0);
+
+        for (lv_coord_t pin = 0; pin < 5; ++pin) {
+            create_diagram_shape(
+                connector,
+                3 + pin * 3,
+                5,
+                2,
+                3,
+                icon_color,
+                1
+            );
+        }
+        create_diagram_shape(screen, 18, 25, 8, 3, icon_color, 1);
+        create_diagram_shape(screen, 20, 28, 4, 4, icon_color, 1);
+    }
+}
+
 static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input, uint8_t monitor_index) {
     const HostId host = input_host(input, monitor_index);
     const lv_color_t color = host_color(host);
@@ -321,6 +365,7 @@ static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input, u
     lv_obj_set_style_border_width(screen, 0, 0);
     lv_obj_set_style_radius(screen, 2, 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
+    create_monitor_input_icon(screen, input);
 
     lv_obj_t *stand = lv_obj_create(parent);
     lv_obj_set_pos(stand, x + 22, 56);

@@ -61,11 +61,13 @@ header GPIO pads.
 The TFT status screen is portrait (135 x 240). Its routing diagram shows the
 host routed to each monitor (PC, Mac, Guest 3, or Guest 4) and the assigned
 host for each hub. USB-C, DP, and HDMI remain internal monitor input state and
-are not rendered as labels. Matching monitor-to-hub assignments are shown with
-routes; mismatched assignments remain unconnected. Hub names are represented
-by keyboard and camera icons rather than labels. This is a UI demo and does not
-switch the physical KVM. Companion-app volume data is not connected yet, so
-volume readings remain `--%`.
+are represented by input-specific icons inside each monitor: an Apple-style
+mark for USB-C, a Windows mark for DP, and an HDMI connector for HDMI.
+Matching monitor-to-hub assignments are shown with routes; mismatched
+assignments remain unconnected. Hub names are represented by keyboard and
+camera icons rather than labels. This is a UI demo and does not switch the
+physical KVM. Companion-app volume data is not connected yet, so volume
+readings remain `--%`.
 
 The HDMI input on Monitor 1 is Guest 3; HDMI on Monitor 2 is Guest 4. Hub 1
 carries the mouse and keyboard; Hub 2 carries the webcam and headset. The
@@ -74,22 +76,23 @@ they are grouped around a slash when assigned to the same host; otherwise
 they sit under opposite monitor columns. Use the split-and-swapped layout if
 the camera host matches Monitor 1, or if Monitor 1 matches neither hub and
 the keyboard host matches Monitor 2. When both monitors and both hubs share a
-host, each monitor has its own short drop into the shared bus. Matching
+host, each monitor has its own short drop into the shared bus. The shared bus
+sits higher when both monitors match than when only one does. Matching
 monitor and hub routes are connected; other routes remain unconnected. Route
 connectors leave a four-pixel gap before the monitors and hub icons, and
-resume four pixels below each hub icon. Host labels appear below the hub
-icons, including guest numbers. Volume is planned for PC and Mac only and
-depends on a companion app running on those hosts.
+resume four pixels below each hub icon. PC is orange, Mac is blue, and the
+guest hosts are purple and coral. Host labels appear below the hub icons,
+including guest numbers. Volume is planned for PC and Mac only and depends on
+a companion app running on those hosts.
 
 The four keys directly cycle the preview state: Menu/Back (top left) advances
 Monitor 1's input, Function/split (top right) advances Monitor 2's input, A
 (bottom left) advances Hub 1's host, and B (bottom right) advances Hub 2's
-host. Monitor inputs cycle USB-C, DP, HDMI; hub hosts cycle PC, Mac, Guest 3,
+host. Monitor inputs cycle DP, USB-C, HDMI; hub hosts cycle PC, Mac, Guest 3,
 Guest 4. Each key changes only its corresponding value and wraps to the first
-value after the last. Monitor inputs cycle DP, USB-C, HDMI; hub hosts cycle PC,
-Mac, Guest 3, Guest 4. A temporary code overlay covers the volume panel to
-make states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub
-1, Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
+value after the last. A temporary code overlay covers the volume panel to make
+states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
+Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
 PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `2211` means both monitors
 are on USB-C and both hubs are assigned to PC. This is a UI demo and does not
 switch the physical KVM; the planned switching and menu behaviors are not
