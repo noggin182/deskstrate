@@ -1,0 +1,7 @@
+{
+    "folders": [
+        { "name": "core", "path": "firmware/core" },
+        { "name": "deck", "path": "firmware/deck" },
+        { "name": "deskstrate", "path": "." }
+    ]
+}

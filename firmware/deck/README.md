@@ -1,25 +1,37 @@
-# Controller networking
+# Deskstrate deck
 
-The controller joins a 2.4 GHz Wi-Fi network in station mode and sends UDP
-broadcast datagrams to `255.255.255.255:3333`. Configure the SSID and password
-with PlatformIO's `menuconfig` target (`platformio run -e
-adafruit_feather_esp32s3_tft -t menuconfig`) under **Deskstrate Controller**.
-The values are stored in the local ESP-IDF `sdkconfig`; do not commit Wi-Fi
+The deck is the desk unit: an Adafruit Feather ESP32-S3 TFT with two NeoKey
+FeatherWings. It is a client of the core (`firmware/core`), which owns all
+switching state.
+
+Build and flash with `pio run -d firmware/deck -t upload`.
+
+## Networking
+
+The deck joins a 2.4 GHz Wi-Fi network in station mode and sends UDP
+broadcast datagrams to `255.255.255.255:3333`, with the DHCP hostname
+`deskstrate-deck`. Configure the SSID and password with PlatformIO's
+`menuconfig` target (`pio run -d firmware/deck -t menuconfig`) under
+**Deskstrate Wi-Fi**.
+The values are stored in the local ESP-IDF `sdkconfig`
+(`firmware/deck/sdkconfig.adafruit_feather_esp32s3_tft`); do not commit Wi-Fi
 credentials.
 
 The ESP-IDF console is routed over the Feather's native USB Serial/JTAG port,
 so `printf()` and ESP-IDF log messages appear in PlatformIO's monitor on that
 USB port (115200 baud).
 
-After connecting or reconnecting, the controller broadcasts this JSON status
+After connecting or reconnecting, the deck broadcasts this JSON status
 datagram:
 
 ```json
 {"type":"status","event":"online"}
 ```
 
-Receivers should listen on UDP port `3333` on all local interfaces. Other
-controller updates can be sent from firmware code with
+This JSON broadcast is temporary; the deck is moving to `kvm_proto` as a
+client of the core. Receivers should listen on UDP port `3333` on all local
+interfaces. Other
+deck updates can be sent from firmware code with
 `network_broadcast_update()` in `src/network.h`. Pass a JSON string; each call
 sends it as one UDP datagram, up to 1400 bytes. The function returns
 `ESP_ERR_INVALID_STATE` when Wi-Fi/UDP is not ready and reports socket send
@@ -31,30 +43,6 @@ The NeoKey switches use Feather D5 (Menu/Back), D6 (A), D10 (Function/split),
 and D11 (B), configured as active-low inputs with internal pull-ups. The four
 chained NeoPixels share D9 and animate through the color wheel; pressing any
 key shifts the animation colors.
-
-## Reserved KVM and monitor-control pins
-
-The following GPIOs are reserved for future KVM SWD control and separate DDC
-I2C buses for the two monitors. The corresponding named defines are present in
-`src/main.cpp`, but the pins are not configured or used by firmware yet.
-
-| Function | Feather pin | ESP32-S3 GPIO |
-| --- | --- | --- |
-| KVM 1 SWDIO | A0 | GPIO18 |
-| KVM 1 SWCLK | A1 | GPIO17 |
-| KVM 2 SWDIO | A2 | GPIO16 |
-| KVM 2 SWCLK | A3 | GPIO15 |
-| Monitor 1 DDC SCL | A4 | GPIO14 |
-| Monitor 1 DDC SDA | A5 | GPIO8 |
-| Monitor 2 DDC SCL | RX | GPIO2 |
-| Monitor 2 DDC SDA | TX | GPIO1 |
-
-Keep the monitors' DDC buses separate. Use the installed bidirectional
-level-shifters between each monitor's DDC lines and the 3.3 V Feather GPIOs;
-ESP32-S3 GPIOs are not 5 V tolerant. Connect controller and device grounds
-together, and verify the KVM SWD voltage levels before connecting those pins.
-The Feather's USB Serial/JTAG console remains in use; RX/TX here refer to its
-header GPIO pads.
 
 ## Status screen and controls
 
