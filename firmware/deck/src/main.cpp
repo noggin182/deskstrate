@@ -31,16 +31,6 @@
 #define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
 #define NEOKEY_NEOPIXEL_COUNT 4
 
-// Reserved for future KVM SWD and monitor DDC control; not initialized yet.
-#define PIN_KVM1_SWDIO GPIO_NUM_18 // Feather A0
-#define PIN_KVM1_SWCLK GPIO_NUM_17 // Feather A1
-#define PIN_KVM2_SWDIO GPIO_NUM_16 // Feather A2
-#define PIN_KVM2_SWCLK GPIO_NUM_15 // Feather A3
-#define PIN_MONITOR1_DDC_SCL GPIO_NUM_14 // Feather A4
-#define PIN_MONITOR1_DDC_SDA GPIO_NUM_8  // Feather A5
-#define PIN_MONITOR2_DDC_SCL GPIO_NUM_2  // Feather RX
-#define PIN_MONITOR2_DDC_SDA GPIO_NUM_1  // Feather TX
-
 static lv_disp_drv_t disp_drv;
 
 struct KeyDebounceState {
@@ -686,7 +676,7 @@ extern "C" void app_main(void) {
 
     vTaskDelay(pdMS_TO_TICKS(3000));
 
-    printf("Booting Custom KVM Controller (C++)...\n");
+    printf("Booting Deskstrate deck...\n");
 
     // 1. Route Power to the TFT and STEMMA port
     gpio_set_direction(PIN_POWER_TFT_I2C, GPIO_MODE_OUTPUT);

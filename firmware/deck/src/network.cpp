@@ -25,7 +25,7 @@ constexpr EventBits_t WIFI_ANNOUNCE_BIT = BIT2;
 constexpr uint16_t UDP_BROADCAST_PORT = 3333;
 constexpr size_t MAX_UDP_MESSAGE_SIZE = 1400;
 
-const char *TAG = "deskstrate_network";
+const char *TAG = "deck_network";
 EventGroupHandle_t network_events;
 SemaphoreHandle_t socket_mutex;
 int broadcast_socket = -1;
@@ -108,10 +108,13 @@ esp_err_t network_start(void) {
 
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "failed to initialize network interface");
     ESP_RETURN_ON_ERROR(esp_event_loop_create_default(), TAG, "failed to create default event loop");
-    if (esp_netif_create_default_wifi_sta() == nullptr) {
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    if (sta_netif == nullptr) {
         ESP_LOGE(TAG, "failed to create Wi-Fi station interface");
         return ESP_ERR_NO_MEM;
     }
+    ESP_RETURN_ON_ERROR(esp_netif_set_hostname(sta_netif, "deskstrate-deck"), TAG,
+                        "failed to set hostname");
 
     wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_wifi_init(&wifi_init_config), TAG, "failed to initialize Wi-Fi");
