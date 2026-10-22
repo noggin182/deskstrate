@@ -32,29 +32,33 @@ and D11 (B), configured as active-low inputs with internal pull-ups. The four
 chained NeoPixels share D9 and animate through the color wheel; pressing any
 key shifts the animation colors.
 
-## Reserved KVM and monitor-control pins
+## KVM and monitor-control pins (bench stand-in)
 
-The following GPIOs are reserved for future KVM SWD control and separate DDC
-I2C buses for the two monitors. The corresponding named defines are present in
-`src/main.cpp`, but the pins are not configured or used by firmware yet.
+Pins are defined per board in `components/board/include/board_config.h`
+(menuconfig -> **Deskstrate board**). On the Feather they are:
 
 | Function | Feather pin | ESP32-S3 GPIO |
 | --- | --- | --- |
-| KVM 1 SWDIO | A0 | GPIO18 |
-| KVM 1 SWCLK | A1 | GPIO17 |
-| KVM 2 SWDIO | A2 | GPIO16 |
-| KVM 2 SWCLK | A3 | GPIO15 |
-| Monitor 1 DDC SCL | A4 | GPIO14 |
-| Monitor 1 DDC SDA | A5 | GPIO8 |
-| Monitor 2 DDC SCL | RX | GPIO2 |
-| Monitor 2 DDC SDA | TX | GPIO1 |
+| Monitor 1 DDC SDA | TX | GPIO1 |
+| Monitor 1 DDC SCL | RX | GPIO2 |
+| Monitor 2 DDC SDA | A5 | GPIO8 |
+| Monitor 2 DDC SCL | A4 | GPIO14 |
+| Hub 1 SWDIO | A0 | GPIO18 |
+| Hub 1 SWCLK | A1 | GPIO17 |
+| Hub 2 SWDIO | A2 | GPIO16 |
+| Hub 2 SWCLK | A3 | GPIO15 |
 
-Keep the monitors' DDC buses separate. Use the installed bidirectional
-level-shifters between each monitor's DDC lines and the 3.3 V Feather GPIOs;
-ESP32-S3 GPIOs are not 5 V tolerant. Connect controller and device grounds
-together, and verify the KVM SWD voltage levels before connecting those pins.
-The Feather's USB Serial/JTAG console remains in use; RX/TX here refer to its
-header GPIO pads.
+Keep the monitors' DDC buses separate (I2C_NUM_0 and I2C_NUM_1). Each DDC line
+goes GPIO -> BSS138 LV, HV -> 4.7 k to 5 V -> 100 R -> HDMI pin 16 (SDA) / 15
+(SCL), GND -> pin 17. Never power the shifter from HDMI pin 18. ESP32-S3 GPIOs
+are not 5 V tolerant. The USB Serial/JTAG console stays in use; RX/TX here are
+the header pads.
+
+With `CONFIG_DESKSTRATE_DDC_BRINGUP` (default on) the firmware logs DDC1 every
+5 s: ACKs on 0x37/0x50, VCP 0x60 (raw and `& 0xFF`), 0xD6 and the EDID serial.
+It is read-only. `CONFIG_DESKSTRATE_DDC_TOGGLE_TEST` drives SDA then SCL
+low/high for 3 s each at boot, so you can follow them with a meter before
+I2C starts.
 
 ## Status screen and controls
 

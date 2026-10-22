@@ -1,0 +1,17 @@
+menu "Deskstrate board"
+
+    choice DESKSTRATE_BOARD
+        prompt "Target board"
+        default DESKSTRATE_BOARD_FEATHER_S3_TFT
+        help
+            Selects the pin map in board_config.h. PlatformIO keeps a separate
+            sdkconfig.<env> per environment, so each board env keeps its own choice.
+
+        config DESKSTRATE_BOARD_FEATHER_S3_TFT
+            bool "Adafruit Feather ESP32-S3 TFT (desk unit / bench stand-in)"
+
+        config DESKSTRATE_BOARD_S3_MINI
+            bool "diymore ESP32-S3 Mini (central box)"
+    endchoice
+
+endmenu

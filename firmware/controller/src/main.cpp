@@ -8,6 +8,7 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
 #include "network.h"
+#include "ddc_bringup.h"
 #include "led_strip.h"
 #include "lvgl.h"
 
@@ -31,15 +32,7 @@
 #define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
 #define NEOKEY_NEOPIXEL_COUNT 4
 
-// Reserved for future KVM SWD and monitor DDC control; not initialized yet.
-#define PIN_KVM1_SWDIO GPIO_NUM_18 // Feather A0
-#define PIN_KVM1_SWCLK GPIO_NUM_17 // Feather A1
-#define PIN_KVM2_SWDIO GPIO_NUM_16 // Feather A2
-#define PIN_KVM2_SWCLK GPIO_NUM_15 // Feather A3
-#define PIN_MONITOR1_DDC_SCL GPIO_NUM_14 // Feather A4
-#define PIN_MONITOR1_DDC_SDA GPIO_NUM_8  // Feather A5
-#define PIN_MONITOR2_DDC_SCL GPIO_NUM_2  // Feather RX
-#define PIN_MONITOR2_DDC_SDA GPIO_NUM_1  // Feather TX
+// KVM SWD and monitor DDC pins live in components/board/include/board_config.h.
 
 static lv_disp_drv_t disp_drv;
 
@@ -738,6 +731,8 @@ extern "C" void app_main(void) {
 
     led_strip_handle_t neokey_strip;
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&neokey_strip_config, &rmt_config, &neokey_strip));
+
+    ddc_bringup_start();
 
     const esp_err_t network_err = network_start();
     if (network_err != ESP_OK) {
