@@ -1,9 +1,15 @@
 /*
- * kvm_proto.h - wire format shared by the ESP32 controller and the PC/Mac daemons.
+ * kvm_proto.h - wire format shared by the core, the deck and the PC/Mac daemons.
+ *
+ * Nodes: the core (central box, source of truth), the deck (desk unit) and the
+ * host daemons (PC, Mac). Only the core changes state; everyone else asks.
  *
  * Transport: UDP, one message per datagram, KVM_PORT on every node.
- *   ESP32 -> hosts : KVM_STATE  (on change + every KVM_HEARTBEAT_MS), KVM_RESULT
- *   hosts -> ESP32 : KVM_STATUS (reply to each STATE + on local change), KVM_REQUEST
+ *   core  -> all   : KVM_STATE  (on change + every KVM_HEARTBEAT_MS)
+ *   core  -> one   : KVM_RESULT (reply to a REQUEST)
+ *   hosts -> core  : KVM_STATUS (reply to each STATE + on local change)
+ *   hosts,
+ *   deck  -> core  : KVM_REQUEST
  * Replies go to the source address/port of the datagram being answered.
  *
  * Layout rules (so no packing pragmas are needed):
@@ -40,10 +46,16 @@ enum kvm_type {
     KVM_RESULT  = 4,
 };
 
+/* Node ids: bit 7 = reserved for special values, bit 6 = 0 controller / 1 host device. */
+#define KVM_NODE_F_RESERVED 0x80u
+#define KVM_NODE_F_DEVICE   0x40u
+#define KVM_NODE_IS_DEVICE(n) (((n) & (KVM_NODE_F_RESERVED | KVM_NODE_F_DEVICE)) == KVM_NODE_F_DEVICE)
+
 enum kvm_node {
-    KVM_NODE_ESP32 = 0,
-    KVM_NODE_PC    = 1,
-    KVM_NODE_MAC   = 2,
+    KVM_NODE_CORE  = 0x00,  /* controllers: 0x00-0x3F */
+    KVM_NODE_DECK  = 0x01,
+    KVM_NODE_PC    = 0x40,  /* host devices: 0x40-0x7F */
+    KVM_NODE_MAC   = 0x41,
     KVM_NODE_NONE  = 0xFF,  /* writer: nobody may send DDC */
 };
 
@@ -57,8 +69,18 @@ enum kvm_input {
     KVM_IN_OFF  = 0xFF,     /* desired: standby (VCP 0xD6 = 4)                      */
 };
 
-enum kvm_usb_port {         /* positions on the 1:4 USB switch */
-    KVM_USB_PC = 0, KVM_USB_MAC = 1, KVM_USB_GUEST = 2, KVM_USB_SPARE = 3,
+/* The two 1:4 USB hubs, by role. */
+enum kvm_usb_hub {
+    KVM_HUB_HID   = 0,      /* keyboard + mouse: follows the host being worked on */
+    KVM_HUB_MEDIA = 1,      /* camera, headset, sound card: stays put across switches (calls) */
+};
+#define KVM_HUB_COUNT 2u
+
+enum kvm_usb_port {         /* host selected on a hub (same numbering on both hubs) */
+    KVM_USB_PC     = 0,
+    KVM_USB_MAC    = 1,
+    KVM_USB_GUEST1 = 2,     /* HDMI guest on the left monitor  */
+    KVM_USB_GUEST2 = 3,     /* HDMI guest on the right monitor */
     KVM_USB_UNKNOWN = 0xFF,
 };
 
@@ -85,31 +107,31 @@ typedef struct {
 } kvm_hdr_t;
 
 /*
- * KVM_COUNTER - replay protection without needing a clock on the ESP32:
- *   ESP32: (boot_epoch << 32) | n   boot_epoch is a uint32 in NVS, incremented on
- *                                   every boot before the first send; n counts packets.
- *   hosts: Unix time in milliseconds (they have an RTC + NTP).
+ * KVM_COUNTER - replay protection without needing a clock on the ESP32 nodes:
+ *   core, deck: (boot_epoch << 32) | n   boot_epoch is a uint32 in NVS, incremented on
+ *                                        every boot before the first send; n counts packets.
+ *   hosts:      Unix time in milliseconds (they have an RTC + NTP).
  * Receivers keep the last accepted counter per sender and drop anything <= it.
- * Once the ESP32 has SNTP time it may additionally drop host packets whose counter
+ * Once the core has SNTP time it may additionally drop host packets whose counter
  * is more than KVM_FRESH_WINDOW_MS from its own clock (blocks replays after it reboots).
  */
 #define KVM_FRESH_WINDOW_MS 30000u
 
-/* ---- STATE: ESP32 -> hosts (48 bytes) ----------------------------------- */
+/* ---- STATE: core -> all (48 bytes) ------------------------------------- */
 
 typedef struct {
     kvm_hdr_t hdr;
     uint32_t  seq;                  /* bumps only when the desired state changes */
     uint8_t   writer;               /* enum kvm_node: the only node allowed to send DDC */
-    uint8_t   usb;                  /* enum kvm_usb_port (informational for hosts) */
-    uint8_t   preset;               /* ESP32 preset id that produced this state, 0xFF = ad hoc */
+    uint8_t   preset;               /* core preset id that produced this state, 0xFF = ad hoc */
     uint8_t   mon_count;            /* valid entries in mon[] */
+    uint8_t   usb[KVM_HUB_COUNT];   /* enum kvm_usb_port, indexed by enum kvm_usb_hub */
     uint8_t   mon[KVM_MAX_MON];     /* enum kvm_input, desired, indexed by enum kvm_mon_id */
-    uint8_t   reserved[4];          /* zero; keeps the size a multiple of 8 */
+    uint8_t   reserved[3];          /* zero; keeps the size a multiple of 8 */
     uint8_t   tag[KVM_TAG_LEN];
 } kvm_state_t;
 
-/* ---- STATUS: host -> ESP32 (56 bytes) ----------------------------------- */
+/* ---- STATUS: host -> core (56 bytes) ----------------------------------- */
 
 typedef struct {
     uint8_t seen;       /* host can see this monitor (Mac undocked => 0) */
@@ -131,20 +153,20 @@ typedef struct {
 
 enum kvm_err { KVM_ERR_NONE = 0, KVM_ERR_DDC_TIMEOUT = 1, KVM_ERR_NOT_FOUND = 2, KVM_ERR_TOPOLOGY = 3 };
 
-/* ---- REQUEST: host -> ESP32 (40 bytes) ---------------------------------- */
-/* Hotkeys on whichever host currently has the keyboard. The ESP32 decides;
- * the outcome arrives as a RESULT plus (if accepted) a new STATE. */
+/* ---- REQUEST: host or deck -> core (40 bytes) -------------------------- */
+/* Deck keys, or hotkeys on whichever host currently has the keyboard. The core
+ * decides; the outcome arrives as a RESULT plus (if accepted) a new STATE. */
 
 enum kvm_action {
-    KVM_ACT_PRESET      = 1,  /* a = preset id (presets live in ESP32 config) */
+    KVM_ACT_PRESET      = 1,  /* a = preset id (presets live in core config) */
     KVM_ACT_NEXT_PRESET = 2,
     KVM_ACT_PREV_PRESET = 3,
-    KVM_ACT_USB         = 4,  /* a = enum kvm_usb_port */
+    KVM_ACT_USB         = 4,  /* a = enum kvm_usb_hub, b = enum kvm_usb_port */
     KVM_ACT_MON         = 5,  /* a = enum kvm_mon_id, b = enum kvm_input */
     KVM_ACT_SWAP        = 6,  /* split mode: swap which host owns which monitor */
-    KVM_ACT_FOCUS       = 7,  /* USB follows the owner of monitor a (or the cursor's monitor) */
+    KVM_ACT_FOCUS       = 7,  /* HID hub follows the owner of monitor a (or the cursor's monitor); MEDIA untouched */
     KVM_ACT_ALL_OFF     = 8,  /* every monitor to standby */
-    KVM_ACT_USER        = 0x80, /* 0x80-0xFF: free for custom bindings handled on the ESP32 */
+    KVM_ACT_USER        = 0x80, /* 0x80-0xFF: free for custom bindings handled on the core */
 };
 
 typedef struct {
@@ -157,7 +179,7 @@ typedef struct {
     uint8_t   tag[KVM_TAG_LEN];
 } kvm_request_t;
 
-/* ---- RESULT: ESP32 -> requesting host (48 bytes) ------------------------ */
+/* ---- RESULT: core -> requester (48 bytes) ------------------------------ */
 
 enum kvm_result_code {
     KVM_RES_OK       = 0,
