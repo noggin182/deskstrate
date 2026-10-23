@@ -1,2 +1,7 @@
-# Console on the native USB Serial/JTAG port (Feather and S3-Zero layout both).
+# Console on the native USB Serial/JTAG port.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# 4MB embedded flash (ESP32-S3FH4R2, confirmed with esptool flash_id).
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+# Partition table in partitions.csv (1.5MB app instead of the default 1MB).
+CONFIG_PARTITION_TABLE_CUSTOM=y
