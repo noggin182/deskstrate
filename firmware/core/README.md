@@ -10,29 +10,27 @@ The UDP server, switching logic, SWD and OTA follow.
 
 ## Build
 
-| Env | Board |
-| --- | --- |
-| `feather_bench` (default) | Adafruit Feather ESP32-S3 TFT, standing in on the bench |
-| `s3_mini` | diymore ESP32-S3 Mini (S3-Zero layout), unconfirmed |
+Board: diymore ESP32-S3 Mini (S3-Zero layout), env `s3_mini`. Chip is an
+ESP32-S3FH4R2 (4MB flash, 2MB PSRAM); the partition table is in `partitions.csv`.
 
 ```
-pio run -d firmware/core -e feather_bench -t upload
-pio run -d firmware/core -e feather_bench -t menuconfig   # Deskstrate Wi-Fi / Deskstrate core
+pio run -d firmware/core -t upload
+pio run -d firmware/core -t menuconfig   # Deskstrate Wi-Fi / Deskstrate core
 ```
 
-Each env keeps its own `sdkconfig.<env>`, so set the Wi-Fi credentials once per
-env. Don't commit those files.
+Wi-Fi credentials live in `sdkconfig.s3_mini`. Don't commit it.
 
 ## Pins
 
-Defined per env in `src/board_config.h`.
+Defined in `src/board_config.h`. Still to be checked against the silkscreen and
+toggle-tested.
 
-| Function | Feather bench | S3 Mini |
-| --- | --- | --- |
-| DDC1 SDA / SCL | GPIO1 (TX) / GPIO2 (RX) | GPIO1 / GPIO2 |
-| DDC2 SDA / SCL | GPIO8 (A5) / GPIO14 (A4) | GPIO4 / GPIO5 |
-| HID hub SWCLK / SWDIO | GPIO17 (A1) / GPIO18 (A0) | GPIO6 / GPIO7 |
-| Media hub SWCLK / SWDIO | GPIO15 (A3) / GPIO16 (A2) | GPIO8 / GPIO9 |
+| Function | GPIO |
+| --- | --- |
+| DDC1 SDA / SCL | GPIO1 / GPIO2 |
+| DDC2 SDA / SCL | GPIO4 / GPIO5 |
+| HID hub SWCLK / SWDIO | GPIO6 / GPIO7 |
+| Media hub SWCLK / SWDIO | GPIO8 / GPIO9 |
 
 DDC, per line: GPIO -> BSS138 LV, HV -> 4.7 k to 5 V -> 100 R -> HDMI pin 16
 (SDA) / 15 (SCL); GND -> pin 17. Never power the shifter from HDMI pin 18.
