@@ -1,15 +1,7 @@
 menu "Deskstrate core"
 
-    config DESKSTRATE_DDC_BRINGUP
-        bool "DDC1 bring-up logger"
-        default y
-        help
-            Logs DDC/CI (0x37) and EDID (0x50) ACKs, VCP 0x60/0xD6 and the EDID
-            serial on DDC1 every 5 s. Read-only.
-
     config DESKSTRATE_DDC_TOGGLE_TEST
         bool "Toggle-test DDC1 lines at boot"
-        depends on DESKSTRATE_DDC_BRINGUP
         default n
         help
             Before starting I2C, drives SDA then SCL low/high for 3 s each (2 cycles)
