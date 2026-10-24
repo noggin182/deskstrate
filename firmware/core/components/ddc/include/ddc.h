@@ -64,8 +64,13 @@ public:
     esp_err_t get_input(uint8_t &input, uint16_t *raw = nullptr);
 
     // Is anything ACKing 0x37 / 0x50? Useful as the first wiring check.
-    bool probe_ddcci();
-    bool probe_edid();
+    // ESP_OK = ACK; ESP_ERR_NOT_FOUND = clean NACK; ESP_ERR_TIMEOUT = bus stuck (SDA/SCL low).
+    esp_err_t probe_ddcci();
+    esp_err_t probe_edid();
+
+    // Idle line levels as the GPIO matrix sees them (1 = pulled up). For wiring checks.
+    int sda_level() const;
+    int scl_level() const;
 
     // Reads the 128-byte base EDID block and returns the 32-bit serial (bytes 12..15, LE).
     // Identify monitors by this, never by bus order. May NACK with nothing on HDMI pin 18
@@ -79,6 +84,7 @@ private:
     void wait_gap();
     void recover();
 
+    Pins pins_{};
     i2c_master_bus_handle_t bus_ = nullptr;
     i2c_master_dev_handle_t ddcci_ = nullptr;
     i2c_master_dev_handle_t edid_ = nullptr;

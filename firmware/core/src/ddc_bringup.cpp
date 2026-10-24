@@ -31,10 +31,17 @@ static void ddc_bringup_task(void *) {
 
     bool have_serial = false;
     for (;;) {
-        const bool ddcci = bus.probe_ddcci();
-        const bool edid = bus.probe_edid();
-        ESP_LOGI(TAG, "ACK 0x37 (DDC/CI): %s, 0x50 (EDID): %s", ddcci ? "yes" : "NO",
-                 edid ? "yes" : "no");
+        const esp_err_t ddcci_err = bus.probe_ddcci();
+        const esp_err_t edid_err = bus.probe_edid();
+        const bool ddcci = ddcci_err == ESP_OK;
+        const bool edid = edid_err == ESP_OK;
+        ESP_LOGI(TAG, "ACK 0x37 (DDC/CI): %s, 0x50 (EDID): %s",
+                 ddcci ? "yes" : esp_err_to_name(ddcci_err), edid ? "yes" : esp_err_to_name(edid_err));
+        if (!ddcci && !edid) {
+            // Both idle high = bus looks healthy, nothing answering; a 0 = stuck low / no pull-up.
+            ESP_LOGW(TAG, "idle lines: SDA (GPIO%d) = %d, SCL (GPIO%d) = %d", pins.sda,
+                     bus.sda_level(), pins.scl, bus.scl_level());
+        }
 
         if (ddcci) {
             uint8_t input = 0;

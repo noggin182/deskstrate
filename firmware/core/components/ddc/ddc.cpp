@@ -78,6 +78,7 @@ void line_toggle_test(Pins pins, uint32_t hold_ms, int cycles) {
 }
 
 esp_err_t Bus::init(i2c_port_num_t port, Pins pins, uint32_t scl_hz) {
+    pins_ = pins;
     i2c_master_bus_config_t bus_cfg = {};
     bus_cfg.i2c_port = port;
     bus_cfg.sda_io_num = pins.sda;
@@ -212,20 +213,23 @@ esp_err_t Bus::get_input(uint8_t &input, uint16_t *raw) {
     return ESP_OK;
 }
 
-bool Bus::probe_ddcci() {
-    if (!bus_) return false;
+esp_err_t Bus::probe_ddcci() {
+    if (!bus_) return ESP_ERR_INVALID_STATE;
     Lock lock(lock_);
     wait_gap();
-    const bool ok = i2c_master_probe(bus_, kAddrDdcci, kXferTimeoutMs) == ESP_OK;
+    const esp_err_t err = i2c_master_probe(bus_, kAddrDdcci, kXferTimeoutMs);
     last_cmd_ = xTaskGetTickCount();
-    return ok;
+    return err;
 }
 
-bool Bus::probe_edid() {
-    if (!bus_) return false;
+esp_err_t Bus::probe_edid() {
+    if (!bus_) return ESP_ERR_INVALID_STATE;
     Lock lock(lock_);
-    return i2c_master_probe(bus_, kAddrEdid, kXferTimeoutMs) == ESP_OK;
+    return i2c_master_probe(bus_, kAddrEdid, kXferTimeoutMs);
 }
+
+int Bus::sda_level() const { return gpio_get_level(pins_.sda); }
+int Bus::scl_level() const { return gpio_get_level(pins_.scl); }
 
 esp_err_t Bus::read_edid_serial(uint32_t &serial) {
     if (!bus_) return ESP_ERR_INVALID_STATE;
