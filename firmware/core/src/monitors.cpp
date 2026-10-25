@@ -93,6 +93,13 @@ void poll_task(void *) {
 // Shared by set_input/set_power: write one VCP code, then update the cache.
 esp_err_t write(int i, uint8_t code, uint8_t value, void (*apply)(State &, uint8_t)) {
     Monitor &m = mons[i];
+#if CONFIG_DESKSTRATE_SIMULATE
+    State sim = get(i);
+    apply(sim, value);
+    publish(i, sim);
+    ESP_LOGI(TAG, "DDC%d (simulated): set VCP 0x%02X = 0x%02X", i + 1, code, value);
+    return ESP_OK;
+#endif
     if (!m.bus_ok || !get(i).online) return ESP_ERR_INVALID_STATE;
     xSemaphoreTake(op_lock, portMAX_DELAY);
     const esp_err_t err = m.bus.set_vcp(code, value);
@@ -112,6 +119,15 @@ esp_err_t write(int i, uint8_t code, uint8_t value, void (*apply)(State &, uint8
 
 void start() {
     op_lock = xSemaphoreCreateMutex();
+
+#if CONFIG_DESKSTRATE_SIMULATE
+    // Present and powered, with the EDID serials of the real left/right monitors so
+    // side() resolves. PC on the left, Mac on the right.
+    publish(0, State{.online = true, .input = ddc::kInputDp, .power = ddc::kPowerOn, .serial = 810562882});
+    publish(1, State{.online = true, .input = ddc::kInputUsbc, .power = ddc::kPowerOn, .serial = 810959170});
+    ESP_LOGW(TAG, "simulating both monitors: no DDC traffic");
+    return;
+#endif
 
     const ddc::Pins pins[kCount] = {{board::kDdc1Sda, board::kDdc1Scl},
                                     {board::kDdc2Sda, board::kDdc2Scl}};

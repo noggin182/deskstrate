@@ -7,6 +7,7 @@
 #include "esp_check.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "hubs.h"
 #include "mdns.h"
 #include "monitors.h"
 
@@ -14,7 +15,6 @@ namespace {
 
 const char *TAG = "web";
 
-// Hub rows are shown but disabled until the SWD hub control exists.
 const char kPage[] = R"HTML(<!doctype html>
 <html lang="en">
 <head>
@@ -71,14 +71,20 @@ function row(name,note,bad,groups){
 }
 function render(){
   rows.replaceChildren();
-  HUBS.forEach(h=>rows.append(row(h,'not implemented yet',false,[group(PORTS.map(p=>btn(p,false,true)))])));
+  (state?state.hub:[{},{}]).forEach((h,i)=>{
+    const note=!state?'loading…':h.online?(PORTS[h.port]||'unknown'):'not responding';
+    const off=!h.online||busy;
+    rows.append(row(HUBS[i],note,state&&!h.online,[
+      group(PORTS.map((p,port)=>btn(p,h.online&&h.port===port,off,b=>send(b,`/api/hub?i=${i}&port=${port}`)))),
+    ]));
+  });
   (state?state.mon:[{},{}]).forEach((m,i)=>{
     const name=m.side?m.side[0].toUpperCase()+m.side.slice(1)+' monitor':'Monitor '+(i+1);
     const note=!state?'loading…':m.online?(m.power===4?'standby':'on'):'not responding';
     const off=!m.online||busy;
     rows.append(row(name,note,state&&!m.online,[
-      group(INPUTS.map(([v,l])=>btn(l,m.online&&m.input===v,off,b=>send(b,i,'input',v)))),
-      group(POWER.map(([v,l])=>btn(l,m.online&&m.power===v,off,b=>send(b,i,'power',v)))),
+      group(INPUTS.map(([v,l])=>btn(l,m.online&&m.input===v,off,b=>send(b,`/api/mon?i=${i}&input=${v}`)))),
+      group(POWER.map(([v,l])=>btn(l,m.online&&m.power===v,off,b=>send(b,`/api/mon?i=${i}&power=${v}`)))),
     ]));
   });
 }
@@ -88,10 +94,10 @@ async function refresh(){
   catch(e){msg.textContent='core not reachable'}
   render();
 }
-async function send(b,i,key,v){
+async function send(b,url){
   busy=true;b.classList.add('busy');msg.textContent='sending…';
   try{
-    const r=await fetch(`/api/mon?i=${i}&${key}=${v}`,{method:'POST'});
+    const r=await fetch(url,{method:'POST'});
     const j=await r.json();
     if(j.mon)state=j;
     msg.textContent=j.error?('failed: '+j.error):'';
@@ -105,7 +111,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()}
 </html>
 )HTML";
 
-// Writes {"mon":[...]} (and "error" if set) into buf. Returns the length.
+// Writes {"mon":[...],"hub":[...]} (and "error" if set) into buf. Returns the length.
 int state_json(char *buf, size_t len, const char *error) {
     int n = snprintf(buf, len, "{\"mon\":[");
     for (int i = 0; i < monitors::kCount && n < (int)len; i++) {
@@ -115,6 +121,12 @@ int state_json(char *buf, size_t len, const char *error) {
                       i ? "," : "", s.online ? "true" : "false", s.input, s.power,
                       side ? "\"" : "", side ? side : "null", side ? "\"" : "");
     }
+    if (n < (int)len) n += snprintf(buf + n, len - n, "],\"hub\":[");
+    for (int i = 0; i < hubs::kCount && n < (int)len; i++) {
+        const hubs::State s = hubs::get(i);
+        n += snprintf(buf + n, len - n, "%s{\"online\":%s,\"port\":%u}", i ? "," : "",
+                      s.online ? "true" : "false", s.port);
+    }
     if (n < (int)len) {
         n += error ? snprintf(buf + n, len - n, "],\"error\":\"%s\"}", error)
                    : snprintf(buf + n, len - n, "]}");
@@ -123,7 +135,7 @@ int state_json(char *buf, size_t len, const char *error) {
 }
 
 esp_err_t send_state(httpd_req_t *req, const char *error) {
-    char buf[384];
+    char buf[512];
     const int n = state_json(buf, sizeof buf, error);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -158,6 +170,25 @@ esp_err_t mon_post(httpd_req_t *req) {
     return send_state(req, err == ESP_OK ? nullptr : esp_err_to_name(err));
 }
 
+esp_err_t hub_post(httpd_req_t *req) {
+    char query[64] = {}, val[16] = {};
+    if (httpd_req_get_url_query_str(req, query, sizeof query) != ESP_OK ||
+        httpd_query_key_value(query, "i", val, sizeof val) != ESP_OK) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_state(req, "missing i");
+    }
+    const int hub = atoi(val);
+    if (httpd_query_key_value(query, "port", val, sizeof val) != ESP_OK) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        return send_state(req, "missing port");
+    }
+    const esp_err_t err = hubs::set_port(hub, (uint8_t)strtoul(val, nullptr, 0));
+    if (err != ESP_OK) {
+        httpd_resp_set_status(req, err == ESP_ERR_INVALID_ARG ? "400 Bad Request" : "502 Bad Gateway");
+    }
+    return send_state(req, err == ESP_OK ? nullptr : esp_err_to_name(err));
+}
+
 void start_mdns(const char *hostname) {
     esp_err_t err = mdns_init();
     if (err == ESP_OK) err = mdns_hostname_set(hostname);
@@ -178,6 +209,7 @@ esp_err_t web_start(const char *hostname) {
         {.uri = "/", .method = HTTP_GET, .handler = page_get, .user_ctx = nullptr},
         {.uri = "/api/state", .method = HTTP_GET, .handler = state_get, .user_ctx = nullptr},
         {.uri = "/api/mon", .method = HTTP_POST, .handler = mon_post, .user_ctx = nullptr},
+        {.uri = "/api/hub", .method = HTTP_POST, .handler = hub_post, .user_ctx = nullptr},
     };
     for (const httpd_uri_t &u : uris) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &u), TAG, "register %s", u.uri);

@@ -1,12 +1,15 @@
 // Deskstrate core: headless source of truth.
-// Skeleton: joins Wi-Fi as deskstrate-core, polls both monitors over DDC/CI and serves
-// a bench web UI to switch them.
-// Next: UDP server (kvm_proto), state/switching logic, SWD hubs, OTA.
+// Joins Wi-Fi as deskstrate-core, polls both monitors over DDC/CI and both hubs over SWD
+// (or simulates all four with CONFIG_DESKSTRATE_SIMULATE), serves a bench web UI and the
+// kvm_proto UDP server for the deck.
+// Next: presets/switching logic, kvm_proto authentication, OTA.
 #include <cstdio>
 
 #include "board_config.h"
 #include "esp_log.h"
+#include "hubs.h"
 #include "kvm_proto.h"
+#include "kvm_server.h"
 #include "monitors.h"
 #include "web.h"
 #include "wifi_sta.h"
@@ -56,6 +59,8 @@ extern "C" void app_main(void) {
     if (err != ESP_OK) ESP_LOGE(TAG, "Wi-Fi not started: %s", esp_err_to_name(err));
 
     monitors::start();
+    hubs::start();
+    if (err == ESP_OK) kvm_server::start();
 
     if (err == ESP_OK) {
         err = web_start(kHostname);

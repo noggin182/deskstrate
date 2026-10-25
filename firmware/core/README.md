@@ -5,8 +5,26 @@ switches both monitors over DDC/CI and both USB hubs over SWD, and serves the
 deck and host daemons over UDP (`kvm_proto`, port 18200). Hostname:
 `deskstrate-core`.
 
-Status: skeleton. It joins Wi-Fi and runs a read-only DDC1 bring-up logger.
-The UDP server, switching logic, SWD and OTA follow.
+Status: joins Wi-Fi, polls both monitors (DDC/CI) and both hubs (SWD), serves a
+bench web UI at `http://deskstrate-core.local/` and runs the `kvm_proto` UDP
+server. Presets/switching logic, protocol authentication and OTA follow.
+
+## Simulation
+
+`DESKSTRATE_SIMULATE` (menuconfig: Deskstrate core) makes both monitors and both
+hubs act as present without any DDC or SWD traffic; a switch only updates the
+core's state. Use it to test the web UI, the UDP protocol and the deck without
+the hardware attached.
+
+## UDP (kvm_proto)
+
+The core binds `KVM_PORT` (18200) and broadcasts a `STATE` on every change and
+every 2 s (`KVM_HEARTBEAT_MS`), with the monitors' inputs (left/right by EDID
+serial, `KVM_IN_OFF` for standby) and both hubs' ports (0-3). It answers
+`REQUEST`s with a `RESULT`; `KVM_ACT_MON` and `KVM_ACT_USB` are implemented.
+
+Not yet implemented: HMAC tags (sent as zeros, not checked) and per-sender
+counter checks, so treat it as bench-only on a trusted LAN.
 
 ## Build
 
