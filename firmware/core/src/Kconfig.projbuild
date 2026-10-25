@@ -7,4 +7,13 @@ menu "Deskstrate core"
             Before starting I2C, drives SDA then SCL low/high for 3 s each (2 cycles)
             so you can follow them with a meter on HDMI pins 16/15.
 
+    config DESKSTRATE_SWD_BRINGUP
+        bool "Log hub SWD state at boot"
+        default n
+        help
+            Connects to both USB hubs over SWD and logs each one's SW-DP IDCODE and
+            selection state once at boot. Read-only: it never writes the request byte.
+            Use it to confirm SWD wiring and the per-build status-word address before
+            trusting switching.
+
 endmenu
