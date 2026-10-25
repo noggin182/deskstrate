@@ -221,18 +221,28 @@ void save_settings(void)                                           /* [FUN_08002
     HAL_FLASH_Lock();                                    /* [FUN_08000acc] */
 }
 
-/* ---- UART: a serial control protocol that cannot work on this PCB ------------------ */
+/* ---- UART: serial control protocol, works on this hub ------------------------------- */
 /* uart_init() [FUN_0800030c] brings up USART1 at 115200 8N1 and its MspInit
- * [FUN_08001758] puts PA2 (TX) and PA3 (RX) into AF1. gpio_init() then runs and
- * reconfigures PA2 as key 4's input and PA3 as an LED line, so on this board the UART
- * has no pins, the RX interrupt never fires, and none of this is reachable. It is the
- * control port of a sibling model, left in the shared firmware.
+ * [FUN_08001758] puts PA2 (TX) and PA3 (RX) into AF1. The reading below that
+ * gpio_init() takes those pins away is wrong for this board: tested over an FTDI on
+ * 2026-10-24, the hub echoes and switches on UART frames.
+ *
+ * Flow: app_main's [FUN_08000408] is HAL_UART_Transmit_IT of 1 byte, not a receive.
+ * Its TX-complete [FUN_08001a54] arms Receive_IT(3); RX-complete [FUN_08001874]
+ * echoes the 3 bytes and parses them; that echo's TX-complete re-arms the receive.
  *
  * Frame: 3 bytes, { 0xAA, index, checksum } with (0xAA + index + checksum) & 0xFF == 0,
- * i.e. checksum = (0x56 - index) & 0xFF. index 0..3 selects an input (firmware numbering,
- * input = 4 - index), index 4 toggles the mode flag. The frame is echoed back on
- * completion. Examples: AA 03 53 = input 1, AA 02 54 = input 2, AA 01 55 = input 3,
- * AA 00 56 = input 4.                                                                    */
+ * i.e. checksum = (0x56 - index) & 0xFF. index 4 toggles the mode flag (untested).
+ * Measured on the panel, UART index maps as input = index + 1, NOT the 4 - index of
+ * the key-scan numbering at the top of this file (that conflict is unresolved):
+ *   AA 00 56 = input 1, AA 01 55 = input 2, AA 02 54 = input 3, AA 03 53 = input 4.
+ * Observed behaviour:
+ *   - frames starting with 0xAA are echoed byte for byte, valid checksum or not;
+ *     frames not starting with 0xAA get no echo but the receiver keeps working.
+ *   - stray bytes or the wrong baud wedge the receiver (likely an overrun ending the
+ *     HAL receive, which nothing re-arms) until the hub is power-cycled. Send only
+ *     whole 3-byte frames, one at a time.
+ *   - at power-up the line shows 00 80 00 00 80 (boot byte plus power-on noise).  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *h)                /* [FUN_08001874] */
 {
     HAL_UART_Receive_IT(h, uart_frame, 3);
