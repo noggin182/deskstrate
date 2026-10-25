@@ -200,6 +200,49 @@ static void advance_hub_host(HostId &host) {
     );
 }
 
+// kvm_proto <-> deck view. HostId is already in kvm_usb_port order (PC, Mac, Guest1, Guest2).
+static bool from_kvm_input(uint8_t input, MonitorInput &out) {
+    switch (input) {
+        case KVM_IN_DP: out = MonitorInput::DisplayPort; return true;
+        case KVM_IN_USBC: out = MonitorInput::UsbC; return true;
+        case KVM_IN_HDMI: out = MonitorInput::Hdmi; return true;
+    }
+    return false;  // KEEP (unknown) or OFF (standby): leave the drawing as it was
+}
+
+static uint8_t to_kvm_input(MonitorInput input) {
+    switch (input) {
+        case MonitorInput::DisplayPort: return KVM_IN_DP;
+        case MonitorInput::UsbC: return KVM_IN_USBC;
+        case MonitorInput::Hdmi: return KVM_IN_HDMI;
+    }
+    return KVM_IN_KEEP;
+}
+
+// Copies the core's STATE into the view. Returns true if anything visible changed.
+static bool apply_core_state(const kvm_state_t &core, KvmState &view) {
+    KvmState next = view;
+    if (core.mon_count > KVM_MON_LEFT) from_kvm_input(core.mon[KVM_MON_LEFT], next.monitor1_input);
+    if (core.mon_count > KVM_MON_RIGHT) from_kvm_input(core.mon[KVM_MON_RIGHT], next.monitor2_input);
+    if (core.usb[KVM_HUB_HID] <= KVM_USB_GUEST2) next.hub1_host = static_cast<HostId>(core.usb[KVM_HUB_HID]);
+    if (core.usb[KVM_HUB_MEDIA] <= KVM_USB_GUEST2) next.hub2_host = static_cast<HostId>(core.usb[KVM_HUB_MEDIA]);
+
+    const bool changed = next.monitor1_input != view.monitor1_input
+        || next.monitor2_input != view.monitor2_input
+        || next.hub1_host != view.hub1_host
+        || next.hub2_host != view.hub2_host;
+    view = next;
+    return changed;
+}
+
+// Keys ask the core; the screen only changes when the core's STATE comes back.
+static void request_change(uint8_t action, uint8_t a, uint8_t b) {
+    const esp_err_t err = network_send_kvm_request(action, a, b);
+    if (err != ESP_OK) {
+        printf("Request not sent: %s\n", esp_err_to_name(err));
+    }
+}
+
 static void update_state_code(const KvmState &state) {
     char code[5] = {
         static_cast<char>('1' + static_cast<uint8_t>(state.monitor1_input)),
@@ -832,27 +875,34 @@ extern "C" void app_main(void) {
         lv_tick_inc(10);
         lv_timer_handler(); 
 
-        bool scenario_changed = false;
         if (key_press_detected(PIN_NEOKEY_SWITCH_A, key_a_state)) {
             key_hue_offset += 48;
-            advance_hub_host(current_kvm_state.hub1_host);
-            scenario_changed = true;
+            HostId next = current_kvm_state.hub1_host;
+            advance_hub_host(next);
+            request_change(KVM_ACT_USB, KVM_HUB_HID, static_cast<uint8_t>(next));
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_B, key_b_state)) {
             key_hue_offset += 96;
-            advance_hub_host(current_kvm_state.hub2_host);
-            scenario_changed = true;
+            HostId next = current_kvm_state.hub2_host;
+            advance_hub_host(next);
+            request_change(KVM_ACT_USB, KVM_HUB_MEDIA, static_cast<uint8_t>(next));
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_MENU, key_menu_state)) {
             key_hue_offset += 144;
-            advance_monitor_input(current_kvm_state.monitor1_input);
-            scenario_changed = true;
+            MonitorInput next = current_kvm_state.monitor1_input;
+            advance_monitor_input(next);
+            request_change(KVM_ACT_MON, KVM_MON_LEFT, to_kvm_input(next));
         }
         if (key_press_detected(PIN_NEOKEY_SWITCH_FUNCTION, key_function_state)) {
             key_hue_offset += 192;
-            advance_monitor_input(current_kvm_state.monitor2_input);
-            scenario_changed = true;
+            MonitorInput next = current_kvm_state.monitor2_input;
+            advance_monitor_input(next);
+            request_change(KVM_ACT_MON, KVM_MON_RIGHT, to_kvm_input(next));
         }
+
+        kvm_state_t core_state;
+        const bool scenario_changed = network_take_kvm_state(core_state)
+            && apply_core_state(core_state, current_kvm_state);
         if (scenario_changed) {
             update_state_code(current_kvm_state);
             render_current_scenario();

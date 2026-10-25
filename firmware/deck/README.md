@@ -28,9 +28,13 @@ datagram:
 {"type":"status","event":"online"}
 ```
 
-This JSON broadcast is temporary; the deck is moving to `kvm_proto` as a
-client of the core. Receivers should listen on UDP port `3333` on all local
-interfaces. Other
+The deck is also a `kvm_proto` client of the core on UDP port 18200
+(`KVM_PORT`). It renders every `STATE` the core broadcasts and sends its key
+presses to the core as `REQUEST`s (to the sender of the last `STATE`, or
+broadcast until one has been seen). Packets are unauthenticated for now.
+
+This JSON broadcast is temporary and will be dropped in favour of `kvm_proto`.
+Receivers should listen on UDP port `3333` on all local interfaces. Other
 deck updates can be sent from firmware code with
 `network_broadcast_update()` in `src/network.h`. Pass a JSON string; each call
 sends it as one UDP datagram, up to 1400 bytes. The function returns
@@ -53,9 +57,9 @@ are represented by input-specific icons inside each monitor: an Apple-style
 mark for USB-C, a Windows mark for DP, and an HDMI connector for HDMI.
 Matching monitor-to-hub assignments are shown with routes; mismatched
 assignments remain unconnected. Hub names are represented by keyboard and
-camera icons rather than labels. This is a UI demo and does not switch the
-physical KVM. Companion-app volume data is not connected yet, so volume
-readings remain `--%`.
+camera icons rather than labels. Companion-app volume data is not connected yet, so volume
+readings remain `--%`. The diagram shows the state reported by the core; until
+the first `STATE` arrives it shows a placeholder.
 
 The HDMI input on Monitor 1 is Guest 3; HDMI on Monitor 2 is Guest 4. Hub 1
 carries the mouse and keyboard; Hub 2 carries the webcam and headset. The
@@ -73,15 +77,15 @@ guest hosts are purple and coral. Host labels appear below the hub icons,
 including guest numbers. Volume is planned for PC and Mac only and depends on
 a companion app running on those hosts.
 
-The four keys directly cycle the preview state: Menu/Back (top left) advances
-Monitor 1's input, Function/split (top right) advances Monitor 2's input, A
-(bottom left) advances Hub 1's host, and B (bottom right) advances Hub 2's
-host. Monitor inputs cycle DP, USB-C, HDMI; hub hosts cycle PC, Mac, Guest 3,
+The four keys ask the core to switch: Menu/Back (top left) advances the left
+monitor's input, Function/split (top right) the right monitor's input, A
+(bottom left) the HID hub's host, and B (bottom right) the media hub's host.
+Monitor inputs cycle DP, USB-C, HDMI; hub hosts cycle PC, Mac, Guest 3,
 Guest 4. Each key changes only its corresponding value and wraps to the first
-value after the last. A temporary code overlay covers the volume panel to make
+value after the last. The screen updates when the core's `STATE` confirms the
+change, so it never shows a switch the core refused. A temporary code overlay covers the volume panel to make
 states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
 Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
 PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `2211` means both monitors
-are on USB-C and both hubs are assigned to PC. This is a UI demo and does not
-switch the physical KVM; the planned switching and menu behaviors are not
+are on USB-C and both hubs are assigned to PC. Menu behaviors are not
 implemented yet.

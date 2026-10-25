@@ -14,6 +14,7 @@
 #include "esp_wifi.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
@@ -29,6 +30,96 @@ const char *TAG = "deck_network";
 EventGroupHandle_t network_events;
 SemaphoreHandle_t socket_mutex;
 int broadcast_socket = -1;
+
+// kvm_proto client state, guarded by kvm_mutex.
+SemaphoreHandle_t kvm_mutex;
+int kvm_socket = -1;
+sockaddr_in core_addr = {};
+bool core_known = false;
+kvm_state_t latest_state = {};
+bool state_fresh = false;
+uint32_t boot_epoch = 0;
+uint32_t packet_n = 0;
+uint32_t next_req_id = 0;
+
+// KVM_COUNTER: (boot_epoch << 32) | n, boot_epoch bumped in NVS once per boot.
+void load_boot_epoch() {
+    nvs_handle_t nvs;
+    if (nvs_open("kvm", NVS_READWRITE, &nvs) != ESP_OK) return;
+    nvs_get_u32(nvs, "epoch", &boot_epoch);
+    boot_epoch++;
+    nvs_set_u32(nvs, "epoch", boot_epoch);
+    nvs_commit(nvs);
+    nvs_close(nvs);
+}
+
+void kvm_task(void *) {
+    uint8_t buf[128];
+    for (;;) {
+        sockaddr_in from = {};
+        socklen_t from_len = sizeof(from);
+        const int n = recvfrom(kvm_socket, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&from), &from_len);
+        if (n < static_cast<int>(sizeof(kvm_hdr_t))) {
+            continue;
+        }
+        kvm_hdr_t hdr;
+        memcpy(&hdr, buf, sizeof(hdr));  // decode by copy, never by casting the buffer
+        if (hdr.magic != KVM_MAGIC || hdr.version != KVM_VERSION || hdr.sender != KVM_NODE_CORE) {
+            continue;
+        }
+
+        if (hdr.type == KVM_STATE && n == static_cast<int>(sizeof(kvm_state_t))) {
+            xSemaphoreTake(kvm_mutex, portMAX_DELAY);
+            memcpy(&latest_state, buf, sizeof(latest_state));
+            state_fresh = true;
+            if (!core_known || core_addr.sin_addr.s_addr != from.sin_addr.s_addr) {
+                ESP_LOGI(TAG, "Core found at " IPSTR, IP2STR(reinterpret_cast<esp_ip4_addr_t *>(&from.sin_addr)));
+            }
+            core_addr = from;
+            core_known = true;
+            xSemaphoreGive(kvm_mutex);
+        } else if (hdr.type == KVM_RESULT && n == static_cast<int>(sizeof(kvm_result_t))) {
+            kvm_result_t result;
+            memcpy(&result, buf, sizeof(result));
+            if (result.code != KVM_RES_OK) {
+                ESP_LOGW(TAG, "Request %u refused by core: code %u", static_cast<unsigned>(result.req_id), result.code);
+            }
+        }
+    }
+}
+
+esp_err_t start_kvm_client() {
+    load_boot_epoch();
+    kvm_mutex = xSemaphoreCreateMutex();
+    if (kvm_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    kvm_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (kvm_socket < 0) {
+        ESP_LOGE(TAG, "Failed to create kvm_proto socket: errno %d", errno);
+        return ESP_FAIL;
+    }
+    const int enable_broadcast = 1;
+    setsockopt(kvm_socket, SOL_SOCKET, SO_BROADCAST, &enable_broadcast, sizeof(enable_broadcast));
+
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(KVM_PORT);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(kvm_socket, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
+        ESP_LOGE(TAG, "Failed to bind kvm_proto port %u: errno %d", static_cast<unsigned>(KVM_PORT), errno);
+        close(kvm_socket);
+        kvm_socket = -1;
+        return ESP_FAIL;
+    }
+
+    if (xTaskCreate(kvm_task, "kvm_client", 4096, nullptr, 5, nullptr) != pdPASS) {
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "kvm_proto client on port %u (unauthenticated)", static_cast<unsigned>(KVM_PORT));
+    return ESP_OK;
+}
 
 void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -152,8 +243,68 @@ esp_err_t network_start(void) {
         return ESP_ERR_NO_MEM;
     }
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "failed to start Wi-Fi");
+    ESP_RETURN_ON_ERROR(start_kvm_client(), TAG, "failed to start kvm_proto client");
 
     ESP_LOGI(TAG, "Wi-Fi station started");
+    return ESP_OK;
+}
+
+bool network_take_kvm_state(kvm_state_t &out) {
+    if (kvm_mutex == nullptr) {
+        return false;
+    }
+    xSemaphoreTake(kvm_mutex, portMAX_DELAY);
+    const bool fresh = state_fresh;
+    if (fresh) {
+        out = latest_state;
+        state_fresh = false;
+    }
+    xSemaphoreGive(kvm_mutex);
+    return fresh;
+}
+
+esp_err_t network_send_kvm_request(uint8_t action, uint8_t a, uint8_t b) {
+    if (kvm_mutex == nullptr || kvm_socket < 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if ((xEventGroupGetBits(network_events) & WIFI_CONNECTED_BIT) == 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    kvm_request_t request = {};
+    request.hdr.magic = KVM_MAGIC;
+    request.hdr.version = KVM_VERSION;
+    request.hdr.type = KVM_REQUEST;
+    request.hdr.sender = KVM_NODE_DECK;
+    request.action = action;
+    request.a = a;
+    request.b = b;
+
+    xSemaphoreTake(kvm_mutex, portMAX_DELAY);
+    request.hdr.counter = (static_cast<uint64_t>(boot_epoch) << 32) | ++packet_n;
+    request.req_id = ++next_req_id;
+    sockaddr_in destination = core_addr;
+    if (!core_known) {
+        destination = {};
+        destination.sin_family = AF_INET;
+        destination.sin_port = htons(KVM_PORT);
+        destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    }
+    const ssize_t sent = sendto(
+        kvm_socket,
+        &request,
+        sizeof(request),
+        0,
+        reinterpret_cast<sockaddr *>(&destination),
+        sizeof(destination)
+    );
+    const int send_errno = errno;
+    xSemaphoreGive(kvm_mutex);
+
+    if (sent != static_cast<ssize_t>(sizeof(request))) {
+        ESP_LOGE(TAG, "kvm_proto request failed: errno %d", send_errno);
+        return ESP_FAIL;
+    }
     return ESP_OK;
 }
 

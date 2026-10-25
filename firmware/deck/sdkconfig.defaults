@@ -1,2 +1,7 @@
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_LV_FONT_MONTSERRAT_22=y
+
+# 4MB embedded flash (confirmed with esptool read_mac on the Feather).
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+# Partition table in partitions.csv (1.5MB app instead of the default 1MB).
+CONFIG_PARTITION_TABLE_CUSTOM=y
