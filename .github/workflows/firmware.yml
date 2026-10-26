@@ -1,14 +1,26 @@
-# Builds the core and deck firmware on every push and pull request. Pushes to main are
-# then published as a GitHub release and the boards' doorbells are rung, so they pull
-# the new images themselves (components/ota_pull/include/ota_pull.h).
-# No secrets: images join Wi-Fi with the credentials stored in each board's NVS, and the
-# core's OTA push token lives there too.
+# Builds the core and deck firmware. Pushes to main are published as a GitHub release and
+# the boards' doorbells are rung, so they pull the new images themselves
+# (components/ota_pull/include/ota_pull.h). No secrets: Wi-Fi credentials and the core's
+# OTA push token live in each board's NVS.
+#
+# Kept fast for iterating on one board:
+# - Only boards whose sources changed are built (firmware/<board>/ or the shared
+#   components/). The other board's image is reused from the previous release, so its
+#   version doesn't change and it doesn't reboot. Pushes that touch neither build nothing.
+# - Each board's build directory is cached, so a build only recompiles what changed.
+# - The release is published and the doorbells rung before any cache is saved.
+# Run it by hand with "rebuild" to build both boards from scratch.
 name: firmware
 
 on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: Build both boards, even if their sources didn't change
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,80 +31,140 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  build:
-    name: ${{ matrix.project }}
+  firmware:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - project: core
-            env: s3_mini
-          - project: deck
-            env: adafruit_feather_esp32s3_tft
+    permissions:
+      contents: write  # publish the release (main only; fork PRs get a read-only token)
+    env:
+      DEPLOY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      GH_TOKEN: ${{ github.token }}
+      TAG: build-${{ github.run_number }}.${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # git describe sets the app version the boards compare
+          fetch-depth: 0  # history and tags: change detection, and git describe for the app version
+
+      - name: Decide what to build
+        id: plan
+        run: |
+          set -euo pipefail
+          prev=""
+          if [ "$DEPLOY" = true ]; then
+            # Compare against what the boards are running: the latest release.
+            prev=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+            base=$prev
+          elif [ "${{ github.event_name }}" = pull_request ]; then
+            base=$(git merge-base HEAD "origin/${{ github.base_ref }}")
+          else
+            base=$(git merge-base HEAD origin/main 2>/dev/null || true)
+          fi
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
+          for board in core deck; do
+            if [ "${{ inputs.rebuild }}" = true ] || [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+              build=true
+            elif git diff --quiet "$base" HEAD -- "firmware/$board" components; then
+              build=false
+            else
+              build=true
+            fi
+            echo "$board=$build" >> "$GITHUB_OUTPUT"
+            echo "$board: build=$build (base ${base:-none})"
+          done
 
       - uses: actions/setup-python@v5
+        if: steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true'
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/requirements-ci.txt
 
-      - name: Cache PlatformIO
+      - name: Cache toolchain
+        if: steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('firmware/*/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
 
       - name: Install PlatformIO
-        run: pip install platformio==6.2.0
+        if: steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true'
+        run: pip install -r tools/requirements-ci.txt
+
+      - name: Cache core build
+        if: steps.plan.outputs.core == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            firmware/core/.pio
+            firmware/core/managed_components
+            firmware/core/sdkconfig.s3_mini
+          key: build-core-${{ hashFiles('firmware/core/platformio.ini', 'firmware/core/sdkconfig.defaults') }}-${{ github.sha }}
+          restore-keys: build-core-${{ hashFiles('firmware/core/platformio.ini', 'firmware/core/sdkconfig.defaults') }}-
+
+      - name: Cache deck build
+        if: steps.plan.outputs.deck == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            firmware/deck/.pio
+            firmware/deck/managed_components
+            firmware/deck/sdkconfig.adafruit_feather_esp32s3_tft
+          key: build-deck-${{ hashFiles('firmware/deck/platformio.ini', 'firmware/deck/sdkconfig.defaults') }}-${{ github.sha }}
+          restore-keys: build-deck-${{ hashFiles('firmware/deck/platformio.ini', 'firmware/deck/sdkconfig.defaults') }}-
 
       - name: Build
-        run: pio run -d firmware/${{ matrix.project }} -e ${{ matrix.env }}
+        run: |
+          set -euo pipefail
+          build() {  # <board> <env>
+            dir=firmware/$1
+            # A fresh checkout makes every file newer than the cached build, and PlatformIO
+            # re-runs CMake when its inputs look newer. If nothing that shapes the CMake
+            # configuration changed since the cached build, backdate those inputs so it
+            # doesn't. (Sources are compared by content, so their timestamps don't matter.)
+            cached=$(cat "$dir/.pio/built-from" 2>/dev/null || true)
+            if [ -n "$cached" ] && git cat-file -e "$cached^{commit}" 2>/dev/null &&
+               ! git diff --name-only "$cached" HEAD -- "$dir" components |
+                 grep -qE '(CMakeLists\.txt|Kconfig[^/]*|idf_component\.yml|sdkconfig\.defaults|dependencies\.lock|partitions\.csv|platformio\.ini)$'; then
+              touch -d 2000-01-01 "$dir/CMakeLists.txt" "$dir/src/CMakeLists.txt" "$dir/sdkconfig.defaults" "$dir/dependencies.lock"
+              echo "$1: incremental build from cache of ${cached::7}"
+            else
+              echo "$1: configuring from scratch"
+            fi
+            pio run -d "$dir" -e "$2"
+            git rev-parse HEAD > "$dir/.pio/built-from"
+            cp "$dir/.pio/build/$2/firmware.bin" "images/$1.bin"
+          }
+          mkdir -p images
+          if [ "${{ steps.plan.outputs.core }}" = true ]; then build core s3_mini; fi
+          if [ "${{ steps.plan.outputs.deck }}" = true ]; then build deck adafruit_feather_esp32s3_tft; fi
 
       - name: Upload images
+        if: steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.project }}-${{ github.sha }}
-          path: |
-            firmware/${{ matrix.project }}/.pio/build/${{ matrix.env }}/firmware.bin
-            firmware/${{ matrix.project }}/.pio/build/${{ matrix.env }}/bootloader.bin
-            firmware/${{ matrix.project }}/.pio/build/${{ matrix.env }}/partitions.bin
+          name: firmware-${{ github.sha }}
+          path: images/
           if-no-files-found: error
 
-  release:
-    # Only main is deployed. Pull requests (including from forks) never get here.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write  # create the release
-    env:
-      TAG: build-${{ github.run_number }}.${{ github.run_attempt }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: "*-${{ github.sha }}"
-          path: artifacts
-
-      - name: Write manifest
-        run: >
-          python3 tools/release_manifest.py "$TAG" release
-          artifacts/core-${{ github.sha }}/firmware.bin
-          artifacts/deck-${{ github.sha }}/firmware.bin
-
       - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "$TAG" release/*
-          --target "$GITHUB_SHA" --title "$TAG" --latest
-          --notes "Firmware for ${GITHUB_SHA::7}. Boards pull it on their doorbell or hourly poll."
+        id: release
+        if: env.DEPLOY == 'true' && (steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true')
+        run: |
+          set -euo pipefail
+          # A board that wasn't rebuilt keeps the image (and so the version) it already runs.
+          prev="${{ steps.plan.outputs.prev }}"
+          for board in core deck; do
+            if [ ! -f "images/$board.bin" ]; then
+              gh release download "$prev" -p "deskstrate_$board.bin" -O "images/$board.bin"
+              echo "$board: reusing image from $prev"
+            fi
+          done
+          python3 tools/release_manifest.py "$TAG" release images/core.bin images/deck.bin
+          gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "$TAG" --latest \
+            --notes "Firmware for ${GITHUB_SHA::7}. Rebuilt: core=${{ steps.plan.outputs.core }}, deck=${{ steps.plan.outputs.deck }}."
 
       - name: Ring doorbells
         # The boards also poll hourly, so a missed ring only delays the update.
+        if: steps.release.outcome == 'success'
         continue-on-error: true
         run: python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" 18210 18211

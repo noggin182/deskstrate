@@ -184,7 +184,10 @@ void install(const char *tag, const char *version) {
         return;
     }
 
-    while (err == ESP_OK && (err = esp_https_ota_perform(ota)) == ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+    if (err == ESP_OK) {
+        do {
+            err = esp_https_ota_perform(ota);  // one chunk per call
+        } while (err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
     }
     if (err == ESP_OK && !esp_https_ota_is_complete_data_received(ota)) err = ESP_ERR_INVALID_SIZE;
     if (err != ESP_OK) {
