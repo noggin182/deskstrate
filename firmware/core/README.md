@@ -72,11 +72,12 @@ Unauthenticated like the rest of the web API: anyone on the LAN can upload.
 
 ## Pins
 
-Defined in `src/board_config.h`. VERIFIED on the wired core (2026-10-26).
+Defined in `src/board_config.h`. VERIFIED on the wired core (2026-10-26); both
+DDC buses confirmed by a monitor answering on them.
 
 | Function | GPIO |
 | --- | --- |
-| DDC1 (monitor 1) SDA / SCL | GPIO12 / GPIO11 |
+| DDC1 (monitor 1) SDA / SCL | GPIO11 / GPIO12 |
 | DDC2 (monitor 2) SDA / SCL | GPIO10 / GPIO9 |
 | HID hub (hub 1) SWCLK / SWDIO | GPIO1 / GPIO5 |
 | Media hub (hub 2) SWCLK / SWDIO | GPIO6 / GPIO4 |

@@ -12,8 +12,10 @@ namespace board {
 // Avoid 0 (BOOT), 3/45/46 (strapping), 19/20 (USB), 43/44 (console), 21 (RGB LED).
 inline constexpr const char *kName = "ESP32-S3 Mini";
 
-inline constexpr gpio_num_t kDdc1Sda = GPIO_NUM_12;
-inline constexpr gpio_num_t kDdc1Scl = GPIO_NUM_11;
+// DDC1 is SDA 11 / SCL 12 (the reverse of DDC2's order): an I2C scan found the monitor
+// only with these roles (2026-10-26).
+inline constexpr gpio_num_t kDdc1Sda = GPIO_NUM_11;
+inline constexpr gpio_num_t kDdc1Scl = GPIO_NUM_12;
 inline constexpr gpio_num_t kDdc2Sda = GPIO_NUM_10;
 inline constexpr gpio_num_t kDdc2Scl = GPIO_NUM_9;
 
