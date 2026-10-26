@@ -40,15 +40,14 @@ Wi-Fi credentials live in `sdkconfig.s3_mini`. Don't commit it.
 
 ## Pins
 
-Defined in `src/board_config.h`. Still to be checked against the silkscreen and
-toggle-tested.
+Defined in `src/board_config.h`. VERIFIED on the wired core (2026-10-26).
 
 | Function | GPIO |
 | --- | --- |
-| DDC1 SDA / SCL | GPIO1 / GPIO2 |
-| DDC2 SDA / SCL | GPIO4 / GPIO5 |
-| HID hub SWCLK / SWDIO | GPIO6 / GPIO7 |
-| Media hub SWCLK / SWDIO | GPIO8 / GPIO9 |
+| DDC1 (monitor 1) SDA / SCL | GPIO12 / GPIO11 |
+| DDC2 (monitor 2) SDA / SCL | GPIO10 / GPIO9 |
+| HID hub (hub 1) SWCLK / SWDIO | GPIO1 / GPIO5 |
+| Media hub (hub 2) SWCLK / SWDIO | GPIO6 / GPIO4 |
 
 DDC, per line: GPIO -> BSS138 LV, HV -> 4.7 k to 5 V -> 100 R -> HDMI pin 16
 (SDA) / 15 (SCL); GND -> pin 17. Never power the shifter from HDMI pin 18.
