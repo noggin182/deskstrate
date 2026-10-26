@@ -167,4 +167,13 @@ jobs:
         # The boards also poll hourly, so a missed ring only delays the update.
         if: steps.release.outcome == 'success'
         continue-on-error: true
-        run: python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" 18210 18211
+        run: |
+          # GitHub's latest-release link lags a new release by a few seconds. A board rung
+          # before it moves reads the previous manifest and installs that release instead
+          # (seen with build-2.1), so wait until the link serves this release's manifest.
+          url="https://github.com/${{ github.repository }}/releases/latest/download/manifest.txt"
+          for i in $(seq 1 60); do
+            if curl -fsSL "$url" | grep -qx "tag=$TAG"; then echo "latest is $TAG after ${i} tries"; break; fi
+            sleep 2
+          done
+          python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" 18210 18211
