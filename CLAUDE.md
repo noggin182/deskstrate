@@ -8,9 +8,9 @@ COM number alone.
 
 | Board | Firmware | MAC | Last seen on |
 | --- | --- | --- | --- |
-| Core (S3 Mini, `deskstrate-core`, 192.168.4.33) | `firmware/core` | `ac:27:6e:cb:3f:54` | COM11 |
+| Core (S3 Mini, `deskstrate-core`, 192.168.4.44) | `firmware/core` | `ac:27:6e:cb:3f:54` | COM15 |
 | Deck (Feather ESP32-S3 TFT) | `firmware/deck` | `f4:12:fa:59:79:bc` | COM8 |
-| Bench S3 Mini (hub SWD on GPIO1/GPIO2) | `firmware/swd_dump` | `ac:27:6e:cb:2c:d8` | COM10 |
+| Bench S3 Mini (hub SWD on GPIO1/GPIO2) | `firmware/swd_dump` | `ac:27:6e:cb:2c:d8` | COM16 |
 
 - Find the ports: `Get-CimInstance Win32_PnPEntity | ? Name -match 'COM\d+'`.
 - Read a MAC: `esptool.py --port COMx --after watchdog_reset read_mac`. A board on
