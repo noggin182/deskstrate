@@ -1,8 +1,9 @@
 // Deskstrate core: headless source of truth.
-// Joins Wi-Fi as deskstrate-core, polls both monitors over DDC/CI and both hubs over SWD,
+// Joins Wi-Fi as deskstrate, polls both monitors over DDC/CI and both hubs over SWD,
 // serves a bench web UI and the kvm_proto UDP server for the deck. Any of the four can be
 // missing: it reads as offline and is picked up when it appears.
-// Next: presets/switching logic, kvm_proto authentication, OTA.
+// Updates over the air through /api/ota (see ota.h).
+// Next: presets/switching logic, kvm_proto authentication.
 #include <cstdio>
 
 #include "board_config.h"
@@ -11,6 +12,7 @@
 #include "kvm_proto.h"
 #include "kvm_server.h"
 #include "monitors.h"
+#include "ota.h"
 #include "web.h"
 #include "wifi_sta.h"
 
@@ -19,7 +21,7 @@
 #endif
 
 static const char *TAG = "core";
-static const char *kHostname = "deskstrate-core";
+static const char *kHostname = "deskstrate";
 
 #if CONFIG_DESKSTRATE_SWD_BRINGUP
 // Read-only: connect to one hub, log its IDCODE and selection state. Never writes.
@@ -49,6 +51,7 @@ static void swd_bringup_one(const char *role, hub_swd::Pins pins) {
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Deskstrate core on %s (kvm_proto v%u, port %u)", board::kName,
              (unsigned)KVM_VERSION, (unsigned)KVM_PORT);
+    ota::log_running();
 
 #if CONFIG_DESKSTRATE_SWD_BRINGUP
     swd_bringup_one("HID", {board::kHidSwclk, board::kHidSwdio});
@@ -66,4 +69,6 @@ extern "C" void app_main(void) {
         err = web_start(kHostname);
         if (err != ESP_OK) ESP_LOGE(TAG, "web UI not started: %s", esp_err_to_name(err));
     }
+    // A new OTA image that can't get back on the network rolls back.
+    ota::confirm_boot(err == ESP_OK);
 }

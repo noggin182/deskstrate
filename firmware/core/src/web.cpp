@@ -10,6 +10,7 @@
 #include "hubs.h"
 #include "mdns.h"
 #include "monitors.h"
+#include "ota.h"
 
 namespace {
 
@@ -235,6 +236,7 @@ esp_err_t web_start(const char *hostname) {
     for (const httpd_uri_t &u : uris) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &u), TAG, "register %s", u.uri);
     }
+    ESP_RETURN_ON_ERROR(ota::register_handlers(server), TAG, "OTA handlers");
 
     start_mdns(hostname);
     ESP_LOGI(TAG, "listening on http://%s.local/", hostname);

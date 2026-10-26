@@ -3,11 +3,12 @@
 The core is the hidden central box and the source of truth. It runs headless,
 switches both monitors over DDC/CI and both USB hubs over SWD, and serves the
 deck and host daemons over UDP (`kvm_proto`, port 18200). Hostname:
-`deskstrate-core`.
+`deskstrate`.
 
 Status: joins Wi-Fi, polls both monitors (DDC/CI) and both hubs (SWD), serves a
-bench web UI at `http://deskstrate-core.local/` and runs the `kvm_proto` UDP
-server. Presets/switching logic, protocol authentication and OTA follow.
+bench web UI at `http://deskstrate.local/`, runs the `kvm_proto` UDP server and
+takes updates over Wi-Fi. Presets/switching logic and protocol authentication
+follow.
 
 ## Missing hardware
 
@@ -39,7 +40,8 @@ counter checks, so treat it as bench-only on a trusted LAN.
 ## Build
 
 Board: diymore ESP32-S3 Mini (S3-Zero layout), env `s3_mini`. Chip is an
-ESP32-S3FH4R2 (4MB flash, 2MB PSRAM); the partition table is in `partitions.csv`.
+ESP32-S3FH4R2 (4MB flash, 2MB PSRAM); the partition table is in `partitions.csv`
+(two OTA slots of 0x1F0000, `ota_0` / `ota_1`).
 
 ```
 pio run -d firmware/core -t upload
@@ -47,6 +49,26 @@ pio run -d firmware/core -t menuconfig   # Deskstrate Wi-Fi / Deskstrate core
 ```
 
 Wi-Fi credentials live in `sdkconfig.s3_mini`. Don't commit it.
+
+## OTA
+
+Build, then post the app image to the core:
+
+```
+pio run -d firmware/core
+curl --data-binary @firmware/core/.pio/build/s3_mini/firmware.bin http://deskstrate.local/api/ota
+```
+
+It is written to the spare slot, checked (image header, chip, SHA-256) and the
+core reboots into it. `GET /api/ota` shows the running slot, version (git
+describe), build time and state.
+
+Rollback is on: a new image boots in pending-verify and marks itself valid once
+Wi-Fi has an IP and the web server is up. If it can't within 60 s, or crashes
+first, the bootloader goes back to the previous image. Only app changes go over
+the air; a new bootloader or partition table needs USB.
+
+Unauthenticated like the rest of the web API: anyone on the LAN can upload.
 
 ## Pins
 

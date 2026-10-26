@@ -6,7 +6,7 @@
 #include "freertos/FreeRTOS.h"
 
 // Starts Wi-Fi and returns without waiting for a connection.
-// hostname: DHCP hostname, e.g. "deskstrate-core".
+// hostname: DHCP hostname, e.g. "deskstrate".
 esp_err_t wifi_sta_start(const char *hostname);
 
 // True while associated with an IP address.

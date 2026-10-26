@@ -3,5 +3,9 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # 4MB embedded flash (ESP32-S3FH4R2, confirmed with esptool flash_id).
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-# Partition table in partitions.csv (1.5MB app instead of the default 1MB).
+# Partition table in partitions.csv (two ~1.9MB OTA slots).
 CONFIG_PARTITION_TABLE_CUSTOM=y
+
+# OTA: a new image boots once in pending-verify and rolls back unless it marks itself
+# valid (src/ota.cpp does that once Wi-Fi and the web server are up).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

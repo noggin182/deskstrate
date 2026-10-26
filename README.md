@@ -6,7 +6,7 @@ USB hubs switch over SWD.
 
 | Path | What |
 | --- | --- |
-| `firmware/core` | Central box (ESP32-S3 Mini). Headless source of truth: DDC, SWD, UDP server. `deskstrate-core` |
+| `firmware/core` | Central box (ESP32-S3 Mini). Headless source of truth: DDC, SWD, UDP server. `deskstrate` |
 | `firmware/deck` | Desk unit (Feather ESP32-S3 TFT + NeoKeys). Screen and keys; client of the core. `deskstrate-deck` |
 | `components/kvm_proto` | UDP wire format shared by core, deck and the host daemons |
 | `components/wifi_sta` | Shared Wi-Fi station join (menuconfig: Deskstrate Wi-Fi) |
