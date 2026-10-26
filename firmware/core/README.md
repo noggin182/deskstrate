@@ -48,27 +48,42 @@ pio run -d firmware/core -t upload
 pio run -d firmware/core -t menuconfig   # Deskstrate Wi-Fi / Deskstrate core
 ```
 
-Wi-Fi credentials live in `sdkconfig.s3_mini`. Don't commit it.
+Wi-Fi credentials and the OTA token are stored in the core's NVS. A build with
+them set in `sdkconfig.s3_mini` (gitignored, never commit it) writes them there;
+a build with them blank, like CI's, keeps the stored ones. So a new board needs
+one USB flash of a build with both set, and nothing after that does.
+
+CI (`.github/workflows/firmware.yml`) builds core and deck on every push and
+keeps `firmware.bin`, `bootloader.bin` and `partitions.bin` as artifacts. Those
+images carry no secrets.
 
 ## OTA
 
-Build, then post the app image to the core:
+Build (or take `firmware.bin` from a CI run), then post the app image to the
+core with the token (`CONFIG_DESKSTRATE_OTA_TOKEN`, menuconfig: Deskstrate core):
 
 ```
 pio run -d firmware/core
-curl --data-binary @firmware/core/.pio/build/s3_mini/firmware.bin http://deskstrate.local/api/ota
+curl -H "Authorization: Bearer $TOKEN" --data-binary @firmware/core/.pio/build/s3_mini/firmware.bin http://deskstrate.local/api/ota
 ```
 
 It is written to the spare slot, checked (image header, chip, SHA-256) and the
 core reboots into it. `GET /api/ota` shows the running slot, version (git
-describe), build time and state.
+describe), build time, state and whether a token is set (`auth`).
 
 Rollback is on: a new image boots in pending-verify and marks itself valid once
 Wi-Fi has an IP and the web server is up. If it can't within 60 s, or crashes
 first, the bootloader goes back to the previous image. Only app changes go over
 the air; a new bootloader or partition table needs USB.
 
-Unauthenticated like the rest of the web API: anyone on the LAN can upload.
+Uploads need the token: 401 without it, 403 if the core has none stored. The
+rest of the web API is still unauthenticated, so keep the core LAN-only.
+
+That is the push path, for the bench. Normally the core updates itself from
+GitHub releases (doorbell on UDP 18210, or hourly; see Deployment in the top
+README and `components/ota_pull`). `GET /api/ota` shows the last check under
+`pull`. A local `-dirty` build is only replaced by a doorbell, never by the
+hourly poll.
 
 ## Pins
 

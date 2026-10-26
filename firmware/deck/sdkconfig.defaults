@@ -3,5 +3,9 @@ CONFIG_LV_FONT_MONTSERRAT_22=y
 
 # 4MB embedded flash (confirmed with esptool read_mac on the Feather).
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
-# Partition table in partitions.csv (1.5MB app instead of the default 1MB).
+# Partition table in partitions.csv (two ~1.9MB OTA slots).
 CONFIG_PARTITION_TABLE_CUSTOM=y
+
+# OTA: a new image boots once in pending-verify and rolls back unless it marks itself
+# valid (ota_pull::confirm_boot, once the UI is up and Wi-Fi has an IP).
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

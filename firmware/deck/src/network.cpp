@@ -17,6 +17,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+#include "wifi_sta.h"
 
 namespace {
 
@@ -182,13 +183,6 @@ void udp_socket_task(void *) {
 } // namespace
 
 esp_err_t network_start(void) {
-    const size_t ssid_length = strlen(CONFIG_DESKSTRATE_WIFI_SSID);
-    const size_t password_length = strlen(CONFIG_DESKSTRATE_WIFI_PASSWORD);
-    if (ssid_length == 0 || ssid_length > 32 || password_length > 64) {
-        ESP_LOGE(TAG, "Set a Wi-Fi SSID (max 32 bytes) and password (max 64 bytes) in menuconfig");
-        return ESP_ERR_INVALID_ARG;
-    }
-
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "Resetting NVS to recover from incompatible or full storage");
@@ -228,16 +222,9 @@ esp_err_t network_start(void) {
         "failed to register IP event handler"
     );
 
-    wifi_config_t wifi_config = {};
-    memcpy(wifi_config.sta.ssid, CONFIG_DESKSTRATE_WIFI_SSID, ssid_length);
-    memcpy(wifi_config.sta.password, CONFIG_DESKSTRATE_WIFI_PASSWORD, password_length);
-
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "failed to set Wi-Fi station mode");
-    ESP_RETURN_ON_ERROR(
-        esp_wifi_set_config(WIFI_IF_STA, &wifi_config),
-        TAG,
-        "failed to configure Wi-Fi station"
-    );
+    // This build's menuconfig credentials, or the ones stored in NVS (see wifi_sta.h).
+    ESP_RETURN_ON_ERROR(wifi_sta_apply_credentials(), TAG, "no usable Wi-Fi credentials");
     if (xTaskCreate(udp_socket_task, "udp_broadcast", 4096, nullptr, 5, nullptr) != pdPASS) {
         ESP_LOGE(TAG, "failed to create UDP broadcast task");
         return ESP_ERR_NO_MEM;

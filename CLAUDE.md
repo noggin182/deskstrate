@@ -17,10 +17,15 @@ COM number alone.
   Wi-Fi also shows up in `arp -a`.
 - Pass the port explicitly when uploading:
   `pio run -d firmware/<project> -t upload --upload-port COMx`.
-- Before flashing core or deck, check that `CONFIG_DESKSTRATE_WIFI_SSID` is set in that
-  project's gitignored `sdkconfig.*`. Credentials only live there, so a copy can be
-  empty on a fresh PC, and flashing it takes the board off the network. The user enters
-  credentials themselves via `-t menuconfig` (Deskstrate Wi-Fi).
+- Wi-Fi credentials (core and deck) and the core's OTA token live in each board's NVS.
+  A build with them blank in its gitignored `sdkconfig.*` (as on a fresh PC, or in CI)
+  keeps using the stored ones, so it is safe to flash a board that has run before. A
+  brand-new board, or one whose NVS was erased, needs one build with them set; the user
+  enters those themselves via `-t menuconfig` (Deskstrate Wi-Fi / Deskstrate core).
+- Both boards normally update themselves from GitHub releases of `main` (see
+  Deployment in README.md). To push a bench build to the core over Wi-Fi instead: `POST /api/ota` with
+  `Authorization: Bearer <CONFIG_DESKSTRATE_OTA_TOKEN from sdkconfig.s3_mini>`. Never
+  print the token or the Wi-Fi credentials.
 
 ## ESP32-S3 USB Serial/JTAG quirks
 

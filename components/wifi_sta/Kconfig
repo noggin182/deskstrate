@@ -4,7 +4,8 @@ menu "Deskstrate Wi-Fi"
         string "Wi-Fi SSID"
         default ""
         help
-            SSID of the 2.4 GHz Wi-Fi network to join.
+            SSID of the 2.4 GHz Wi-Fi network to join. Stored in NVS on first boot;
+            leave blank to keep using the stored network (CI and OTA builds do).
 
     config DESKSTRATE_WIFI_PASSWORD
         string "Wi-Fi password"

@@ -1,0 +1,98 @@
+# Builds the core and deck firmware on every push and pull request. Pushes to main are
+# then published as a GitHub release and the boards' doorbells are rung, so they pull
+# the new images themselves (components/ota_pull/include/ota_pull.h).
+# No secrets: images join Wi-Fi with the credentials stored in each board's NVS, and the
+# core's OTA push token lives there too.
+name: firmware
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  # Never cancel a main run halfway through publishing a release.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: ${{ matrix.project }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: core
+            env: s3_mini
+          - project: deck
+            env: adafruit_feather_esp32s3_tft
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # git describe sets the app version the boards compare
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/*/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio==6.2.0
+
+      - name: Build
+        run: pio run -d firmware/${{ matrix.project }} -e ${{ matrix.env }}
+
+      - name: Upload images
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.project }}-${{ github.sha }}
+          path: |
+            firmware/${{ matrix.project }}/.pio/build/${{ matrix.env }}/firmware.bin
+            firmware/${{ matrix.project }}/.pio/build/${{ matrix.env }}/bootloader.bin
+            firmware/${{ matrix.project }}/.pio/build/${{ matrix.env }}/partitions.bin
+          if-no-files-found: error
+
+  release:
+    # Only main is deployed. Pull requests (including from forks) never get here.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # create the release
+    env:
+      TAG: build-${{ github.run_number }}.${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*-${{ github.sha }}"
+          path: artifacts
+
+      - name: Write manifest
+        run: >
+          python3 tools/release_manifest.py "$TAG" release
+          artifacts/core-${{ github.sha }}/firmware.bin
+          artifacts/deck-${{ github.sha }}/firmware.bin
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$TAG" release/*
+          --target "$GITHUB_SHA" --title "$TAG" --latest
+          --notes "Firmware for ${GITHUB_SHA::7}. Boards pull it on their doorbell or hourly poll."
+
+      - name: Ring doorbells
+        # The boards also poll hourly, so a missed ring only delays the update.
+        continue-on-error: true
+        run: python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" 18210 18211

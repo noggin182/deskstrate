@@ -8,6 +8,7 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
 #include "network.h"
+#include "ota_pull.h"
 #include "led_strip.h"
 #include "lvgl.h"
 
@@ -772,9 +773,13 @@ extern "C" void app_main(void) {
     led_strip_handle_t neokey_strip;
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&neokey_strip_config, &rmt_config, &neokey_strip));
 
-    const esp_err_t network_err = network_start();
+    esp_err_t network_err = network_start();
     if (network_err != ESP_OK) {
         printf("Wi-Fi not started: %s\n", esp_err_to_name(network_err));
+    } else {
+        // Updates itself from GitHub releases: hourly, or on a UDP doorbell (ota_pull.h).
+        network_err = ota_pull::start(ota_pull::kDeckPort);
+        if (network_err != ESP_OK) printf("updater not started: %s\n", esp_err_to_name(network_err));
     }
 
     // 4. Initialize the SPI Master Bus for the ST7789 TFT
@@ -859,6 +864,9 @@ extern "C" void app_main(void) {
     create_status_screen();
 
     printf("UI Rendered. Entering main loop.\n");
+    // Display up and nothing crashed: a new OTA image is confirmed once it's on the
+    // network, otherwise it rolls back.
+    ota_pull::confirm_boot(network_err == ESP_OK);
     
     // --- 9. The Main Loop ---
     uint16_t heartbeat_ticks = 0;

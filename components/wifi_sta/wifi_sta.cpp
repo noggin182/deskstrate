@@ -34,14 +34,32 @@ void on_event(void *, esp_event_base_t base, int32_t id, void *data) {
 
 }  // namespace
 
-esp_err_t wifi_sta_start(const char *hostname) {
+esp_err_t wifi_sta_apply_credentials() {
+    wifi_config_t cfg = {};
     const size_t ssid_len = strlen(CONFIG_DESKSTRATE_WIFI_SSID);
     const size_t pass_len = strlen(CONFIG_DESKSTRATE_WIFI_PASSWORD);
-    if (ssid_len == 0 || ssid_len > 32 || pass_len > 64) {
-        ESP_LOGE(TAG, "set the SSID (max 32) and password (max 64) in menuconfig -> Deskstrate Wi-Fi");
-        return ESP_ERR_INVALID_ARG;
+    if (ssid_len > 0) {
+        if (ssid_len > 32 || pass_len > 64) {
+            ESP_LOGE(TAG, "menuconfig SSID (max 32) or password (max 64) too long");
+            return ESP_ERR_INVALID_ARG;
+        }
+        memcpy(cfg.sta.ssid, CONFIG_DESKSTRATE_WIFI_SSID, ssid_len);
+        memcpy(cfg.sta.password, CONFIG_DESKSTRATE_WIFI_PASSWORD, pass_len);
+        ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &cfg), TAG, "sta config");
+        ESP_LOGI(TAG, "credentials from this build (stored in NVS)");
+        return ESP_OK;
     }
+    ESP_RETURN_ON_ERROR(esp_wifi_get_config(WIFI_IF_STA, &cfg), TAG, "stored config");
+    if (cfg.sta.ssid[0] == 0) {
+        ESP_LOGE(TAG, "no Wi-Fi credentials stored: flash a build with menuconfig -> "
+                      "Deskstrate Wi-Fi set over USB once");
+        return ESP_ERR_NOT_FOUND;
+    }
+    ESP_LOGI(TAG, "credentials from NVS");
+    return ESP_OK;
+}
 
+esp_err_t wifi_sta_start(const char *hostname) {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "erasing NVS (full or incompatible)");
@@ -66,11 +84,8 @@ esp_err_t wifi_sta_start(const char *hostname) {
     ESP_RETURN_ON_ERROR(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, nullptr),
                         TAG, "ip handler");
 
-    wifi_config_t cfg = {};
-    memcpy(cfg.sta.ssid, CONFIG_DESKSTRATE_WIFI_SSID, ssid_len);
-    memcpy(cfg.sta.password, CONFIG_DESKSTRATE_WIFI_PASSWORD, pass_len);
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "sta mode");
-    ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &cfg), TAG, "sta config");
+    ESP_RETURN_ON_ERROR(wifi_sta_apply_credentials(), TAG, "credentials");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start");
 
     ESP_LOGI(TAG, "started as %s", hostname);

@@ -6,16 +6,22 @@ switching state.
 
 Build and flash with `pio run -d firmware/deck -t upload`.
 
+The deck has two OTA slots and rollback, and updates itself from GitHub releases
+(doorbell on UDP 18211, or hourly; see Deployment in the top README).
+It has no push endpoint: USB is the fallback. A new image is confirmed once the
+UI is up and Wi-Fi has an IP, otherwise it rolls back.
+
 ## Networking
 
 The deck joins a 2.4 GHz Wi-Fi network in station mode and sends UDP
 broadcast datagrams to `255.255.255.255:3333`, with the DHCP hostname
-`deskstrate-deck`. Configure the SSID and password with PlatformIO's
-`menuconfig` target (`pio run -d firmware/deck -t menuconfig`) under
-**Deskstrate Wi-Fi**.
-The values are stored in the local ESP-IDF `sdkconfig`
-(`firmware/deck/sdkconfig.adafruit_feather_esp32s3_tft`); do not commit Wi-Fi
-credentials.
+`deskstrate-deck`. The Wi-Fi credentials live in the deck's NVS. To provision a
+new board (or one whose NVS was erased), set the SSID and password with
+PlatformIO's `menuconfig` target (`pio run -d firmware/deck -t menuconfig`)
+under **Deskstrate Wi-Fi** and flash once. After that, builds with them blank
+(fresh checkouts, CI) keep using the stored ones. The local
+`firmware/deck/sdkconfig.adafruit_feather_esp32s3_tft` is gitignored; do not
+commit Wi-Fi credentials.
 
 The ESP-IDF console is routed over the Feather's native USB Serial/JTAG port,
 so `printf()` and ESP-IDF log messages appear in PlatformIO's monitor on that

@@ -2,7 +2,8 @@
 // Joins Wi-Fi as deskstrate, polls both monitors over DDC/CI and both hubs over SWD,
 // serves a bench web UI and the kvm_proto UDP server for the deck. Any of the four can be
 // missing: it reads as offline and is picked up when it appears.
-// Updates over the air through /api/ota (see ota.h).
+// Updates itself from GitHub releases (ota_pull: hourly, or on a UDP doorbell), and takes
+// pushed images on the bench through /api/ota (see ota.h).
 // Next: presets/switching logic, kvm_proto authentication.
 #include <cstdio>
 
@@ -13,6 +14,7 @@
 #include "kvm_server.h"
 #include "monitors.h"
 #include "ota.h"
+#include "ota_pull.h"
 #include "web.h"
 #include "wifi_sta.h"
 
@@ -69,6 +71,10 @@ extern "C" void app_main(void) {
         err = web_start(kHostname);
         if (err != ESP_OK) ESP_LOGE(TAG, "web UI not started: %s", esp_err_to_name(err));
     }
-    // A new OTA image that can't get back on the network rolls back.
-    ota::confirm_boot(err == ESP_OK);
+    if (err == ESP_OK) {
+        err = ota_pull::start(ota_pull::kCorePort);
+        if (err != ESP_OK) ESP_LOGE(TAG, "updater not started: %s", esp_err_to_name(err));
+    }
+    // A new OTA image that can't get back on the network, or can't update again, rolls back.
+    ota_pull::confirm_boot(err == ESP_OK);
 }

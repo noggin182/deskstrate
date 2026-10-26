@@ -16,4 +16,13 @@ menu "Deskstrate core"
             Use it to confirm SWD wiring and the per-build status-word address before
             trusting switching.
 
+    config DESKSTRATE_OTA_TOKEN
+        string "OTA upload token"
+        default ""
+        help
+            Bearer token that POST /api/ota requires (Authorization: Bearer <token>),
+            at least 16 characters. Stored in NVS on boot; leave blank to keep using
+            the stored one (CI and OTA builds do). With no token stored at all, OTA
+            uploads are refused.
+
 endmenu

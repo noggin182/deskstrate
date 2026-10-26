@@ -1,6 +1,7 @@
 #include "ota.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include "esp_app_desc.h"
 #include "esp_check.h"
@@ -9,7 +10,9 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "wifi_sta.h"
+#include "nvs.h"
+#include "sdkconfig.h"
+#include "ota_pull.h"
 
 namespace ota {
 
@@ -20,6 +23,51 @@ const char *TAG = "ota";
 constexpr size_t kChunk = 4096;
 constexpr uint32_t kRebootDelayMs = 500;  // let the HTTP reply go out first
 constexpr int kRecvRetries = 5;           // receive timeouts tolerated mid-upload
+constexpr size_t kMinTokenLen = 16;
+constexpr size_t kMaxTokenLen = 64;
+
+char token[kMaxTokenLen + 1] = {};  // empty = uploads refused
+
+// This build's menuconfig token, stored to NVS; or else the stored one.
+void load_token() {
+    nvs_handle_t nvs;
+    if (nvs_open("ota", NVS_READWRITE, &nvs) != ESP_OK) {
+        ESP_LOGE(TAG, "NVS unavailable: OTA uploads disabled");
+        return;
+    }
+    const char *built_in = CONFIG_DESKSTRATE_OTA_TOKEN;
+    const size_t n = strlen(built_in);
+    if (n >= kMinTokenLen && n <= kMaxTokenLen) {
+        strcpy(token, built_in);
+        if (nvs_set_str(nvs, "token", token) == ESP_OK) nvs_commit(nvs);
+        ESP_LOGI(TAG, "upload token from this build (stored in NVS)");
+    } else {
+        if (n) ESP_LOGW(TAG, "menuconfig OTA token ignored: needs 16-64 characters");
+        size_t len = sizeof token;
+        if (nvs_get_str(nvs, "token", token, &len) != ESP_OK) token[0] = 0;
+        if (token[0]) {
+            ESP_LOGI(TAG, "upload token from NVS");
+        } else {
+            ESP_LOGW(TAG, "no upload token stored: OTA uploads disabled");
+        }
+    }
+    nvs_close(nvs);
+}
+
+// Constant-time compare of the request's bearer token against ours.
+bool authorized(httpd_req_t *req) {
+    char hdr[16 + kMaxTokenLen + 1] = {};
+    if (!token[0] || httpd_req_get_hdr_value_str(req, "Authorization", hdr, sizeof hdr) != ESP_OK ||
+        strncmp(hdr, "Bearer ", 7) != 0) {
+        return false;
+    }
+    const char *given = hdr + 7;
+    const size_t want = strlen(token);
+    if (strlen(given) != want) return false;
+    uint8_t diff = 0;
+    for (size_t i = 0; i < want; i++) diff |= (uint8_t)(given[i] ^ token[i]);
+    return diff == 0;
+}
 
 const char *state_name(esp_ota_img_states_t s) {
     switch (s) {
@@ -61,18 +109,25 @@ esp_err_t fail(httpd_req_t *req, const char *status, const char *error) {
 esp_err_t status_get(httpd_req_t *req) {
     const esp_app_desc_t *app = esp_app_get_description();
     const esp_partition_t *next = esp_ota_get_next_update_partition(nullptr);
-    char buf[256];
-    snprintf(buf, sizeof buf,
-             "{\"running\":\"%s\",\"version\":\"%s\",\"built\":\"%s %s\",\"state\":\"%s\","
-             "\"next\":\"%s\"}",
-             esp_ota_get_running_partition()->label, app->version, app->date, app->time,
-             running_state(), next ? next->label : "");
+    char buf[512];
+    int n = snprintf(buf, sizeof buf,
+                     "{\"running\":\"%s\",\"version\":\"%s\",\"built\":\"%s %s\",\"state\":\"%s\","
+                     "\"next\":\"%s\",\"auth\":%s,\"pull\":",
+                     esp_ota_get_running_partition()->label, app->version, app->date, app->time,
+                     running_state(), next ? next->label : "", token[0] ? "true" : "false");
+    n += ota_pull::status_json(buf + n, sizeof buf - n - 1);
+    snprintf(buf + n, sizeof buf - n, "}");
     return reply(req, "200 OK", buf);
 }
 
 // Streams the body into the spare slot. esp_ota_end() checks the image (magic, chip,
 // SHA-256) before it can become the boot partition.
 esp_err_t upload_post(httpd_req_t *req) {
+    if (!token[0]) return fail(req, "403 Forbidden", "OTA disabled: no upload token set");
+    if (!authorized(req)) {
+        httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
+        return fail(req, "401 Unauthorized", "bad or missing token");
+    }
     const esp_partition_t *slot = esp_ota_get_next_update_partition(nullptr);
     if (!slot) return fail(req, "500 Internal Server Error", "no OTA slot");
     if (req->content_len == 0) return fail(req, "400 Bad Request", "empty body");
@@ -119,20 +174,6 @@ esp_err_t upload_post(httpd_req_t *req) {
     return ESP_OK;
 }
 
-void confirm_task(void *arg) {
-    const bool web_ok = arg != nullptr;
-    if (web_ok && wifi_sta_wait_connected(pdMS_TO_TICKS(kConfirmTimeoutMs))) {
-        esp_ota_mark_app_valid_cancel_rollback();
-        ESP_LOGI(TAG, "new image confirmed");
-    } else {
-        ESP_LOGE(TAG, "new image not reachable (web %s, Wi-Fi %s): rolling back",
-                 web_ok ? "up" : "down", wifi_sta_connected() ? "up" : "down");
-        esp_ota_mark_app_invalid_rollback_and_reboot();  // returns only if there's nothing to roll back to
-        ESP_LOGE(TAG, "rollback failed: keeping this image");
-    }
-    vTaskDelete(nullptr);
-}
-
 }  // namespace
 
 void log_running() {
@@ -143,6 +184,7 @@ void log_running() {
 }
 
 esp_err_t register_handlers(httpd_handle_t server) {
+    load_token();
     const httpd_uri_t uris[] = {
         {.uri = "/api/ota", .method = HTTP_GET, .handler = status_get, .user_ctx = nullptr},
         {.uri = "/api/ota", .method = HTTP_POST, .handler = upload_post, .user_ctx = nullptr},
@@ -151,17 +193,6 @@ esp_err_t register_handlers(httpd_handle_t server) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &u), TAG, "register %s", u.uri);
     }
     return ESP_OK;
-}
-
-void confirm_boot(bool web_ok) {
-    esp_ota_img_states_t s;
-    if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &s) != ESP_OK ||
-        s != ESP_OTA_IMG_PENDING_VERIFY) {
-        return;
-    }
-    ESP_LOGW(TAG, "new image pending verify: confirming once Wi-Fi is up (%lu s max)",
-             (unsigned long)(kConfirmTimeoutMs / 1000));
-    xTaskCreate(confirm_task, "ota_confirm", 3072, web_ok ? (void *)1 : nullptr, 5, nullptr);
 }
 
 }  // namespace ota
