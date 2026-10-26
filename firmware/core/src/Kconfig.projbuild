@@ -7,14 +7,6 @@ menu "Deskstrate core"
             Before starting I2C, drives SDA then SCL low/high for 3 s each (2 cycles)
             so you can follow them with a meter on HDMI pins 16/15.
 
-    config DESKSTRATE_SIMULATE
-        bool "Simulate monitors and hubs"
-        default n
-        help
-            Both monitors and both USB hubs act as present without any DDC or SWD
-            traffic: switches only update the core's state. For testing the web UI,
-            the UDP protocol and the deck without the real hardware attached.
-
     config DESKSTRATE_SWD_BRINGUP
         bool "Log hub SWD state at boot"
         default n

@@ -20,6 +20,7 @@ constexpr uint32_t kOfflineRetryMs = 15000;  // don't keep line-resetting a hub 
 
 struct Hub {
     hub_swd::Hub swd;
+    bool init_ok = false;
     bool connected = false;
     State state;
     TickType_t next_poll = 0;
@@ -39,7 +40,7 @@ void publish(int i, const State &s) {
 
 void poll(int i) {
     Hub &h = hubs_[i];
-    if (!reached(h.next_poll)) return;
+    if (!h.init_ok || !reached(h.next_poll)) return;
 
     const State was = get(i);
     State s;
@@ -77,18 +78,16 @@ void poll_task(void *) {
 void start() {
     op_lock = xSemaphoreCreateMutex();
 
-#if CONFIG_DESKSTRATE_SIMULATE
-    for (int i = 0; i < kCount; i++) publish(i, State{.online = true, .port = 0});
-    ESP_LOGW(TAG, "simulating both hubs: no SWD traffic");
-    return;
-#endif
-
     const hub_swd::Pins pins[kCount] = {{board::kHidSwclk, board::kHidSwdio},
                                         {board::kMediaSwclk, board::kMediaSwdio}};
+    bool any = false;
     for (int i = 0; i < kCount; i++) {
         const esp_err_t err = hubs_[i].swd.init(pins[i]);
+        hubs_[i].init_ok = err == ESP_OK;
+        any |= hubs_[i].init_ok;
         if (err != ESP_OK) ESP_LOGE(TAG, "%s hub init failed: %s", kNames[i], esp_err_to_name(err));
     }
+    if (!any) return;  // nothing to poll
     xTaskCreate(poll_task, "hubs", 4096, nullptr, 3, nullptr);
 }
 
@@ -102,16 +101,18 @@ State get(int hub) {
 
 esp_err_t set_port(int hub, uint8_t port) {
     if (hub < 0 || hub >= kCount || port > 3) return ESP_ERR_INVALID_ARG;
-    if (!get(hub).online) return ESP_ERR_INVALID_STATE;
-
-#if CONFIG_DESKSTRATE_SIMULATE
-    publish(hub, State{.online = true, .port = port});
-    ESP_LOGI(TAG, "%s hub (simulated): port %u", kNames[hub], port);
-    return ESP_OK;
-#endif
+    const State now = get(hub);
+    if (!now.online) return ESP_ERR_NOT_FOUND;
+    if (now.port == port) return ESP_OK;
 
     xSemaphoreTake(op_lock, portMAX_DELAY);
-    const esp_err_t err = hubs_[hub].swd.request(port);
+    Hub &h = hubs_[hub];
+    const esp_err_t err = h.swd.request(port);
+    if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED) {
+        // Lost the hub (unplugged or power-cycled): reconnect on the next poll.
+        h.connected = false;
+        h.next_poll = xTaskGetTickCount();
+    }
     xSemaphoreGive(op_lock);
     if (err == ESP_OK) {
         // The hub switches on its next main-loop pass; show the target until the poll confirms.

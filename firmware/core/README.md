@@ -9,12 +9,20 @@ Status: joins Wi-Fi, polls both monitors (DDC/CI) and both hubs (SWD), serves a
 bench web UI at `http://deskstrate-core.local/` and runs the `kvm_proto` UDP
 server. Presets/switching logic, protocol authentication and OTA follow.
 
-## Simulation
+## Missing hardware
 
-`DESKSTRATE_SIMULATE` (menuconfig: Deskstrate core) makes both monitors and both
-hubs act as present without any DDC or SWD traffic; a switch only updates the
-core's state. Use it to test the web UI, the UDP protocol and the deck without
-the hardware attached.
+Any of the two monitors and two hubs can be absent (not cabled, powered off, or
+not wired yet). It shows as "not connected" in the web UI, as `KVM_IN_KEEP` /
+`KVM_USB_UNKNOWN` in `STATE`, and is retried every 15 s, so it is picked up
+when it appears without a reboot. Switching an absent device fails: HTTP 409
+from the web API, `KVM_RES_REJECTED` over UDP.
+
+Monitors are matched to left/right by EDID serial, re-read whenever a monitor
+reappears. Until a serial has been read, bus order is assumed (DDC1 = left), but
+a bus already identified as one monitor never stands in for the other.
+
+A hub request while the hub is still carrying out the previous switch is refused
+(`KVM_RES_BUSY`) rather than racing its firmware.
 
 ## UDP (kvm_proto)
 
@@ -22,6 +30,8 @@ The core binds `KVM_PORT` (18200) and broadcasts a `STATE` on every change and
 every 2 s (`KVM_HEARTBEAT_MS`), with the monitors' inputs (left/right by EDID
 serial, `KVM_IN_OFF` for standby) and both hubs' ports (0-3). It answers
 `REQUEST`s with a `RESULT`; `KVM_ACT_MON` and `KVM_ACT_USB` are implemented.
+Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
+connected or the write failed), `BUSY` (hub mid-switch).
 
 Not yet implemented: HMAC tags (sent as zeros, not checked) and per-sender
 counter checks, so treat it as bench-only on a trusted LAN.
@@ -54,14 +64,11 @@ DDC, per line: GPIO -> BSS138 LV, HV -> 4.7 k to 5 V -> 100 R -> HDMI pin 16
 Keep the two DDC buses separate (I2C_NUM_0 and I2C_NUM_1). ESP32-S3 GPIOs are
 not 5 V tolerant.
 
-## DDC1 bring-up
+## Bring-up options
 
-With `DESKSTRATE_DDC_BRINGUP` (default on), DDC1 is logged every 5 s:
+menuconfig, Deskstrate core:
 
-- ACKs on 0x37 and 0x50
-- VCP 0x60, raw and `& 0xFF`
-- VCP 0xD6
-- the EDID serial
-
-It never writes. `DESKSTRATE_DDC_TOGGLE_TEST` drives SDA then SCL low/high for
-3 s each at boot, so you can follow them with a meter before I2C starts.
+- `DESKSTRATE_DDC_TOGGLE_TEST` drives DDC1 SDA then SCL low/high for 3 s each at
+  boot, so you can follow them with a meter before I2C starts.
+- `DESKSTRATE_SWD_BRINGUP` logs each hub's SW-DP IDCODE and selection state once
+  at boot. Read-only.

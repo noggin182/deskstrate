@@ -59,8 +59,9 @@ public:
 
     // Ask the hub to switch to port (0..3). Reads the status word, overwrites just the
     // requested byte, writes it back; the hub's main loop does the rest (hub reset + a
-    // ~0.6 s device-power cut, same as a key press). Best issued when idle
-    // (status.requested == kNoPort); a request mid-switch races the firmware's own write.
+    // ~0.6 s device-power cut, same as a key press). Only issued when idle
+    // (status.requested == kNoPort): ESP_ERR_NOT_FINISHED while a switch is pending, since
+    // a request mid-switch would race the firmware's own write.
     esp_err_t request(uint8_t port);
 
     // Raw 32-bit memory read/write through the MEM-AP, for probing. Word-aligned.

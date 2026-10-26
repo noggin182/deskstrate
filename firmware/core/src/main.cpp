@@ -1,7 +1,7 @@
 // Deskstrate core: headless source of truth.
-// Joins Wi-Fi as deskstrate-core, polls both monitors over DDC/CI and both hubs over SWD
-// (or simulates all four with CONFIG_DESKSTRATE_SIMULATE), serves a bench web UI and the
-// kvm_proto UDP server for the deck.
+// Joins Wi-Fi as deskstrate-core, polls both monitors over DDC/CI and both hubs over SWD,
+// serves a bench web UI and the kvm_proto UDP server for the deck. Any of the four can be
+// missing: it reads as offline and is picked up when it appears.
 // Next: presets/switching logic, kvm_proto authentication, OTA.
 #include <cstdio>
 

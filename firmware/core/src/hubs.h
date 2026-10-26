@@ -16,14 +16,16 @@ struct State {
     uint8_t port = kUnknown;   // selected port 0..3 (panel label = port + 1)
 };
 
-// Starts the poll task (or, with CONFIG_DESKSTRATE_SIMULATE, two simulated hubs).
+// Starts the poll task. A hub that isn't wired or powered just stays offline and is
+// retried every 15 s.
 void start();
 
 // Last polled (or just requested) state. Cheap, never blocks on SWD.
 State get(int hub);
 
-// Asks the hub to switch. ESP_ERR_INVALID_ARG for a bad hub or port,
-// ESP_ERR_INVALID_STATE if the hub isn't online.
+// Asks the hub to switch (ESP_OK at once if it's already on that port).
+// ESP_ERR_INVALID_ARG for a bad hub or port, ESP_ERR_NOT_FOUND if the hub isn't online,
+// ESP_ERR_NOT_FINISHED if it is still carrying out a previous switch.
 esp_err_t set_port(int hub, uint8_t port);
 
 }  // namespace hubs

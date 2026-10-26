@@ -47,14 +47,28 @@ void fill_hdr(kvm_hdr_t &hdr, uint8_t type, uint8_t flags) {
 }
 
 // Which monitors:: index (DDC bus) is the left/right monitor, by EDID serial.
-// Falls back to bus order until the serial has been read.
+// Until a serial has been read, falls back to bus order, but never to a bus already
+// identified as the other monitor: with one monitor cabled, the other side is absent
+// rather than an alias for it. -1 if there is no candidate.
 int monitor_index(uint8_t mon_id) {
+    if (mon_id >= monitors::kCount) return -1;
     const char *want = mon_id == KVM_MON_LEFT ? "left" : "right";
+    int unidentified = -1;
     for (int i = 0; i < monitors::kCount; i++) {
         const char *s = monitors::side(monitors::get(i).serial);
         if (s && strcmp(s, want) == 0) return i;
+        if (!s && (unidentified < 0 || i == mon_id)) unidentified = i;
     }
-    return mon_id < monitors::kCount ? mon_id : -1;
+    return unidentified;
+}
+
+uint8_t result_code(esp_err_t err) {
+    switch (err) {
+        case ESP_OK: return KVM_RES_OK;
+        case ESP_ERR_INVALID_ARG: return KVM_RES_UNKNOWN;
+        case ESP_ERR_NOT_FINISHED: return KVM_RES_BUSY;
+        default: return KVM_RES_REJECTED;  // not connected, or the write failed
+    }
 }
 
 // Current monitors + hubs as STATE payload fields (header and seq not set).
@@ -115,9 +129,9 @@ void publish_state(bool force) {
 }
 
 uint8_t apply_mon(uint8_t mon_id, uint8_t input) {
+    if (mon_id >= monitors::kCount) return KVM_RES_UNKNOWN;
     const int i = monitor_index(mon_id);
-    if (i < 0) return KVM_RES_UNKNOWN;
-    if (!monitors::get(i).online) return KVM_RES_REJECTED;
+    if (i < 0 || !monitors::get(i).online) return KVM_RES_REJECTED;  // not connected
     esp_err_t err;
     if (input == KVM_IN_OFF) {
         err = monitors::set_power(i, ddc::kPowerStandby);
@@ -128,13 +142,12 @@ uint8_t apply_mon(uint8_t mon_id, uint8_t input) {
     } else {
         return KVM_RES_UNKNOWN;
     }
-    return err == ESP_OK ? KVM_RES_OK : KVM_RES_REJECTED;
+    return result_code(err);
 }
 
 uint8_t apply_usb(uint8_t hub, uint8_t port) {
     if (hub >= hubs::kCount || port > KVM_USB_GUEST2) return KVM_RES_UNKNOWN;
-    const esp_err_t err = hubs::set_port(hub, port);
-    return err == ESP_OK ? KVM_RES_OK : KVM_RES_REJECTED;
+    return result_code(hubs::set_port(hub, port));
 }
 
 void handle_request(const kvm_request_t &req, const sockaddr_in &from) {

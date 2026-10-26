@@ -38,8 +38,10 @@ void publish(int i, const State &s) {
 }
 
 void log_changes(int i, const State &was, const State &now) {
-    if (was.online != now.online) {
-        ESP_LOGI(TAG, "DDC%d: %s", i + 1, now.online ? "responding" : "not responding");
+    if (was.online != now.online || was.lines_up != now.lines_up || was.edid != now.edid) {
+        ESP_LOGI(TAG, "DDC%d: %s (lines %s, EDID %s)", i + 1,
+                 now.online ? "responding" : "not responding", now.lines_up ? "up" : "low",
+                 now.edid ? "ACK" : "no ACK");
     }
     if (now.serial && was.serial != now.serial) {
         const char *s = side(now.serial);
@@ -61,11 +63,15 @@ void poll(int i) {
     // A line idling low means no pull-ups (nothing wired): probing would only time out.
     const bool lines_up = m.bus.sda_level() && m.bus.scl_level();
     if (!lines_up || m.bus.probe_ddcci() != ESP_OK) {
-        s = State{.serial = was.serial};
+        s = State{.serial = was.serial, .lines_up = lines_up,
+                  .edid = lines_up && m.bus.probe_edid() == ESP_OK};
         m.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kOfflineRetryMs);
     } else {
         s.online = true;
-        if (!s.serial && m.bus.probe_edid() == ESP_OK) {
+        s.lines_up = true;
+        s.edid = m.bus.probe_edid() == ESP_OK;
+        // Re-read on every (re)appearance: the cable may now go to the other monitor.
+        if ((!s.serial || !was.online) && s.edid) {
             uint32_t serial = 0;
             if (m.bus.read_edid_serial(serial) == ESP_OK) s.serial = serial;
         }
@@ -93,14 +99,7 @@ void poll_task(void *) {
 // Shared by set_input/set_power: write one VCP code, then update the cache.
 esp_err_t write(int i, uint8_t code, uint8_t value, void (*apply)(State &, uint8_t)) {
     Monitor &m = mons[i];
-#if CONFIG_DESKSTRATE_SIMULATE
-    State sim = get(i);
-    apply(sim, value);
-    publish(i, sim);
-    ESP_LOGI(TAG, "DDC%d (simulated): set VCP 0x%02X = 0x%02X", i + 1, code, value);
-    return ESP_OK;
-#endif
-    if (!m.bus_ok || !get(i).online) return ESP_ERR_INVALID_STATE;
+    if (!m.bus_ok || !get(i).online) return ESP_ERR_NOT_FOUND;
     xSemaphoreTake(op_lock, portMAX_DELAY);
     const esp_err_t err = m.bus.set_vcp(code, value);
     if (err == ESP_OK) {
@@ -120,15 +119,6 @@ esp_err_t write(int i, uint8_t code, uint8_t value, void (*apply)(State &, uint8
 void start() {
     op_lock = xSemaphoreCreateMutex();
 
-#if CONFIG_DESKSTRATE_SIMULATE
-    // Present and powered, with the EDID serials of the real left/right monitors so
-    // side() resolves. PC on the left, Mac on the right.
-    publish(0, State{.online = true, .input = ddc::kInputDp, .power = ddc::kPowerOn, .serial = 810562882});
-    publish(1, State{.online = true, .input = ddc::kInputUsbc, .power = ddc::kPowerOn, .serial = 810959170});
-    ESP_LOGW(TAG, "simulating both monitors: no DDC traffic");
-    return;
-#endif
-
     const ddc::Pins pins[kCount] = {{board::kDdc1Sda, board::kDdc1Scl},
                                     {board::kDdc2Sda, board::kDdc2Scl}};
     const i2c_port_num_t ports[kCount] = {I2C_NUM_0, I2C_NUM_1};
@@ -143,6 +133,7 @@ void start() {
         mons[i].bus_ok = err == ESP_OK;
         if (!mons[i].bus_ok) ESP_LOGE(TAG, "DDC%d init failed: %s", i + 1, esp_err_to_name(err));
     }
+    if (!mons[0].bus_ok && !mons[1].bus_ok) return;  // nothing to poll
     xTaskCreate(poll_task, "monitors", 4096, nullptr, 3, nullptr);
 }
 

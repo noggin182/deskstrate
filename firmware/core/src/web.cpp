@@ -72,7 +72,7 @@ function row(name,note,bad,groups){
 function render(){
   rows.replaceChildren();
   (state?state.hub:[{},{}]).forEach((h,i)=>{
-    const note=!state?'loading…':h.online?(PORTS[h.port]||'unknown'):'not responding';
+    const note=!state?'loading…':h.online?(PORTS[h.port]||'unknown'):'not connected';
     const off=!h.online||busy;
     rows.append(row(HUBS[i],note,state&&!h.online,[
       group(PORTS.map((p,port)=>btn(p,h.online&&h.port===port,off,b=>send(b,`/api/hub?i=${i}&port=${port}`)))),
@@ -80,7 +80,8 @@ function render(){
   });
   (state?state.mon:[{},{}]).forEach((m,i)=>{
     const name=m.side?m.side[0].toUpperCase()+m.side.slice(1)+' monitor':'Monitor '+(i+1);
-    const note=!state?'loading…':m.online?(m.power===4?'standby':'on'):'not responding';
+    const note=!state?'loading…':m.online?(m.power===4?'standby':'on'):
+      !m.lines?'not connected (DDC lines low)':m.edid?'DDC/CI off (enable in the OSD)':'not connected';
     const off=!m.online||busy;
     rows.append(row(name,note,state&&!m.online,[
       group(INPUTS.map(([v,l])=>btn(l,m.online&&m.input===v,off,b=>send(b,`/api/mon?i=${i}&input=${v}`)))),
@@ -117,9 +118,12 @@ int state_json(char *buf, size_t len, const char *error) {
     for (int i = 0; i < monitors::kCount && n < (int)len; i++) {
         const monitors::State s = monitors::get(i);
         const char *side = monitors::side(s.serial);
-        n += snprintf(buf + n, len - n, "%s{\"online\":%s,\"input\":%u,\"power\":%u,\"side\":%s%s%s}",
+        n += snprintf(buf + n, len - n,
+                      "%s{\"online\":%s,\"input\":%u,\"power\":%u,\"side\":%s%s%s,"
+                      "\"lines\":%s,\"edid\":%s}",
                       i ? "," : "", s.online ? "true" : "false", s.input, s.power,
-                      side ? "\"" : "", side ? side : "null", side ? "\"" : "");
+                      side ? "\"" : "", side ? side : "null", side ? "\"" : "",
+                      s.lines_up ? "true" : "false", s.edid ? "true" : "false");
     }
     if (n < (int)len) n += snprintf(buf + n, len - n, "],\"hub\":[");
     for (int i = 0; i < hubs::kCount && n < (int)len; i++) {
@@ -134,8 +138,29 @@ int state_json(char *buf, size_t len, const char *error) {
     return n < (int)len ? n : (int)len - 1;
 }
 
+// Short reason for the UI, from a monitors::/hubs:: error.
+const char *error_text(esp_err_t err) {
+    switch (err) {
+        case ESP_ERR_NOT_FOUND: return "not connected";
+        case ESP_ERR_NOT_FINISHED: return "busy, try again";
+        case ESP_ERR_INVALID_ARG: return "bad request";
+        default: return esp_err_to_name(err);
+    }
+}
+
+// Sets the HTTP status for a failed set_*: 400 for a bad request, 409 when the device
+// isn't there or is busy, 502 when it didn't take the write.
+void set_error_status(httpd_req_t *req, esp_err_t err) {
+    switch (err) {
+        case ESP_ERR_INVALID_ARG: httpd_resp_set_status(req, "400 Bad Request"); break;
+        case ESP_ERR_NOT_FOUND:
+        case ESP_ERR_NOT_FINISHED: httpd_resp_set_status(req, "409 Conflict"); break;
+        default: httpd_resp_set_status(req, "502 Bad Gateway"); break;
+    }
+}
+
 esp_err_t send_state(httpd_req_t *req, const char *error) {
-    char buf[512];
+    char buf[640];
     const int n = state_json(buf, sizeof buf, error);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -164,10 +189,8 @@ esp_err_t mon_post(httpd_req_t *req) {
     } else if (httpd_query_key_value(query, "power", val, sizeof val) == ESP_OK) {
         err = monitors::set_power(mon, (uint8_t)strtoul(val, nullptr, 0));
     }
-    if (err != ESP_OK) {
-        httpd_resp_set_status(req, err == ESP_ERR_INVALID_ARG ? "400 Bad Request" : "502 Bad Gateway");
-    }
-    return send_state(req, err == ESP_OK ? nullptr : esp_err_to_name(err));
+    if (err != ESP_OK) set_error_status(req, err);
+    return send_state(req, err == ESP_OK ? nullptr : error_text(err));
 }
 
 esp_err_t hub_post(httpd_req_t *req) {
@@ -183,10 +206,8 @@ esp_err_t hub_post(httpd_req_t *req) {
         return send_state(req, "missing port");
     }
     const esp_err_t err = hubs::set_port(hub, (uint8_t)strtoul(val, nullptr, 0));
-    if (err != ESP_OK) {
-        httpd_resp_set_status(req, err == ESP_ERR_INVALID_ARG ? "400 Bad Request" : "502 Bad Gateway");
-    }
-    return send_state(req, err == ESP_OK ? nullptr : esp_err_to_name(err));
+    if (err != ESP_OK) set_error_status(req, err);
+    return send_state(req, err == ESP_OK ? nullptr : error_text(err));
 }
 
 void start_mdns(const char *hostname) {

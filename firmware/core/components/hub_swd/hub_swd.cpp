@@ -190,6 +190,7 @@ esp_err_t Hub::request(uint8_t port) {
     uint32_t raw = 0;
     esp_err_t err = read_word(status_addr_, raw);
     if (err != ESP_OK) return err;
+    if (((raw >> 8) & 0xFF) != kNoPort) return ESP_ERR_NOT_FINISHED;  // mid-switch
     raw = (raw & ~(0xFFu << 8)) | ((uint32_t)port << 8);  // overwrite only the requested byte
     return write_word(status_addr_, raw);
 }
