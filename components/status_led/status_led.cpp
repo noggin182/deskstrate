@@ -30,7 +30,7 @@ constexpr Rgb kOrange = {255, 80, 0};
 
 std::atomic<bool> ready{false};
 std::atomic<uint32_t> faults{0};
-std::atomic<Ota> ota{Ota::Idle};
+std::atomic<uint32_t> activity{0};
 std::atomic<bool> core_silent{false};
 
 bool has_ip() {
@@ -53,21 +53,21 @@ void task(void *arg) {
         joined = joined || up;
         if (ready && !ready_at) ready_at = now;
 
-        switch (ota.load()) {
-            case Ota::Restarting: c = kBlue; break;
-            case Ota::Updating: c = (now / pdMS_TO_TICKS(kFlashMs)) % 2 ? kOff : kPurple; break;
-            case Ota::Doorbell: c = kPurple; break;
-            case Ota::Idle:
-                if (faults) {
-                    c = kRed;
-                } else if (!ready) {
-                    c = kBlue;
-                } else if (!up) {
-                    c = !joined && now - ready_at < pdMS_TO_TICKS(kJoinTimeoutMs) ? kBlue : kRed;
-                } else if (core_silent) {
-                    c = kOrange;
-                }
-                break;
+        const uint32_t act = activity;
+        if (act & kRestarting) {
+            c = kBlue;
+        } else if (act & kUpdating) {
+            c = (now / pdMS_TO_TICKS(kFlashMs)) % 2 ? kOff : kPurple;
+        } else if (act & kDoorbell) {
+            c = kPurple;
+        } else if (faults) {
+            c = kRed;
+        } else if (!ready) {
+            c = kBlue;
+        } else if (!up) {
+            c = !joined && now - ready_at < pdMS_TO_TICKS(kJoinTimeoutMs) ? kBlue : kRed;
+        } else if (core_silent) {
+            c = kOrange;
         }
         if (!shown || !(c == last)) {
             if (led_strip_set_pixel(strip, 0, c.r, c.g, c.b) == ESP_OK && led_strip_refresh(strip) == ESP_OK) {
@@ -104,15 +104,19 @@ esp_err_t start(gpio_num_t gpio) {
 
 void set_ready() { ready = true; }
 
-void set_fault(uint32_t f, bool on) {
+namespace {
+void set_bits(std::atomic<uint32_t> &bits, uint32_t b, bool on) {
     if (on) {
-        faults |= f;
+        bits |= b;
     } else {
-        faults &= ~f;
+        bits &= ~b;
     }
 }
+}  // namespace
 
-void set_ota(Ota o) { ota = o; }
+void set_fault(uint32_t f, bool on) { set_bits(faults, f, on); }
+
+void set_activity(uint32_t a, bool on) { set_bits(activity, a, on); }
 
 void set_core_silent(bool silent) { core_silent = silent; }
 

@@ -167,7 +167,7 @@ void install(const char *tag, const char *version) {
     esp_https_ota_config_t cfg = {};
     cfg.http_config = &http;
     esp_https_ota_handle_t ota = nullptr;
-    status_led::set_ota(status_led::Ota::Updating);
+    status_led::set_activity(status_led::kUpdating, true);  // until install() returns or reboots
     esp_err_t err = esp_https_ota_begin(&cfg, &ota);
     if (err != ESP_OK) {
         set_result(false, tag, "download of %s failed: %s", version, esp_err_to_name(err));
@@ -205,7 +205,8 @@ void install(const char *tag, const char *version) {
         return;
     }
     set_result(true, tag, "installed %s, rebooting", version);
-    status_led::set_ota(status_led::Ota::Restarting);
+    status_led::set_activity(status_led::kUpdating, false);
+    status_led::set_activity(status_led::kRestarting, true);
     vTaskDelay(pdMS_TO_TICKS(kRebootDelayMs));
     esp_restart();
 }
@@ -242,7 +243,8 @@ void check(bool doorbell) {
     } else if (!doorbell && ends_with(app->version, "-dirty")) {
         set_result(true, tag, "kept local build; %s waits for a doorbell", version);
     } else {
-        install(tag, version);
+        install(tag, version);  // returns only if it failed
+        status_led::set_activity(status_led::kUpdating, false);
     }
 }
 
@@ -269,7 +271,7 @@ void task(void *arg) {
     for (;;) {
         if (reached(next_allowed) && (rung || reached(next_poll))) {
             check(rung);  // returns only if nothing was installed
-            status_led::set_ota(status_led::Ota::Idle);
+            status_led::set_activity(status_led::kDoorbell, false);
             rung = false;
             next_allowed = xTaskGetTickCount() + pdMS_TO_TICKS(kMinGapMs);
             next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kPollMs);
@@ -282,7 +284,7 @@ void task(void *arg) {
         const int n = recv(sock, buf, sizeof buf, 0);
         if (n >= (int)sizeof kDoorbellMagic && memcmp(buf, kDoorbellMagic, sizeof kDoorbellMagic) == 0 && !rung) {
             rung = true;
-            status_led::set_ota(status_led::Ota::Doorbell);
+            status_led::set_activity(status_led::kDoorbell, true);
             ESP_LOGI(TAG, "doorbell: checking %s", reached(next_allowed) ? "now" : "when the rate limit allows");
         }
     }
@@ -298,9 +300,9 @@ void confirm_task(void *arg) {
     } else {
         ESP_LOGE(TAG, "new image unhealthy (services %s, network %s): rolling back",
                  healthy ? "up" : "down", has_ip() ? "up" : "down");
-        status_led::set_ota(status_led::Ota::Restarting);
+        status_led::set_activity(status_led::kRestarting, true);
         esp_ota_mark_app_invalid_rollback_and_reboot();  // returns only if there's nothing to roll back to
-        status_led::set_ota(status_led::Ota::Idle);
+        status_led::set_activity(status_led::kRestarting, false);
         ESP_LOGE(TAG, "rollback failed: keeping this image");
     }
     vTaskDelete(nullptr);

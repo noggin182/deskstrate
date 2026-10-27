@@ -25,7 +25,12 @@ enum Fault : uint32_t {
     kFaultUpdate = 1u << 1,   // the last update check or install failed
 };
 
-enum class Ota : uint8_t { Idle, Doorbell, Updating, Restarting };
+// Update activity, one bit each so the updater and the push path don't clear each other's.
+enum Activity : uint32_t {
+    kDoorbell = 1u << 0,
+    kUpdating = 1u << 1,
+    kRestarting = 1u << 2,
+};
 
 // Drives a single WS2812 on gpio, blue until set_ready(). GPIO_NUM_NC: no LED.
 esp_err_t start(gpio_num_t gpio);
@@ -34,7 +39,7 @@ esp_err_t start(gpio_num_t gpio);
 void set_ready();
 
 void set_fault(uint32_t faults, bool on);
-void set_ota(Ota ota);
+void set_activity(uint32_t activity, bool on);
 void set_core_silent(bool silent);
 
 }  // namespace status_led

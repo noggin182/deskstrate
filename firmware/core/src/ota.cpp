@@ -95,15 +95,14 @@ void reboot_task(void *) {
 
 // Status LED flashing purple while an upload is written; red if it fails part way.
 struct Writing {
-    Writing() { status_led::set_ota(status_led::Ota::Updating); }
+    Writing() { status_led::set_activity(status_led::kUpdating, true); }
     ~Writing() {
-        if (rebooting) return;
-        status_led::set_ota(status_led::Ota::Idle);
-        status_led::set_fault(status_led::kFaultUpdate, true);
+        status_led::set_activity(status_led::kUpdating, false);
+        if (!rebooting) status_led::set_fault(status_led::kFaultUpdate, true);
     }
     void reboot() {
         rebooting = true;
-        status_led::set_ota(status_led::Ota::Restarting);
+        status_led::set_activity(status_led::kRestarting, true);
     }
     bool rebooting = false;
 };
@@ -188,7 +187,7 @@ esp_err_t upload_post(httpd_req_t *req) {
     ESP_LOGI(TAG, "wrote %s; rebooting into it", slot->label);
     writing.reboot();
     reply(req, "200 OK", "{\"ok\":true,\"rebooting\":true}");
-    xTaskCreate(reboot_task, "ota_reboot", 2048, nullptr, 5, nullptr);
+    if (xTaskCreate(reboot_task, "ota_reboot", 2048, nullptr, 5, nullptr) != pdPASS) esp_restart();
     return ESP_OK;
 }
 
