@@ -4,9 +4,10 @@
 # OTA push token live in each board's NVS.
 #
 # Kept fast for iterating on one board:
-# - Only boards whose sources changed are built (firmware/<board>/ or the shared
-#   components/). The other board's image is reused from the previous release, so its
-#   version doesn't change and it doesn't reboot. Pushes that touch neither build nothing.
+# - Only boards whose sources changed are built (firmware/<board>/, the shared
+#   components/, or this workflow). The other board's image is reused from the previous
+#   release, so its version doesn't change and it doesn't reboot. Pushes that touch
+#   none of those build nothing.
 # - Each board's build directory is cached, so a build only recompiles what changed.
 # - The release is published and the doorbells rung before any cache is saved.
 # Run it by hand with "rebuild" to build both boards from scratch.
@@ -62,7 +63,7 @@ jobs:
           for board in core deck; do
             if [ "${{ inputs.rebuild }}" = true ] || [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
               build=true
-            elif git diff --quiet "$base" HEAD -- "firmware/$board" components; then
+            elif git diff --quiet "$base" HEAD -- "firmware/$board" components .github/workflows/firmware.yml; then
               build=false
             else
               build=true
@@ -117,21 +118,11 @@ jobs:
           set -euo pipefail
           build() {  # <board> <env>
             dir=firmware/$1
-            # A fresh checkout makes every file newer than the cached build, and PlatformIO
-            # re-runs CMake when its inputs look newer. If nothing that shapes the CMake
-            # configuration changed since the cached build, backdate those inputs so it
-            # doesn't. (Sources are compared by content, so their timestamps don't matter.)
-            cached=$(cat "$dir/.pio/built-from" 2>/dev/null || true)
-            if [ -n "$cached" ] && git cat-file -e "$cached^{commit}" 2>/dev/null &&
-               ! git diff --name-only "$cached" HEAD -- "$dir" components |
-                 grep -qE '(CMakeLists\.txt|Kconfig[^/]*|idf_component\.yml|sdkconfig\.defaults|dependencies\.lock|partitions\.csv|platformio\.ini)$'; then
-              touch -d 2000-01-01 "$dir/CMakeLists.txt" "$dir/src/CMakeLists.txt" "$dir/sdkconfig.defaults" "$dir/dependencies.lock"
-              echo "$1: incremental build from cache of ${cached::7}"
-            else
-              echo "$1: configuring from scratch"
-            fi
+            # CMake always re-runs (a fresh checkout looks newer than the cache): that is
+            # where git describe stamps the app version the boards compare against the
+            # manifest. Skipping it left build-8.1 with build-7.1's version, so neither
+            # board installed it. Objects still come from the cache.
             pio run -d "$dir" -e "$2"
-            git rev-parse HEAD > "$dir/.pio/built-from"
             cp "$dir/.pio/build/$2/firmware.bin" "images/$1.bin"
           }
           mkdir -p images
@@ -160,6 +151,20 @@ jobs:
             fi
           done
           python3 tools/release_manifest.py "$TAG" release images/core.bin images/deck.bin
+          # A rebuilt board whose version didn't change would never install it (the boards
+          # compare versions), so don't publish one. (A re-run of the same commit is fine.)
+          if [ -n "$prev" ] && [ "$(git rev-list -n1 "$prev" 2>/dev/null)" != "$GITHUB_SHA" ] &&
+             gh release download "$prev" -p manifest.txt -O prev-manifest.txt; then
+            for board in core deck; do
+              if [ "$board" = core ]; then rebuilt=${{ steps.plan.outputs.core }}; else rebuilt=${{ steps.plan.outputs.deck }}; fi
+              [ "$rebuilt" = true ] || continue
+              line=$(grep "^deskstrate_$board=" release/manifest.txt)
+              if grep -qxF "$line" prev-manifest.txt; then
+                echo "::error::$board was rebuilt but its version is unchanged from $prev ($line)"
+                exit 1
+              fi
+            done
+          fi
           gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "$TAG" --latest \
             --notes "Firmware for ${GITHUB_SHA::7}. Rebuilt: core=${{ steps.plan.outputs.core }}, deck=${{ steps.plan.outputs.deck }}."
 
