@@ -13,6 +13,7 @@
 #include "nvs.h"
 #include "sdkconfig.h"
 #include "ota_pull.h"
+#include "status_led.h"
 
 namespace ota {
 
@@ -92,6 +93,21 @@ void reboot_task(void *) {
     esp_restart();
 }
 
+// Status LED flashing purple while an upload is written; red if it fails part way.
+struct Writing {
+    Writing() { status_led::set_ota(status_led::Ota::Updating); }
+    ~Writing() {
+        if (rebooting) return;
+        status_led::set_ota(status_led::Ota::Idle);
+        status_led::set_fault(status_led::kFaultUpdate, true);
+    }
+    void reboot() {
+        rebooting = true;
+        status_led::set_ota(status_led::Ota::Restarting);
+    }
+    bool rebooting = false;
+};
+
 esp_err_t reply(httpd_req_t *req, const char *status, const char *json) {
     httpd_resp_set_status(req, status);
     httpd_resp_set_type(req, "application/json");
@@ -137,6 +153,7 @@ esp_err_t upload_post(httpd_req_t *req) {
     esp_ota_handle_t ota = 0;
     esp_err_t err = esp_ota_begin(slot, OTA_WITH_SEQUENTIAL_WRITES, &ota);
     if (err != ESP_OK) return fail(req, "500 Internal Server Error", esp_err_to_name(err));
+    Writing writing;
 
     static char buf[kChunk];  // httpd runs one handler at a time
     size_t left = req->content_len;
@@ -169,6 +186,7 @@ esp_err_t upload_post(httpd_req_t *req) {
     if (err != ESP_OK) return fail(req, "500 Internal Server Error", esp_err_to_name(err));
 
     ESP_LOGI(TAG, "wrote %s; rebooting into it", slot->label);
+    writing.reboot();
     reply(req, "200 OK", "{\"ok\":true,\"rebooting\":true}");
     xTaskCreate(reboot_task, "ota_reboot", 2048, nullptr, 5, nullptr);
     return ESP_OK;

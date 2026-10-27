@@ -20,6 +20,10 @@
 //
 // A local build ("-dirty" version) is replaced by a doorbell but never by the poll, so
 // a bench build isn't overwritten behind your back.
+//
+// Shows on the status LED (status_led.h): purple from a doorbell until its check is done,
+// flashing purple while an image is written, blue for the reboot into it, red while the
+// last check failed.
 #pragma once
 
 #include <cstddef>

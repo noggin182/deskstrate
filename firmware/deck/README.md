@@ -54,6 +54,9 @@ and D11 (B), configured as active-low inputs with internal pull-ups. The four
 chained NeoPixels share D9 and animate through the color wheel; pressing any
 key shifts the animation colors.
 
+The Feather's built-in NeoPixel (GPIO33) is the status LED: see Status LED in the
+top README. It turns bright orange when no `STATE` has come from the core for 10 s.
+
 ## Status screen and controls
 
 The TFT status screen is portrait (135 x 240). Its routing diagram shows the

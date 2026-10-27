@@ -9,6 +9,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "network.h"
 #include "ota_pull.h"
+#include "status_led.h"
 #include "led_strip.h"
 #include "lvgl.h"
 
@@ -31,6 +32,10 @@
 #define PIN_NEOKEY_SWITCH_B GPIO_NUM_11
 #define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
 #define NEOKEY_NEOPIXEL_COUNT 4
+
+// Orange on the status LED after this long without a STATE from the core
+// (KVM_HEARTBEAT_MS apart when it's up).
+#define CORE_SILENT_MS 10000
 
 static lv_disp_drv_t disp_drv;
 
@@ -733,24 +738,10 @@ extern "C" void app_main(void) {
     gpio_set_direction(PIN_TFT_BACKLIGHT, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_TFT_BACKLIGHT, 1);
 
-    // 3. Initialize the Built-in NeoPixel
+    // 3. The built-in NeoPixel is the status LED (status_led.h): blue while booting
     gpio_set_direction(PIN_NEOPIXEL_POWER, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_NEOPIXEL_POWER, 1);
-
-    led_strip_config_t strip_config = {};
-    strip_config.strip_gpio_num = PIN_NEOPIXEL;
-    strip_config.max_leds = 1;
-    strip_config.led_model = LED_MODEL_WS2812;
-
-    led_strip_rmt_config_t rmt_config = {};
-    rmt_config.resolution_hz = 10 * 1000 * 1000;
-
-    led_strip_handle_t led_strip;
-    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
-    
-    // Set NeoPixel to Green (R, G, B) to confirm boot
-    led_strip_set_pixel(led_strip, 0, 0, 255, 0);
-    led_strip_refresh(led_strip);
+    status_led::start(PIN_NEOPIXEL);
 
     // NeoKey switches are active-low; their NeoPixels share D9.
     gpio_config_t neokey_gpio_config = {};
@@ -764,6 +755,9 @@ extern "C" void app_main(void) {
     neokey_gpio_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
     neokey_gpio_config.intr_type = GPIO_INTR_DISABLE;
     ESP_ERROR_CHECK(gpio_config(&neokey_gpio_config));
+
+    led_strip_rmt_config_t rmt_config = {};
+    rmt_config.resolution_hz = 10 * 1000 * 1000;
 
     led_strip_config_t neokey_strip_config = {};
     neokey_strip_config.strip_gpio_num = PIN_NEOKEY_NEOPIXEL;
@@ -781,6 +775,7 @@ extern "C" void app_main(void) {
         network_err = ota_pull::start(ota_pull::kDeckPort);
         if (network_err != ESP_OK) printf("updater not started: %s\n", esp_err_to_name(network_err));
     }
+    if (network_err != ESP_OK) status_led::set_fault(status_led::kFaultStartup, true);
 
     // 4. Initialize the SPI Master Bus for the ST7789 TFT
     spi_bus_config_t buscfg = {};
@@ -867,6 +862,7 @@ extern "C" void app_main(void) {
     // Display up and nothing crashed: a new OTA image is confirmed once it's on the
     // network, otherwise it rolls back.
     ota_pull::confirm_boot(network_err == ESP_OK);
+    status_led::set_ready();
     
     // --- 9. The Main Loop ---
     uint16_t heartbeat_ticks = 0;
@@ -877,6 +873,7 @@ extern "C" void app_main(void) {
     KeyDebounceState key_b_state;
     KeyDebounceState key_menu_state;
     KeyDebounceState key_function_state;
+    TickType_t last_core_state = xTaskGetTickCount();
 
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
@@ -909,12 +906,14 @@ extern "C" void app_main(void) {
         }
 
         kvm_state_t core_state;
-        const bool scenario_changed = network_take_kvm_state(core_state)
-            && apply_core_state(core_state, current_kvm_state);
-        if (scenario_changed) {
-            update_state_code(current_kvm_state);
-            render_current_scenario();
+        if (network_take_kvm_state(core_state)) {
+            last_core_state = xTaskGetTickCount();
+            if (apply_core_state(core_state, current_kvm_state)) {
+                update_state_code(current_kvm_state);
+                render_current_scenario();
+            }
         }
+        status_led::set_core_silent(xTaskGetTickCount() - last_core_state >= pdMS_TO_TICKS(CORE_SILENT_MS));
 
         if (++animation_ticks >= 3) {
             animation_ticks = 0;

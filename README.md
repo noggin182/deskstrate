@@ -44,3 +44,17 @@ Ring by hand with `python tools/doorbell.py <host> 18210 18211` (on the LAN, use
 each board's own address). Checks are rate-limited to one a minute per board.
 Anyone who can push to `main` can deploy, so protect the account (2FA) and the
 branch.
+
+### Status LED
+
+Each board has one WS2812 status LED (`components/status_led`): the core's is
+external (GPIO7 for now), the deck's is the Feather's built-in NeoPixel.
+
+| Colour | Meaning |
+| --- | --- |
+| Green, dim | All good |
+| Blue | Booting, joining Wi-Fi, or restarting into a new image |
+| Purple | Doorbell rang: checking for an update |
+| Purple, flashing | Writing an update to the spare slot |
+| Red | A fault: a service didn't start, no Wi-Fi, or the last update check failed |
+| Orange, bright | Deck only: no `STATE` from the core for 10 s |

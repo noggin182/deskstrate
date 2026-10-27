@@ -16,6 +16,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
+#include "status_led.h"
 
 namespace ota_pull {
 
@@ -44,7 +45,9 @@ bool has_ip() {
     return netif && esp_netif_get_ip_info(netif, &ip) == ESP_OK && ip.ip.addr != 0;
 }
 
-void set_result(const char *release, const char *fmt, ...) {
+// ok false = a failure the status LED shows red until a check succeeds.
+void set_result(bool ok, const char *release, const char *fmt, ...) {
+    status_led::set_fault(status_led::kFaultUpdate, !ok);
     xSemaphoreTake(last_lock, portMAX_DELAY);
     va_list args;
     va_start(args, fmt);
@@ -164,9 +167,10 @@ void install(const char *tag, const char *version) {
     esp_https_ota_config_t cfg = {};
     cfg.http_config = &http;
     esp_https_ota_handle_t ota = nullptr;
+    status_led::set_ota(status_led::Ota::Updating);
     esp_err_t err = esp_https_ota_begin(&cfg, &ota);
     if (err != ESP_OK) {
-        set_result(tag, "download of %s failed: %s", version, esp_err_to_name(err));
+        set_result(false, tag, "download of %s failed: %s", version, esp_err_to_name(err));
         return;
     }
 
@@ -175,12 +179,12 @@ void install(const char *tag, const char *version) {
     err = esp_https_ota_get_img_desc(ota, &incoming);
     if (err == ESP_OK && strncmp(incoming.project_name, app->project_name, sizeof incoming.project_name) != 0) {
         esp_https_ota_abort(ota);
-        set_result(tag, "refused: image is %.32s, not %.32s", incoming.project_name, app->project_name);
+        set_result(false, tag, "refused: image is %.32s, not %.32s", incoming.project_name, app->project_name);
         return;
     }
     if (err == ESP_OK && strncmp(incoming.version, version, sizeof incoming.version) != 0) {
         esp_https_ota_abort(ota);
-        set_result(tag, "refused: image version %.32s != manifest", incoming.version);
+        set_result(false, tag, "refused: image version %.32s != manifest", incoming.version);
         return;
     }
 
@@ -192,22 +196,23 @@ void install(const char *tag, const char *version) {
     if (err == ESP_OK && !esp_https_ota_is_complete_data_received(ota)) err = ESP_ERR_INVALID_SIZE;
     if (err != ESP_OK) {
         esp_https_ota_abort(ota);
-        set_result(tag, "download of %s failed: %s", version, esp_err_to_name(err));
+        set_result(false, tag, "download of %s failed: %s", version, esp_err_to_name(err));
         return;
     }
     err = esp_https_ota_finish(ota);  // validates the image and sets it as the boot slot
     if (err != ESP_OK) {
-        set_result(tag, "install of %s failed: %s", version, esp_err_to_name(err));
+        set_result(false, tag, "install of %s failed: %s", version, esp_err_to_name(err));
         return;
     }
-    set_result(tag, "installed %s, rebooting", version);
+    set_result(true, tag, "installed %s, rebooting", version);
+    status_led::set_ota(status_led::Ota::Restarting);
     vTaskDelay(pdMS_TO_TICKS(kRebootDelayMs));
     esp_restart();
 }
 
 void check(bool doorbell) {
     if (!has_ip()) {
-        set_result(nullptr, "skipped: no network");
+        set_result(true, nullptr, "skipped: no network");
         return;
     }
     char url[96];
@@ -215,26 +220,27 @@ void check(bool doorbell) {
     char manifest[512];
     const esp_err_t err = get_text(url, manifest, sizeof manifest);
     if (err != ESP_OK) {
-        set_result(nullptr, "manifest: %s", err == ESP_ERR_NOT_FOUND ? "no release yet" : esp_err_to_name(err));
+        const bool none = err == ESP_ERR_NOT_FOUND;  // nothing published yet isn't a fault
+        set_result(none, nullptr, "manifest: %s", none ? "no release yet" : esp_err_to_name(err));
         return;
     }
 
     const esp_app_desc_t *app = esp_app_get_description();
     char tag[41], version[33], bad[33];
     if (!manifest_value(manifest, "tag", tag, sizeof tag) || !safe_token(tag)) {
-        set_result(nullptr, "manifest: no valid tag");
+        set_result(false, nullptr, "manifest: no valid tag");
         return;
     }
     if (!manifest_value(manifest, app->project_name, version, sizeof version) || !safe_token(version)) {
-        set_result(tag, "no %.32s image in %s", app->project_name, tag);
+        set_result(false, tag, "no %.32s image in %s", app->project_name, tag);
         return;
     }
     if (strcmp(version, app->version) == 0) {
-        set_result(tag, "up to date (%s)", version);
+        set_result(true, tag, "up to date (%s)", version);
     } else if (rolled_back_version(bad, sizeof bad) && strcmp(bad, version) == 0) {
-        set_result(tag, "skipped %s: it rolled back", version);
+        set_result(true, tag, "skipped %s: it rolled back", version);
     } else if (!doorbell && ends_with(app->version, "-dirty")) {
-        set_result(tag, "kept local build; %s waits for a doorbell", version);
+        set_result(true, tag, "kept local build; %s waits for a doorbell", version);
     } else {
         install(tag, version);
     }
@@ -262,7 +268,8 @@ void task(void *arg) {
     bool rung = false;
     for (;;) {
         if (reached(next_allowed) && (rung || reached(next_poll))) {
-            check(rung);
+            check(rung);  // returns only if nothing was installed
+            status_led::set_ota(status_led::Ota::Idle);
             rung = false;
             next_allowed = xTaskGetTickCount() + pdMS_TO_TICKS(kMinGapMs);
             next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kPollMs);
@@ -275,6 +282,7 @@ void task(void *arg) {
         const int n = recv(sock, buf, sizeof buf, 0);
         if (n >= (int)sizeof kDoorbellMagic && memcmp(buf, kDoorbellMagic, sizeof kDoorbellMagic) == 0 && !rung) {
             rung = true;
+            status_led::set_ota(status_led::Ota::Doorbell);
             ESP_LOGI(TAG, "doorbell: checking %s", reached(next_allowed) ? "now" : "when the rate limit allows");
         }
     }
@@ -290,7 +298,9 @@ void confirm_task(void *arg) {
     } else {
         ESP_LOGE(TAG, "new image unhealthy (services %s, network %s): rolling back",
                  healthy ? "up" : "down", has_ip() ? "up" : "down");
+        status_led::set_ota(status_led::Ota::Restarting);
         esp_ota_mark_app_invalid_rollback_and_reboot();  // returns only if there's nothing to roll back to
+        status_led::set_ota(status_led::Ota::Idle);
         ESP_LOGE(TAG, "rollback failed: keeping this image");
     }
     vTaskDelete(nullptr);

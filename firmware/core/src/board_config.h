@@ -25,5 +25,8 @@ inline constexpr gpio_num_t kHidSwdio = GPIO_NUM_5;
 inline constexpr gpio_num_t kMediaSwclk = GPIO_NUM_6;
 inline constexpr gpio_num_t kMediaSwdio = GPIO_NUM_4;
 
+// External WS2812 status LED (status_led.h). PROVISIONAL: not wired yet, any free pin.
+inline constexpr gpio_num_t kStatusLed = GPIO_NUM_7;
+
 
 }  // namespace board
