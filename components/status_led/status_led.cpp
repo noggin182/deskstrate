@@ -22,8 +22,8 @@ struct Rgb {
     bool operator==(const Rgb &o) const { return r == o.r && g == o.g && b == o.b; }
 };
 constexpr Rgb kOff = {0, 0, 0};
-constexpr Rgb kGreenDim = {0, 12, 0};
-constexpr Rgb kBlue = {0, 0, 80};
+constexpr Rgb kBlueDim = {0, 0, 16};
+constexpr Rgb kGreen = {0, 80, 0};
 constexpr Rgb kPurple = {100, 0, 140};
 constexpr Rgb kRed = {120, 0, 0};
 constexpr Rgb kOrange = {255, 80, 0};
@@ -47,7 +47,7 @@ void task(void *arg) {
     Rgb last = kOff;
     for (;;) {
         const TickType_t now = xTaskGetTickCount();
-        Rgb c = kGreenDim;
+        Rgb c = kBlueDim;
         // Netif is only looked at once ready without faults, i.e. after Wi-Fi started.
         const bool up = ready && !faults && has_ip();
         joined = joined || up;
@@ -55,7 +55,7 @@ void task(void *arg) {
 
         const uint32_t act = activity;
         if (act & kRestarting) {
-            c = kBlue;
+            c = kGreen;
         } else if (act & kUpdating) {
             c = (now / pdMS_TO_TICKS(kFlashMs)) % 2 ? kOff : kPurple;
         } else if (act & kDoorbell) {
@@ -63,9 +63,9 @@ void task(void *arg) {
         } else if (faults) {
             c = kRed;
         } else if (!ready) {
-            c = kBlue;
+            c = kGreen;
         } else if (!up) {
-            c = !joined && now - ready_at < pdMS_TO_TICKS(kJoinTimeoutMs) ? kBlue : kRed;
+            c = !joined && now - ready_at < pdMS_TO_TICKS(kJoinTimeoutMs) ? kGreen : kRed;
         } else if (core_silent) {
             c = kOrange;
         }

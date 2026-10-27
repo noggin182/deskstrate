@@ -53,7 +53,7 @@ static void swd_bringup_one(const char *role, hub_swd::Pins pins) {
 #endif
 
 extern "C" void app_main(void) {
-    status_led::start(board::kStatusLed);  // blue until start-up is done
+    status_led::start(board::kStatusLed);  // green until start-up is done
     ESP_LOGI(TAG, "Deskstrate core on %s (kvm_proto v%u, port %u)", board::kName,
              (unsigned)KVM_VERSION, (unsigned)KVM_PORT);
     ota::log_running();

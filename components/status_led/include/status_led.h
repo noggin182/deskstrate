@@ -1,13 +1,13 @@
 // Status LED shared by core and deck: one WS2812 whose colour says what the board is
 // doing. The first of these that applies wins:
-//   blue                 restarting into a new image
+//   green                restarting into a new image
 //   purple, flashing     writing an update to the spare slot (pulled or pushed)
 //   purple               a doorbell rang: checking GitHub for an update
 //   red                  a fault: something failed to start, the last update check
 //                        failed, or no Wi-Fi (kJoinTimeoutMs after ready, or lost later)
-//   blue                 booting: not ready yet, or ready and still joining Wi-Fi
+//   green                booting: not ready yet, or ready and still joining Wi-Fi
 //   orange, bright       deck only: the core has gone quiet (set_core_silent)
-//   green, dim           all good
+//   blue, dim            all good
 // Every setter is safe from any task, and before start() (or with no LED at all).
 #pragma once
 
@@ -32,7 +32,7 @@ enum Activity : uint32_t {
     kRestarting = 1u << 2,
 };
 
-// Drives a single WS2812 on gpio, blue until set_ready(). GPIO_NUM_NC: no LED.
+// Drives a single WS2812 on gpio, green until set_ready(). GPIO_NUM_NC: no LED.
 esp_err_t start(gpio_num_t gpio);
 
 // Start-up is done (whether or not it all worked): Wi-Fi is watched from here on.

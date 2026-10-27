@@ -738,7 +738,7 @@ extern "C" void app_main(void) {
     gpio_set_direction(PIN_TFT_BACKLIGHT, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_TFT_BACKLIGHT, 1);
 
-    // 3. The built-in NeoPixel is the status LED (status_led.h): blue while booting
+    // 3. The built-in NeoPixel is the status LED (status_led.h): green while booting
     gpio_set_direction(PIN_NEOPIXEL_POWER, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_NEOPIXEL_POWER, 1);
     status_led::start(PIN_NEOPIXEL);

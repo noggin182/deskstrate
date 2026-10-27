@@ -52,8 +52,8 @@ on the core's S3 Mini, the NeoPixel on the deck's Feather.
 
 | Colour | Meaning |
 | --- | --- |
-| Green, dim | All good |
-| Blue | Booting, joining Wi-Fi, or restarting into a new image |
+| Blue, dim | All good |
+| Green | Booting, joining Wi-Fi, or restarting into a new image |
 | Purple | Doorbell rang: checking for an update |
 | Purple, flashing | Writing an update to the spare slot |
 | Red | A fault: a service didn't start, no Wi-Fi, or the last update check failed |
