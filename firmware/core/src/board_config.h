@@ -9,7 +9,7 @@ namespace board {
 // diymore ESP32-S3 Mini (Waveshare ESP32-S3-Zero layout).
 // Chip confirmed: ESP32-S3FH4R2 (4MB flash, 2MB PSRAM).
 // Pins below VERIFIED on the wired core (confirmed 2026-10-26).
-// Avoid 0 (BOOT), 3/45/46 (strapping), 19/20 (USB), 43/44 (console), 21 (RGB LED).
+// Avoid 0 (BOOT), 3/45/46 (strapping), 19/20 (USB), 43/44 (console), 21 (RGB LED, the status LED).
 inline constexpr const char *kName = "ESP32-S3 Mini";
 
 // DDC1 is SDA 11 / SCL 12 (the reverse of DDC2's order): an I2C scan found the monitor
@@ -25,8 +25,8 @@ inline constexpr gpio_num_t kHidSwdio = GPIO_NUM_5;
 inline constexpr gpio_num_t kMediaSwclk = GPIO_NUM_6;
 inline constexpr gpio_num_t kMediaSwdio = GPIO_NUM_4;
 
-// External WS2812 status LED (status_led.h). PROVISIONAL: not wired yet, any free pin.
-inline constexpr gpio_num_t kStatusLed = GPIO_NUM_7;
+// The board's own WS2812 RGB LED is the status LED (status_led.h).
+inline constexpr gpio_num_t kStatusLed = GPIO_NUM_21;
 
 
 }  // namespace board

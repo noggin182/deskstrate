@@ -47,8 +47,8 @@ branch.
 
 ### Status LED
 
-Each board has one WS2812 status LED (`components/status_led`): the core's is
-external (GPIO7 for now), the deck's is the Feather's built-in NeoPixel.
+Each board's built-in WS2812 is its status LED (`components/status_led`): GPIO21
+on the core's S3 Mini, the NeoPixel on the deck's Feather.
 
 | Colour | Meaning |
 | --- | --- |
