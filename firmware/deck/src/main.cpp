@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
@@ -796,17 +797,132 @@ static void create_waiting_panel(void) {
     );
 }
 
-static void show_waiting(bool show, bool lost) {
+enum class Waiting : uint8_t { Hidden, Starting, ForCore, LostCore };
+
+static void show_waiting(Waiting wanted) {
     // Called every loop: only touch LVGL when something changes.
-    static int shown = -1;
-    const int wanted = show ? (lost ? 2 : 1) : 0;
-    if (wanted == shown) return;
+    static Waiting shown = Waiting::Hidden;
+    static bool drawn = false;
+    if (drawn && wanted == shown) return;
+    drawn = true;
     shown = wanted;
-    if (show) {
-        lv_label_set_text(waiting_label, lost ? "Lost the core\nreconnecting..." : "Waiting for\nthe core...");
-        lv_obj_clear_flag(waiting_panel, LV_OBJ_FLAG_HIDDEN);
+    switch (wanted) {
+        case Waiting::Hidden: lv_obj_add_flag(waiting_panel, LV_OBJ_FLAG_HIDDEN); return;
+        case Waiting::Starting: lv_label_set_text(waiting_label, "Starting up..."); break;
+        case Waiting::ForCore: lv_label_set_text(waiting_label, "Waiting for\nthe core..."); break;
+        case Waiting::LostCore: lv_label_set_text(waiting_label, "Lost the core\nreconnecting..."); break;
+    }
+    lv_obj_clear_flag(waiting_panel, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Full-screen overlay while the deck updates itself (ota_pull::progress()): a download
+// icon and progress bar, then a power symbol in a spinning ring while it restarts.
+// Drawn on the system layer, above the status screen and the menu.
+static lv_obj_t *ota_panel = nullptr;
+static lv_obj_t *ota_bar = nullptr;
+static lv_obj_t *ota_detail = nullptr;
+
+static lv_obj_t *create_ota_panel(void) {
+    lv_obj_t *panel = lv_obj_create(lv_layer_sys());
+    lv_obj_set_pos(panel, 0, 0);
+    lv_obj_set_size(panel, 135, 240);
+    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(panel, lv_color_hex(0x08111D), 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(panel, 0, 0);
+    lv_obj_set_style_radius(panel, 0, 0);
+    lv_obj_set_style_pad_all(panel, 0, 0);
+    return panel;
+}
+
+static void draw_ota_downloading(const char *version) {
+    const lv_color_t accent = lv_color_hex(0x55E6D2);
+    lv_obj_t *ring = lv_obj_create(ota_panel);
+    lv_obj_set_pos(ring, 38, 40);
+    lv_obj_set_size(ring, 60, 60);
+    lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(ring, lv_color_hex(0x101C2B), 0);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(ring, accent, 0);
+    lv_obj_set_style_border_width(ring, 3, 0);
+    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_pad_all(ring, 0, 0);
+    create_status_label(ring, LV_SYMBOL_DOWNLOAD, 0, 15, 54, 26, &lv_font_montserrat_22, accent, LV_TEXT_ALIGN_CENTER);
+
+    create_status_label(ota_panel, "Updating", 0, 112, 135, 26, &lv_font_montserrat_22, lv_color_hex(0xE6EDF5), LV_TEXT_ALIGN_CENTER);
+    lv_obj_t *to = create_status_label(ota_panel, "", 0, 140, 135, 16, &lv_font_montserrat_14, lv_color_hex(0x91A3B8), LV_TEXT_ALIGN_CENTER);
+    if (strncmp(version, "build-", 6) == 0) version += 6;
+    lv_label_set_text_fmt(to, "to %s", version);
+    lv_label_set_long_mode(to, LV_LABEL_LONG_SCROLL_CIRCULAR);
+
+    ota_bar = lv_bar_create(ota_panel);
+    lv_obj_set_pos(ota_bar, 12, 172);
+    lv_obj_set_size(ota_bar, 111, 12);
+    lv_bar_set_range(ota_bar, 0, 1000);
+    lv_obj_set_style_bg_color(ota_bar, lv_color_hex(0x24364A), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ota_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(ota_bar, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ota_bar, accent, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(ota_bar, 6, LV_PART_INDICATOR);
+
+    ota_detail = create_status_label(ota_panel, "", 0, 192, 135, 16, &lv_font_montserrat_14, lv_color_hex(0x91A3B8), LV_TEXT_ALIGN_CENTER);
+}
+
+static void draw_ota_restarting(const char *version) {
+    const lv_color_t green = lv_color_hex(0x4BE37A);
+    lv_obj_t *spinner = lv_spinner_create(ota_panel, 1200, 90);
+    lv_obj_set_size(spinner, 70, 70);
+    lv_obj_set_pos(spinner, 33, 36);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(spinner, lv_color_hex(0x1C3A2A), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(spinner, green, LV_PART_INDICATOR);
+    create_status_label(ota_panel, LV_SYMBOL_POWER, 33, 59, 70, 26, &lv_font_montserrat_22, green, LV_TEXT_ALIGN_CENTER);
+
+    create_status_label(ota_panel, "Restarting", 0, 120, 135, 26, &lv_font_montserrat_22, lv_color_hex(0xE6EDF5), LV_TEXT_ALIGN_CENTER);
+    lv_obj_t *detail = create_status_label(ota_panel, "", 0, 150, 135, 40, &lv_font_montserrat_14, lv_color_hex(0x91A3B8), LV_TEXT_ALIGN_CENTER);
+    if (version[0] == '\0') {
+        lv_label_set_text(detail, "rolling back\nto the last build");
     } else {
-        lv_obj_add_flag(waiting_panel, LV_OBJ_FLAG_HIDDEN);
+        if (strncmp(version, "build-", 6) == 0) version += 6;
+        lv_label_set_text_fmt(detail, "into %s", version);
+    }
+}
+
+static void update_ota_panel(void) {
+    static ota_pull::Phase shown = ota_pull::Phase::Idle;
+    static uint32_t shown_permille = UINT32_MAX;
+    const ota_pull::Progress p = ota_pull::progress();
+
+    if (p.phase != shown) {
+        shown = p.phase;
+        shown_permille = UINT32_MAX;
+        if (ota_panel != nullptr) {
+            lv_obj_del(ota_panel);
+            ota_panel = nullptr;
+            ota_bar = nullptr;
+            ota_detail = nullptr;
+        }
+        if (p.phase == ota_pull::Phase::Idle) return;  // finished or failed: back to normal
+        ota_panel = create_ota_panel();
+        if (p.phase == ota_pull::Phase::Downloading) {
+            draw_ota_downloading(p.version);
+        } else {
+            draw_ota_restarting(p.version);
+        }
+    }
+
+    if (p.phase == ota_pull::Phase::Downloading) {
+        const uint32_t permille = p.total > 0 ? static_cast<uint32_t>(static_cast<uint64_t>(p.bytes) * 1000 / p.total) : 0;
+        if (permille == shown_permille) return;
+        shown_permille = permille;
+        lv_bar_set_value(ota_bar, static_cast<int32_t>(permille), LV_ANIM_OFF);
+        if (p.total > 0) {
+            lv_label_set_text_fmt(ota_detail, "%lu%%  %lu/%lu KB", (unsigned long)(permille / 10),
+                                  (unsigned long)(p.bytes / 1024), (unsigned long)(p.total / 1024));
+        } else {
+            lv_label_set_text(ota_detail, "connecting...");
+        }
     }
 }
 
@@ -851,8 +967,6 @@ static_assert(sizeof(lv_color_t) == 2, "LVGL must be configured for 16-bit color
 // extern "C" is mandatory so the FreeRTOS bootloader can find the entry point
 extern "C" void app_main(void) {
 
-    vTaskDelay(pdMS_TO_TICKS(3000));
-
     printf("Booting Deskstrate deck...\n");
 
     // 1. Route Power to the TFT and STEMMA port
@@ -885,16 +999,6 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(gpio_config(&neokey_gpio_config));
 
     if (neokeys::start(PIN_NEOKEY_NEOPIXEL) != ESP_OK) printf("NeoKey lights not started\n");
-
-    esp_err_t network_err = network_start();
-    if (network_err != ESP_OK) {
-        printf("Wi-Fi not started: %s\n", esp_err_to_name(network_err));
-    } else {
-        // Updates itself from GitHub releases: hourly, or on a UDP doorbell (ota_pull.h).
-        network_err = ota_pull::start(ota_pull::kDeckPort);
-        if (network_err != ESP_OK) printf("updater not started: %s\n", esp_err_to_name(network_err));
-    }
-    if (network_err != ESP_OK) status_led::set_fault(status_led::kFaultStartup, true);
 
     // 4. Initialize the SPI Master Bus for the ST7789 TFT
     spi_bus_config_t buscfg = {};
@@ -977,7 +1081,27 @@ extern "C" void app_main(void) {
     // --- 8. Draw the portrait KVM status screen ---
     create_status_screen();
     create_waiting_panel();
-    show_waiting(true, false);
+    show_waiting(Waiting::Starting);
+
+    // The screen comes up first so a restart (after an update) never leaves the last
+    // image on it. Then three seconds for the USB console to attach before the boot
+    // log, with LVGL running so the spinner turns.
+    for (int i = 0; i < 300; ++i) {
+        lv_tick_inc(10);
+        lv_timer_handler();
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+
+    esp_err_t network_err = network_start();
+    if (network_err != ESP_OK) {
+        printf("Wi-Fi not started: %s\n", esp_err_to_name(network_err));
+    } else {
+        // Updates itself from GitHub releases: hourly, or on a UDP doorbell (ota_pull.h).
+        network_err = ota_pull::start(ota_pull::kDeckPort);
+        if (network_err != ESP_OK) printf("updater not started: %s\n", esp_err_to_name(network_err));
+    }
+    if (network_err != ESP_OK) status_led::set_fault(status_led::kFaultStartup, true);
+
 
     printf("UI Rendered. Entering main loop.\n");
     // Display up and nothing crashed: a new OTA image is confirmed once it's on the
@@ -1079,7 +1203,8 @@ extern "C" void app_main(void) {
         }
         const bool core_silent = xTaskGetTickCount() - last_core_state >= pdMS_TO_TICKS(CORE_SILENT_MS);
         status_led::set_core_silent(core_silent);
-        show_waiting(!core_seen || core_silent, core_seen);
+        show_waiting(!core_seen ? Waiting::ForCore : (core_silent ? Waiting::LostCore : Waiting::Hidden));
+        update_ota_panel();
 
         if (++neokey_ticks >= NEOKEY_FRAME_MS / 10) {
             neokey_ticks = 0;

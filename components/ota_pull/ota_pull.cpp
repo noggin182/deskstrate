@@ -26,7 +26,6 @@ const char *TAG = "ota_pull";
 
 constexpr int kMaxRedirects = 5;
 constexpr int kTimeoutMs = 30000;
-constexpr uint32_t kRebootDelayMs = 500;
 
 struct Last {
     char result[64] = "not checked yet";
@@ -46,6 +45,18 @@ bool has_ip() {
 }
 
 // ok false = a failure the status LED shows red until a check succeeds.
+portMUX_TYPE progress_lock = portMUX_INITIALIZER_UNLOCKED;
+Progress current = {};
+
+void set_progress(Phase phase, uint32_t bytes, uint32_t total, const char *version) {
+    taskENTER_CRITICAL(&progress_lock);
+    current.phase = phase;
+    current.bytes = bytes;
+    current.total = total;
+    if (version != nullptr) snprintf(current.version, sizeof current.version, "%s", version);
+    taskEXIT_CRITICAL(&progress_lock);
+}
+
 void set_result(bool ok, const char *release, const char *fmt, ...) {
     status_led::set_fault(status_led::kFaultUpdate, !ok);
     xSemaphoreTake(last_lock, portMAX_DELAY);
@@ -168,8 +179,10 @@ void install(const char *tag, const char *version) {
     cfg.http_config = &http;
     esp_https_ota_handle_t ota = nullptr;
     status_led::set_activity(status_led::kUpdating, true);  // until install() returns or reboots
+    set_progress(Phase::Downloading, 0, 0, version);
     esp_err_t err = esp_https_ota_begin(&cfg, &ota);
     if (err != ESP_OK) {
+        set_progress(Phase::Idle, 0, 0, nullptr);
         set_result(false, tag, "download of %s failed: %s", version, esp_err_to_name(err));
         return;
     }
@@ -179,34 +192,42 @@ void install(const char *tag, const char *version) {
     err = esp_https_ota_get_img_desc(ota, &incoming);
     if (err == ESP_OK && strncmp(incoming.project_name, app->project_name, sizeof incoming.project_name) != 0) {
         esp_https_ota_abort(ota);
+        set_progress(Phase::Idle, 0, 0, nullptr);
         set_result(false, tag, "refused: image is %.32s, not %.32s", incoming.project_name, app->project_name);
         return;
     }
     if (err == ESP_OK && strncmp(incoming.version, version, sizeof incoming.version) != 0) {
         esp_https_ota_abort(ota);
+        set_progress(Phase::Idle, 0, 0, nullptr);
         set_result(false, tag, "refused: image version %.32s != manifest", incoming.version);
         return;
     }
 
     if (err == ESP_OK) {
+        const int total = esp_https_ota_get_image_size(ota);
         do {
             err = esp_https_ota_perform(ota);  // one chunk per call
+            const int read = esp_https_ota_get_image_len_read(ota);
+            set_progress(Phase::Downloading, read > 0 ? read : 0, total > 0 ? total : 0, nullptr);
         } while (err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
     }
     if (err == ESP_OK && !esp_https_ota_is_complete_data_received(ota)) err = ESP_ERR_INVALID_SIZE;
     if (err != ESP_OK) {
         esp_https_ota_abort(ota);
+        set_progress(Phase::Idle, 0, 0, nullptr);
         set_result(false, tag, "download of %s failed: %s", version, esp_err_to_name(err));
         return;
     }
     err = esp_https_ota_finish(ota);  // validates the image and sets it as the boot slot
     if (err != ESP_OK) {
+        set_progress(Phase::Idle, 0, 0, nullptr);
         set_result(false, tag, "install of %s failed: %s", version, esp_err_to_name(err));
         return;
     }
     set_result(true, tag, "installed %s, rebooting", version);
     status_led::set_activity(status_led::kUpdating, false);
     status_led::set_activity(status_led::kRestarting, true);
+    set_progress(Phase::Restarting, 0, 0, nullptr);
     vTaskDelay(pdMS_TO_TICKS(kRebootDelayMs));
     esp_restart();
 }
@@ -301,7 +322,10 @@ void confirm_task(void *arg) {
         ESP_LOGE(TAG, "new image unhealthy (services %s, network %s): rolling back",
                  healthy ? "up" : "down", has_ip() ? "up" : "down");
         status_led::set_activity(status_led::kRestarting, true);
+        set_progress(Phase::Restarting, 0, 0, "");
+        vTaskDelay(pdMS_TO_TICKS(kRebootDelayMs));
         esp_ota_mark_app_invalid_rollback_and_reboot();  // returns only if there's nothing to roll back to
+        set_progress(Phase::Idle, 0, 0, nullptr);
         status_led::set_activity(status_led::kRestarting, false);
         ESP_LOGE(TAG, "rollback failed: keeping this image");
     }
@@ -309,6 +333,13 @@ void confirm_task(void *arg) {
 }
 
 }  // namespace
+
+Progress progress() {
+    taskENTER_CRITICAL(&progress_lock);
+    const Progress p = current;
+    taskEXIT_CRITICAL(&progress_lock);
+    return p;
+}
 
 esp_err_t start(uint16_t doorbell_port) {
     if (!last_lock) last_lock = xSemaphoreCreateMutex();

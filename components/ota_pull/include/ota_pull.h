@@ -53,6 +53,21 @@ esp_err_t start(uint16_t doorbell_port);
 // No-op for an image that isn't pending verify (e.g. flashed over USB).
 void confirm_boot(bool healthy);
 
+// What the updater is doing, for a screen to show (the deck). Safe from any task.
+enum class Phase : uint8_t {
+    Idle,
+    Downloading,  // bytes of total written to the spare slot (total 0 = not known yet)
+    Restarting,   // into the new image (or rolling back) in about kRebootDelayMs
+};
+struct Progress {
+    Phase phase;
+    uint32_t bytes;
+    uint32_t total;
+    char version[32];  // the version being installed ("" when rolling back)
+};
+inline constexpr uint32_t kRebootDelayMs = 1500;  // time to show Restarting before it happens
+Progress progress();
+
 // The last check as a JSON object: {"result":"...","release":"build-42","ago_s":N}
 // (ago_s -1 before the first check). Returns the length written.
 int status_json(char *buf, size_t len);

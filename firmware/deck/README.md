@@ -9,7 +9,10 @@ Build and flash with `pio run -d firmware/deck -t upload`.
 The deck has two OTA slots and rollback, and updates itself from GitHub releases
 (doorbell on UDP 18211, or hourly; see Deployment in the top README).
 It has no push endpoint: USB is the fallback. A new image is confirmed once the
-UI is up and Wi-Fi has an IP, otherwise it rolls back.
+UI is up and Wi-Fi has an IP, otherwise it rolls back. While it downloads an update the
+screen shows "Updating" with a progress bar, then "Restarting" with a spinning
+ring for 1.5 s before it reboots (also before a rollback). At boot the screen
+comes up first, showing "Starting up", so it never holds the old image.
 
 ## Networking
 
