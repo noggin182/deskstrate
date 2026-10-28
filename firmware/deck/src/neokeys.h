@@ -1,14 +1,15 @@
 #pragma once
 
-// The four NeoKey lights. Each key animates the host it stands for, in that host's
-// screen colour (PC orange, Mac blue, guests purple/coral):
+// The four NeoKey lights. Each key animates a host in that host's screen colour
+// (PC orange, Mac blue, guests purple/coral):
 //   top keys     the host on the monitor above them (left / right); nearly dark in
-//                standby, a dim red glow when the monitor isn't connected
-//   bottom keys  the host they send the keyboard to (PC / Mac, or in split mode the
-//                left / right screen's host): full strength while the HID hub is on
-//                that host, dim otherwise (and while the HID hub is offline)
+//                standby
+//   bottom keys  the host each USB hub is on: bottom left the HID hub (keyboard,
+//                mouse), bottom right the media hub
+// A monitor or hub that isn't connected shows a dim red glow.
 // The animation cycles through hues close to the host's colour at a constant
-// brightness (the PC's orange drifts to yellow and a hint of red).
+// brightness (the PC's orange drifts to yellow and a hint of red). When what a key
+// shows changes (a new input, host, the menu...) it fades to the new colour.
 // While a top key is held, the bottom key it chords with pulses white. The menu
 // shows back (red), select (green) and up/down (white). Before the first STATE from
 // the core, all four breathe amber. Every press flashes its key white.

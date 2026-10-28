@@ -16,6 +16,7 @@ using controls::Key;
 constexpr uint8_t kPixelForKey[controls::kKeyCount] = {0, 2, 1, 3};
 
 constexpr uint32_t kFlashMs = 180;
+constexpr uint32_t kFadeMs = 350;
 
 struct Rgb {
     float r, g, b;
@@ -24,6 +25,13 @@ struct Rgb {
 led_strip_handle_t strip = nullptr;
 uint32_t flash_at[controls::kKeyCount] = {};
 bool flashing[controls::kKeyCount] = {};
+
+// Crossfade per key, from the colour it last showed when its subject changed.
+uint16_t shown_subject[controls::kKeyCount] = {};
+Rgb shown[controls::kKeyCount] = {};
+Rgb fade_from[controls::kKeyCount] = {};
+uint32_t fade_at[controls::kKeyCount] = {};
+bool fading[controls::kKeyCount] = {};
 
 Rgb hex(uint32_t c) {
     return {((c >> 16) & 0xFF) / 255.0f, ((c >> 8) & 0xFF) / 255.0f, (c & 0xFF) / 255.0f};
@@ -103,12 +111,21 @@ Rgb host_pattern(uint8_t host, uint32_t now_ms, uint32_t phase_ms) {
     return scale(c, k);
 }
 
-// The host a bottom key sends the keyboard to.
-uint8_t bottom_key_host(const controls::View &view, bool left) {
-    if (controls::is_split(view)) {
-        return controls::monitor_host(view, left ? KVM_MON_LEFT : KVM_MON_RIGHT);
+// What a key is showing, ignoring the animation: when this changes the key fades
+// to its new colour instead of jumping.
+uint16_t key_subject(Key key, const Scene &scene) {
+    if (!scene.core_seen) return 0x100;
+    if (scene.menu) return 0x200;
+    const bool chord_hint =
+        (key == controls::kBottomLeft && (scene.held & (1u << controls::kTopRight)))
+        || (key == controls::kBottomRight && (scene.held & (1u << controls::kTopLeft)));
+    if (chord_hint) return 0x300;
+    switch (key) {
+        case controls::kTopLeft: return 0x400 | scene.view.mon[KVM_MON_LEFT];
+        case controls::kTopRight: return 0x400 | scene.view.mon[KVM_MON_RIGHT];
+        case controls::kBottomLeft: return 0x500 | scene.view.usb[KVM_HUB_HID];
+        default: return 0x500 | scene.view.usb[KVM_HUB_MEDIA];
     }
-    return left ? KVM_USB_PC : KVM_USB_MAC;
 }
 
 Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
@@ -129,7 +146,6 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         || (key == controls::kBottomRight && (scene.held & (1u << controls::kTopLeft)));
     if (chord_hint) return scale(hex(0xFFFFFF), 0.3f + 0.5f * wave(now_ms, 900));
 
-    const uint8_t hid = scene.view.usb[KVM_HUB_HID];
     switch (key) {
         case controls::kTopLeft:
         case controls::kTopRight: {
@@ -142,13 +158,12 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         }
         case controls::kBottomLeft:
         case controls::kBottomRight: {
-            const uint8_t host = bottom_key_host(scene.view, key == controls::kBottomLeft);
-            // Full strength while the keyboard is on this host. If the HID hub is
-            // offline it is on no host, so both bottom keys stay dim. The dim glow
-            // holds still: at a few counts per channel a hue cycle jumps visibly.
-            if (host == hid) return host_pattern(host, now_ms, 0);
-            if (host > KVM_USB_GUEST2) return scale(hex(0xFFFFFF), 0.1f);
-            return scale(palette_rgb(kPalettes[host], kPalettes[host].hues[0]), 0.3f);
+            // Bottom left = the HID hub's host, bottom right = the media hub's.
+            const uint8_t hub = key == controls::kBottomLeft ? KVM_HUB_HID : KVM_HUB_MEDIA;
+            const uint8_t host = scene.view.usb[hub];
+            // Hub not connected: a dim red glow, like a missing monitor.
+            if (host > KVM_USB_GUEST2) return scale(hex(0xFF0000), 0.3f);
+            return scale(host_pattern(host, now_ms, 200 + hub * 400), 0.6f);
         }
         default:
             return hex(0x000000);
@@ -197,6 +212,24 @@ void render(const Scene &scene, uint32_t now_ms) {
     for (uint8_t k = 0; k < controls::kKeyCount; ++k) {
         const Key key = static_cast<Key>(k);
         Rgb c = key_colour(key, scene, now_ms);
+        const uint16_t subject = key_subject(key, scene);
+        if (subject != shown_subject[k]) {
+            shown_subject[k] = subject;
+            fade_from[k] = shown[k];
+            fade_at[k] = now_ms;
+            fading[k] = true;
+        }
+        if (fading[k]) {
+            const uint32_t age = now_ms - fade_at[k];
+            if (age >= kFadeMs) {
+                fading[k] = false;
+            } else {
+                float t = static_cast<float>(age) / kFadeMs;
+                t = t * t * (3.0f - 2.0f * t);
+                c = mix(fade_from[k], c, t);
+            }
+        }
+        shown[k] = c;  // before the press flash, which is short and fades on its own
         if (flashing[k]) {
             const uint32_t age = now_ms - flash_at[k];
             if (age >= kFlashMs) {
