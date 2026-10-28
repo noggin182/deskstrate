@@ -1,5 +1,7 @@
 #include "menu.h"
 
+#include <cstring>
+
 #include "esp_app_desc.h"
 #include "lvgl.h"
 
@@ -37,9 +39,9 @@ const char *input_name(uint8_t input) {
         case KVM_IN_DP: return "DP";
         case KVM_IN_USBC: return "USB-C";
         case KVM_IN_HDMI: return "HDMI";
-        case KVM_IN_OFF: return "Off";
+        case KVM_IN_OFF: return "Standby";
     }
-    return "--";
+    return "n/c";  // not connected (or unreadable)
 }
 
 const char *host_name(uint8_t host) {
@@ -49,7 +51,7 @@ const char *host_name(uint8_t host) {
         case KVM_USB_GUEST1: return "Guest 3";
         case KVM_USB_GUEST2: return "Guest 4";
     }
-    return "--";
+    return "n/c";  // hub not connected
 }
 
 const char *light_name(uint8_t level) {
@@ -139,10 +141,15 @@ void open(const controls::View &view, const Settings &settings) {
 
     // Labels inherit the row's text colour; the version sits at the bottom.
     lv_obj_t *version = lv_label_create(panel);
-    lv_label_set_text(version, esp_app_get_description()->version);
-    lv_label_set_long_mode(version, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(version, 127);
-    lv_obj_set_pos(version, 4, kRowY + kItemCount * kRowHeight + 4);
+    // CI versions are "build-<run>.<attempt>[-<commits>-g<sha>]": drop the prefix so
+    // it fits, and scroll anything still too wide rather than cutting it off.
+    const char *version_text = esp_app_get_description()->version;
+    if (strncmp(version_text, "build-", 6) == 0) version_text += 6;
+    lv_label_set_text(version, version_text);
+    lv_label_set_long_mode(version, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    lv_obj_set_width(version, 135);
+    lv_obj_set_style_text_align(version, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_pos(version, 0, kRowY + kItemCount * kRowHeight + 4);
     lv_obj_set_style_text_font(version, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(version, lv_color_hex(0x91A3B8), 0);
 
@@ -188,12 +195,14 @@ Result key(controls::Key key, const controls::View &view, const Settings &settin
         case kLeft:
         case kRight: {
             const uint8_t mon = selected == kLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
+            if (view.mon[mon] == KVM_IN_KEEP) break;  // not connected
             r = {Command::Monitor, mon, next_input(view.mon[mon])};
             break;
         }
         case kKeyboard:
         case kMedia: {
             const uint8_t hub = selected == kKeyboard ? KVM_HUB_HID : KVM_HUB_MEDIA;
+            if (view.usb[hub] == KVM_USB_UNKNOWN) break;  // not connected
             r = {Command::Usb, hub, next_host(view.usb[hub])};
             break;
         }

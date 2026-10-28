@@ -41,35 +41,66 @@ float wave(uint32_t now_ms, uint32_t period_ms, uint32_t phase_ms = 0) {
     return 0.5f - 0.5f * cosf(x * 2.0f * static_cast<float>(M_PI));
 }
 
-// Same colours as the screen (host_color in main.cpp).
-Rgb host_rgb(uint8_t host) {
-    switch (host) {
-        case KVM_USB_PC: return hex(0xFFA020);
-        case KVM_USB_MAC: return hex(0x2060FF);
-        case KVM_USB_GUEST1: return hex(0xA060FF);
-        case KVM_USB_GUEST2: return hex(0xFF5040);
+// Fully saturated colour at hue degrees (HSV value 1).
+Rgb hue_rgb(float hue) {
+    hue = fmodf(hue + 360.0f, 360.0f) / 60.0f;
+    const int sector = static_cast<int>(hue);
+    const float f = hue - sector;
+    switch (sector) {
+        case 0: return {1.0f, f, 0.0f};
+        case 1: return {1.0f - f, 1.0f, 0.0f};
+        case 2: return {0.0f, 1.0f, f};
+        case 3: return {0.0f, 1.0f - f, 1.0f};
+        case 4: return {f, 0.0f, 1.0f};
+        default: return {1.0f, 0.0f, 1.0f - f};
     }
-    return hex(0x404040);
 }
 
-// One host's animation at full strength.
+// Light the LED gives out, roughly: to_byte() squares each channel.
+float power(Rgb c) { return c.r * c.r + c.g * c.g + c.b * c.b; }
+
+// Each host cycles through a few hues close to its screen colour (host_color in
+// main.cpp), e.g. the PC's orange drifts to yellow, back through orange to a hint of
+// red. Every step is scaled to the same light output, so only the hue moves.
+struct Palette {
+    float hues[4];
+    float saturation;  // 1 = pure hue; lower mixes in white (coral, lavender)
+    uint32_t period_ms;
+};
+
+constexpr Palette kPalettes[4] = {
+    {{32.0f, 50.0f, 36.0f, 12.0f}, 1.0f, 4000},     // PC: orange, yellow, orange, red
+    {{222.0f, 202.0f, 188.0f, 240.0f}, 1.0f, 4400}, // Mac: blue, azure, cyan, deep blue
+    {{272.0f, 292.0f, 256.0f, 306.0f}, 0.8f, 4200}, // Guest 3: purple, violet, indigo, magenta
+    {{10.0f, 24.0f, 0.0f, 348.0f}, 0.65f, 4200},    // Guest 4: coral, salmon, red, pink
+};
+
+Rgb palette_rgb(const Palette &palette, float hue) {
+    return mix(hex(0xFFFFFF), hue_rgb(hue), palette.saturation);
+}
+
 Rgb host_pattern(uint8_t host, uint32_t now_ms, uint32_t phase_ms) {
-    const Rgb base = host_rgb(host);
-    switch (host) {
-        case KVM_USB_PC:  // slow breath
-            return scale(base, 0.25f + 0.75f * wave(now_ms, 3200, phase_ms));
-        case KVM_USB_MAC:  // ripple between blue and cyan
-            return mix(base, hex(0x20D0FF), wave(now_ms, 2400, phase_ms));
-        case KVM_USB_GUEST1:
-        case KVM_USB_GUEST2: {  // heartbeat: two quick beats, then rest
-            const uint32_t t = (now_ms + phase_ms) % 1600;
-            float k = 0.2f;
-            if (t < 120) k = 1.0f;
-            else if (t >= 240 && t < 360) k = 0.8f;
-            return scale(base, k);
-        }
-    }
-    return scale(base, 0.15f);
+    if (host > KVM_USB_GUEST2) return scale(hex(0xFFFFFF), 0.1f);
+    const Palette &palette = kPalettes[host];
+
+    // Ease between the hues (taking the short way round the colour wheel).
+    const float position = static_cast<float>((now_ms + phase_ms) % palette.period_ms) / palette.period_ms * 4.0f;
+    const int i = static_cast<int>(position);
+    float t = position - i;
+    t = t * t * (3.0f - 2.0f * t);
+    const float from = palette.hues[i];
+    float delta = palette.hues[(i + 1) % 4] - from;
+    if (delta > 180.0f) delta -= 360.0f;
+    if (delta < -180.0f) delta += 360.0f;
+    const Rgb c = palette_rgb(palette, from + delta * t);
+
+    // Match the dimmest of the palette's hues, so no step is brighter than another.
+    float target = power(palette_rgb(palette, palette.hues[0]));
+    for (int h = 1; h < 4; ++h) target = fminf(target, power(palette_rgb(palette, palette.hues[h])));
+    float k = sqrtf(target / power(c));
+    const float peak = fmaxf(c.r, fmaxf(c.g, c.b));
+    if (k * peak > 1.0f) k = 1.0f / peak;
+    return scale(c, k);
 }
 
 // The host a bottom key sends the keyboard to.
@@ -106,15 +137,19 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         case controls::kTopLeft:
         case controls::kTopRight: {
             const uint8_t mon = key == controls::kTopLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
-            if (scene.view.mon[mon] == KVM_IN_OFF) return scale(hex(0xFFFFFF), 0.02f);
+            if (scene.view.mon[mon] == KVM_IN_OFF) return scale(hex(0xFFFFFF), 0.05f);
             const uint8_t host = controls::monitor_host(scene.view, mon);
+            // Monitor not connected (or its input unreadable): a dim red glow.
+            if (host == KVM_USB_UNKNOWN) return scale(hex(0xFF0000), 0.3f);
             return scale(host_pattern(host, now_ms, mon * 400), 0.6f);
         }
         case controls::kBottomLeft:
         case controls::kBottomRight: {
             const uint8_t host = bottom_key_host(scene.view, key == controls::kBottomLeft);
+            // Full strength while the keyboard is on this host. If the HID hub is
+            // offline it is on no host, so both bottom keys stay dim.
             if (host == hid) return host_pattern(host, now_ms, 0);
-            return scale(host_rgb(host), 0.08f);
+            return scale(host_pattern(host, now_ms, 0), 0.15f);
         }
         default:
             return hex(0x000000);

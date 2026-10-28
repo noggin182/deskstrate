@@ -124,13 +124,16 @@ enum class HostId : uint8_t {
     Pc,
     Mac,
     Guest1,
-    Guest2
+    Guest2,
+    None     // hub not connected, or a monitor with no host (standby, not connected)
 };
 
 enum class MonitorInput : uint8_t {
     DisplayPort,
     UsbC,
-    Hdmi
+    Hdmi,
+    Standby,
+    Disconnected  // not connected to the core, or its input couldn't be read
 };
 
 struct KvmState {
@@ -162,6 +165,7 @@ static const char *host_label(HostId host) {
         case HostId::Mac: return "MAC";
         case HostId::Guest1: return "3";
         case HostId::Guest2: return "4";
+        case HostId::None: return "--";
     }
     return "";
 }
@@ -172,27 +176,40 @@ static HostId input_host(MonitorInput input, uint8_t monitor_index) {
         case MonitorInput::DisplayPort: return HostId::Pc;
         case MonitorInput::Hdmi:
             return monitor_index == 0 ? HostId::Guest1 : HostId::Guest2;
+        case MonitorInput::Standby:
+        case MonitorInput::Disconnected:
+            return HostId::None;
     }
-    return HostId::Guest1;
+    return HostId::None;
+}
+
+// A route joins a monitor and a hub only when both are on the same real host.
+static bool same_host(HostId a, HostId b) {
+    return a == b && a != HostId::None;
 }
 
 // kvm_proto <-> deck view. HostId is already in kvm_usb_port order (PC, Mac, Guest1, Guest2).
-static bool from_kvm_input(uint8_t input, MonitorInput &out) {
+static MonitorInput from_kvm_input(uint8_t input) {
     switch (input) {
-        case KVM_IN_DP: out = MonitorInput::DisplayPort; return true;
-        case KVM_IN_USBC: out = MonitorInput::UsbC; return true;
-        case KVM_IN_HDMI: out = MonitorInput::Hdmi; return true;
+        case KVM_IN_DP: return MonitorInput::DisplayPort;
+        case KVM_IN_USBC: return MonitorInput::UsbC;
+        case KVM_IN_HDMI: return MonitorInput::Hdmi;
+        case KVM_IN_OFF: return MonitorInput::Standby;
     }
-    return false;  // KEEP (unknown) or OFF (standby): leave the drawing as it was
+    return MonitorInput::Disconnected;  // KEEP: the core can't see it
+}
+
+static HostId from_kvm_port(uint8_t port) {
+    return port <= KVM_USB_GUEST2 ? static_cast<HostId>(port) : HostId::None;
 }
 
 // Copies the core's STATE into the view. Returns true if anything visible changed.
 static bool apply_core_state(const kvm_state_t &core, KvmState &view) {
-    KvmState next = view;
-    if (core.mon_count > KVM_MON_LEFT) from_kvm_input(core.mon[KVM_MON_LEFT], next.monitor1_input);
-    if (core.mon_count > KVM_MON_RIGHT) from_kvm_input(core.mon[KVM_MON_RIGHT], next.monitor2_input);
-    if (core.usb[KVM_HUB_HID] <= KVM_USB_GUEST2) next.hub1_host = static_cast<HostId>(core.usb[KVM_HUB_HID]);
-    if (core.usb[KVM_HUB_MEDIA] <= KVM_USB_GUEST2) next.hub2_host = static_cast<HostId>(core.usb[KVM_HUB_MEDIA]);
+    KvmState next;
+    next.monitor1_input = from_kvm_input(core.mon_count > KVM_MON_LEFT ? core.mon[KVM_MON_LEFT] : KVM_IN_KEEP);
+    next.monitor2_input = from_kvm_input(core.mon_count > KVM_MON_RIGHT ? core.mon[KVM_MON_RIGHT] : KVM_IN_KEEP);
+    next.hub1_host = from_kvm_port(core.usb[KVM_HUB_HID]);
+    next.hub2_host = from_kvm_port(core.usb[KVM_HUB_MEDIA]);
 
     const bool changed = next.monitor1_input != view.monitor1_input
         || next.monitor2_input != view.monitor2_input
@@ -213,11 +230,14 @@ static void request_change(uint8_t action, uint8_t a, uint8_t b) {
 // Asks for every part of target that differs from what the core last reported.
 static void request_target(const controls::Target &target, const controls::View &view) {
     for (uint8_t mon = 0; mon < 2; ++mon) {
+        // A monitor or hub that isn't connected is skipped: the core would refuse it.
+        if (view.mon[mon] == KVM_IN_KEEP) continue;
         if (target.mon[mon] != KVM_IN_KEEP && target.mon[mon] != view.mon[mon]) {
             request_change(KVM_ACT_MON, mon, target.mon[mon]);
         }
     }
     for (uint8_t hub = 0; hub < KVM_HUB_COUNT; ++hub) {
+        if (view.usb[hub] == KVM_USB_UNKNOWN) continue;
         if (target.usb[hub] != KVM_USB_UNKNOWN && target.usb[hub] != view.usb[hub]) {
             request_change(KVM_ACT_USB, hub, target.usb[hub]);
         }
@@ -258,12 +278,27 @@ static void save_settings(const menu::Settings &settings) {
     nvs_close(nvs);
 }
 
+static char monitor_digit(MonitorInput input) {
+    switch (input) {
+        case MonitorInput::DisplayPort: return '1';
+        case MonitorInput::UsbC: return '2';
+        case MonitorInput::Hdmi: return '3';
+        case MonitorInput::Standby: return '0';
+        case MonitorInput::Disconnected: return '-';
+    }
+    return '?';
+}
+
+static char hub_digit(HostId host) {
+    return host == HostId::None ? '-' : static_cast<char>('1' + static_cast<uint8_t>(host));
+}
+
 static void update_state_code(const KvmState &state) {
     char code[5] = {
-        static_cast<char>('1' + static_cast<uint8_t>(state.monitor1_input)),
-        static_cast<char>('1' + static_cast<uint8_t>(state.monitor2_input)),
-        static_cast<char>('1' + static_cast<uint8_t>(state.hub1_host)),
-        static_cast<char>('1' + static_cast<uint8_t>(state.hub2_host)),
+        monitor_digit(state.monitor1_input),
+        monitor_digit(state.monitor2_input),
+        hub_digit(state.hub1_host),
+        hub_digit(state.hub2_host),
         '\0'
     };
     lv_label_set_text(state_code_label, code);
@@ -275,6 +310,7 @@ static lv_color_t host_color(HostId host) {
         case HostId::Mac: return lv_color_hex(0x4F8FEF);
         case HostId::Guest1: return lv_color_hex(0xB99AFF);
         case HostId::Guest2: return lv_color_hex(0xFF8B7B);
+        case HostId::None: break;
     }
     return lv_color_hex(0x91A3B8);
 }
@@ -300,8 +336,13 @@ static void create_host_node(
     create_status_label(node, host_label(host), 0, 1, 40, 16, &lv_font_montserrat_14, color, LV_TEXT_ALIGN_CENTER);
 }
 
-static void create_keyboard_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t y) {
-    const lv_color_t icon_color = lv_color_hex(0xE6EDF5);
+// Hub icons are drawn dim when the hub isn't connected.
+static lv_color_t hub_icon_color(bool online) {
+    return online ? lv_color_hex(0xE6EDF5) : lv_color_hex(0x34536A);
+}
+
+static void create_keyboard_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t y, bool online) {
+    const lv_color_t icon_color = hub_icon_color(online);
     lv_obj_t *body = lv_obj_create(parent);
     lv_obj_set_pos(body, center_x - 14, y);
     lv_obj_set_size(body, 28, 15);
@@ -329,8 +370,8 @@ static void create_keyboard_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord
     create_diagram_shape(body, 9, 11, 10, 1, icon_color);
 }
 
-static void create_camera_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t y) {
-    const lv_color_t icon_color = lv_color_hex(0xE6EDF5);
+static void create_camera_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t y, bool online) {
+    const lv_color_t icon_color = hub_icon_color(online);
     lv_obj_t *camera = lv_obj_create(parent);
     lv_obj_set_pos(camera, center_x - 10, y + 2);
     lv_obj_set_size(camera, 16, 12);
@@ -362,6 +403,18 @@ static void create_monitor_input_icon(lv_obj_t *screen, MonitorInput input) {
         create_diagram_shape(screen, 26, 13, 5, 5, screen_color, 2);
         create_diagram_shape(screen, 20, 11, 2, 5, icon_color, 1);
         create_diagram_shape(screen, 23, 9, 5, 3, lv_color_hex(0x78C8FF), 2);
+    } else if (input == MonitorInput::Standby || input == MonitorInput::Disconnected) {
+        create_status_label(
+            screen,
+            input == MonitorInput::Standby ? LV_SYMBOL_POWER : LV_SYMBOL_CLOSE,
+            0,
+            12,
+            44,
+            16,
+            &lv_font_montserrat_14,
+            lv_color_hex(0x5B738A),
+            LV_TEXT_ALIGN_CENTER
+        );
     } else {
         lv_obj_t *connector = lv_obj_create(screen);
         lv_obj_set_pos(connector, 12, 12);
@@ -391,7 +444,8 @@ static void create_monitor_input_icon(lv_obj_t *screen, MonitorInput input) {
 
 static void create_monitor(lv_obj_t *parent, lv_coord_t x, MonitorInput input, uint8_t monitor_index) {
     const HostId host = input_host(input, monitor_index);
-    const lv_color_t color = host_color(host);
+    // Standby keeps a grey bezel; a monitor the core can't see is dimmer still.
+    const lv_color_t color = input == MonitorInput::Disconnected ? lv_color_hex(0x34536A) : host_color(host);
 
     lv_obj_t *bezel = lv_obj_create(parent);
     lv_obj_set_pos(bezel, x, 8);
@@ -443,9 +497,9 @@ static HubLayout hub_layout(
         return HubLayout::Joint;
     }
     const bool monitor1_matches_a_hub =
-        monitor1_host == state.hub1_host || monitor1_host == state.hub2_host;
-    const bool camera_matches_monitor1 = state.hub2_host == monitor1_host;
-    const bool keyboard_matches_monitor2 = state.hub1_host == monitor2_host;
+        same_host(monitor1_host, state.hub1_host) || same_host(monitor1_host, state.hub2_host);
+    const bool camera_matches_monitor1 = same_host(state.hub2_host, monitor1_host);
+    const bool keyboard_matches_monitor2 = same_host(state.hub1_host, monitor2_host);
     return camera_matches_monitor1
         || (!monitor1_matches_a_hub && keyboard_matches_monitor2)
         ? HubLayout::SplitSwapped
@@ -485,7 +539,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     if (joint) {
         uint8_t matching_monitors = 0;
         for (uint8_t monitor = 0; monitor < 2; ++monitor) {
-            if (monitor_hosts[monitor] == hub_hosts[0]) {
+            if (same_host(monitor_hosts[monitor], hub_hosts[0])) {
                 ++matching_monitors;
             }
         }
@@ -518,7 +572,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
                 color
             );
         } else if (matching_monitors == 1) {
-            const uint8_t monitor = monitor_hosts[0] == hub_hosts[0] ? 0 : 1;
+            const uint8_t monitor = same_host(monitor_hosts[0], hub_hosts[0]) ? 0 : 1;
             create_diagram_shape(
                 parent,
                 monitor_centers[monitor] - 1,
@@ -552,9 +606,9 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     } else {
         for (uint8_t monitor = 0; monitor < 2; ++monitor) {
             uint8_t hub = 0;
-            if (monitor_hosts[monitor] == hub_hosts[1]) {
+            if (same_host(monitor_hosts[monitor], hub_hosts[1])) {
                 hub = 1;
-            } else if (monitor_hosts[monitor] != hub_hosts[0]) {
+            } else if (!same_host(monitor_hosts[monitor], hub_hosts[0])) {
                 continue;
             }
 
@@ -602,17 +656,21 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
         }
     }
 
+    // A hub that isn't connected has no line down to its host node ("--").
+    const bool hub_online[2] = {hub_hosts[0] != HostId::None, hub_hosts[1] != HostId::None};
     if (layout == HubLayout::Joint) {
         const lv_color_t color = host_color(hub_hosts[0]);
-        create_diagram_shape(
-            parent,
-            group_center - 1,
-            hub_connector_start_y,
-            2,
-            host_node_y - hub_connector_start_y,
-            color
-        );
-        create_keyboard_icon(parent, hub_centers[0], hub_icon_y);
+        if (hub_online[0]) {
+            create_diagram_shape(
+                parent,
+                group_center - 1,
+                hub_connector_start_y,
+                2,
+                host_node_y - hub_connector_start_y,
+                color
+            );
+        }
+        create_keyboard_icon(parent, hub_centers[0], hub_icon_y, hub_online[0]);
         create_status_label(
             parent,
             "/",
@@ -624,23 +682,25 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
             lv_color_hex(0x91A3B8),
             LV_TEXT_ALIGN_CENTER
         );
-        create_camera_icon(parent, hub_centers[1], hub_icon_y);
+        create_camera_icon(parent, hub_centers[1], hub_icon_y, hub_online[1]);
         create_host_node(parent, group_center, host_node_y, hub_hosts[0]);
     } else {
         for (uint8_t hub = 0; hub < 2; ++hub) {
             const lv_color_t color = host_color(hub_hosts[hub]);
-            create_diagram_shape(
-                parent,
-                hub_centers[hub] - 1,
-                hub_connector_start_y,
-                2,
-                host_node_y - hub_connector_start_y,
-                color
-            );
+            if (hub_online[hub]) {
+                create_diagram_shape(
+                    parent,
+                    hub_centers[hub] - 1,
+                    hub_connector_start_y,
+                    2,
+                    host_node_y - hub_connector_start_y,
+                    color
+                );
+            }
             if (hub == 0) {
-                create_keyboard_icon(parent, hub_centers[hub], hub_icon_y);
+                create_keyboard_icon(parent, hub_centers[hub], hub_icon_y, hub_online[hub]);
             } else {
-                create_camera_icon(parent, hub_centers[hub], hub_icon_y);
+                create_camera_icon(parent, hub_centers[hub], hub_icon_y, hub_online[hub]);
             }
             create_host_node(parent, hub_centers[hub], host_node_y, hub_hosts[hub]);
         }
@@ -923,11 +983,14 @@ extern "C" void app_main(void) {
                     case menu::Command::Monitor: request_change(KVM_ACT_MON, r.a, r.b); break;
                     case menu::Command::Usb: request_change(KVM_ACT_USB, r.a, r.b); break;
                     case menu::Command::Swap: request_target(controls::plan_swap(view), view); break;
-                    case menu::Command::ScreensOff:
-                        request_change(KVM_ACT_MON, KVM_MON_LEFT, KVM_IN_OFF);
-                        request_change(KVM_ACT_MON, KVM_MON_RIGHT, KVM_IN_OFF);
+                    case menu::Command::ScreensOff: {
+                        controls::Target off;
+                        off.mon[KVM_MON_LEFT] = KVM_IN_OFF;
+                        off.mon[KVM_MON_RIGHT] = KVM_IN_OFF;
+                        request_target(off, view);
                         menu::close();
                         break;
+                    }
                     case menu::Command::Lights:
                         settings.light_level = r.a;
                         save_settings(settings);
