@@ -118,9 +118,9 @@ The firmware version is shown at the bottom. The menu closes after 20 s without
 a key press.
 
 The key lights (`src/neokeys.h`) each animate a host in that host's screen
-colour: the top keys show the host on the monitor above them (nearly dark in
-standby), bottom left the keyboard/mouse hub's host and bottom right the media
-hub's. A monitor or hub the core can't see shows a dim red glow. The animation cycles through
+colour: the top keys show the host on the monitor above them (a slow, low
+cool-white breath in standby), bottom left the keyboard/mouse hub's host and bottom right the media
+hub's. A monitor or hub the core can't see drifts slowly through reds at half strength. The animation cycles through
 a few hues close to the host's colour at a constant brightness: the PC's orange
 drifts to yellow and a hint of red, the Mac's blue to azure and cyan, and the
 guests through purples and corals. While a top key is held, the bottom key it

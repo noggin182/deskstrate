@@ -87,10 +87,10 @@ Rgb palette_rgb(const Palette &palette, float hue) {
     return mix(hex(0xFFFFFF), hue_rgb(hue), palette.saturation);
 }
 
-Rgb host_pattern(uint8_t host, uint32_t now_ms, uint32_t phase_ms) {
-    if (host > KVM_USB_GUEST2) return scale(hex(0xFFFFFF), 0.1f);
-    const Palette &palette = kPalettes[host];
+// Not connected (monitor or hub): red drifting to red-orange and crimson.
+constexpr Palette kMissingPalette = {{0.0f, 14.0f, 2.0f, 346.0f}, 1.0f, 3600};
 
+Rgb palette_pattern(const Palette &palette, uint32_t now_ms, uint32_t phase_ms) {
     // Ease between the hues (taking the short way round the colour wheel).
     const float position = static_cast<float>((now_ms + phase_ms) % palette.period_ms) / palette.period_ms * 4.0f;
     const int i = static_cast<int>(position);
@@ -109,6 +109,21 @@ Rgb host_pattern(uint8_t host, uint32_t now_ms, uint32_t phase_ms) {
     const float peak = fmaxf(c.r, fmaxf(c.g, c.b));
     if (k * peak > 1.0f) k = 1.0f / peak;
     return scale(c, k);
+}
+
+Rgb host_pattern(uint8_t host, uint32_t now_ms, uint32_t phase_ms) {
+    if (host > KVM_USB_GUEST2) return scale(hex(0xFFFFFF), 0.1f);
+    return palette_pattern(kPalettes[host], now_ms, phase_ms);
+}
+
+// Monitor in standby: a slow, low breath in a cool white, like a sleeping laptop.
+// The floor stays well above zero so the fade doesn't step at the dim end.
+Rgb standby_pattern(uint32_t now_ms, uint32_t phase_ms) {
+    return scale(hex(0xB0C8FF), 0.18f + 0.27f * wave(now_ms, 5000, phase_ms));
+}
+
+Rgb missing_pattern(uint32_t now_ms, uint32_t phase_ms) {
+    return scale(palette_pattern(kMissingPalette, now_ms, phase_ms), 0.5f);
 }
 
 // What a key is showing, ignoring the animation: when this changes the key fades
@@ -150,10 +165,10 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         case controls::kTopLeft:
         case controls::kTopRight: {
             const uint8_t mon = key == controls::kTopLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
-            if (scene.view.mon[mon] == KVM_IN_OFF) return scale(hex(0xFFFFFF), 0.05f);
+            if (scene.view.mon[mon] == KVM_IN_OFF) return standby_pattern(now_ms, mon * 1200);
             const uint8_t host = controls::monitor_host(scene.view, mon);
-            // Monitor not connected (or its input unreadable): a dim red glow.
-            if (host == KVM_USB_UNKNOWN) return scale(hex(0xFF0000), 0.3f);
+            // Monitor not connected (or its input unreadable): drifting reds.
+            if (host == KVM_USB_UNKNOWN) return missing_pattern(now_ms, mon * 900);
             return scale(host_pattern(host, now_ms, mon * 400), 0.6f);
         }
         case controls::kBottomLeft:
@@ -161,8 +176,8 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
             // Bottom left = the HID hub's host, bottom right = the media hub's.
             const uint8_t hub = key == controls::kBottomLeft ? KVM_HUB_HID : KVM_HUB_MEDIA;
             const uint8_t host = scene.view.usb[hub];
-            // Hub not connected: a dim red glow, like a missing monitor.
-            if (host > KVM_USB_GUEST2) return scale(hex(0xFF0000), 0.3f);
+            // Hub not connected: drifting reds, like a missing monitor.
+            if (host > KVM_USB_GUEST2) return missing_pattern(now_ms, 1800 + hub * 900);
             return scale(host_pattern(host, now_ms, 200 + hub * 400), 0.6f);
         }
         default:
