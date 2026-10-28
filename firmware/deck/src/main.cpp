@@ -158,6 +158,8 @@ static KvmState current_kvm_state = {
 static lv_obj_t *routing_diagram = nullptr;
 static lv_obj_t *state_code_label = nullptr;
 static lv_obj_t *state_code_card = nullptr;
+static lv_obj_t *waiting_panel = nullptr;
+static lv_obj_t *waiting_label = nullptr;
 
 static const char *host_label(HostId host) {
     switch (host) {
@@ -760,6 +762,54 @@ static void create_status_screen(void) {
 }
 
 // The state code card covers the volume panel while it is shown.
+// Covers the status screen until the core's first STATE, and again whenever it goes
+// silent, so the deck never shows a state it hasn't been told.
+static void create_waiting_panel(void) {
+    waiting_panel = lv_obj_create(lv_scr_act());
+    lv_obj_set_pos(waiting_panel, 0, 0);
+    lv_obj_set_size(waiting_panel, 135, 240);
+    lv_obj_clear_flag(waiting_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(waiting_panel, lv_color_hex(0x08111D), 0);
+    lv_obj_set_style_bg_opa(waiting_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(waiting_panel, 0, 0);
+    lv_obj_set_style_radius(waiting_panel, 0, 0);
+    lv_obj_set_style_pad_all(waiting_panel, 0, 0);
+
+    lv_obj_t *spinner = lv_spinner_create(waiting_panel, 1000, 60);
+    lv_obj_set_size(spinner, 56, 56);
+    lv_obj_set_pos(spinner, 40, 72);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(spinner, 5, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(spinner, lv_color_hex(0x24364A), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(spinner, lv_color_hex(0x55E6D2), LV_PART_INDICATOR);
+
+    waiting_label = create_status_label(
+        waiting_panel,
+        "",
+        0,
+        142,
+        135,
+        40,
+        &lv_font_montserrat_14,
+        lv_color_hex(0x91A3B8),
+        LV_TEXT_ALIGN_CENTER
+    );
+}
+
+static void show_waiting(bool show, bool lost) {
+    // Called every loop: only touch LVGL when something changes.
+    static int shown = -1;
+    const int wanted = show ? (lost ? 2 : 1) : 0;
+    if (wanted == shown) return;
+    shown = wanted;
+    if (show) {
+        lv_label_set_text(waiting_label, lost ? "Lost the core\nreconnecting..." : "Waiting for\nthe core...");
+        lv_obj_clear_flag(waiting_panel, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(waiting_panel, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 static void show_state_code(bool show) {
     if (show) {
         lv_obj_clear_flag(state_code_card, LV_OBJ_FLAG_HIDDEN);
@@ -926,6 +976,8 @@ extern "C" void app_main(void) {
 
     // --- 8. Draw the portrait KVM status screen ---
     create_status_screen();
+    create_waiting_panel();
+    show_waiting(true, false);
 
     printf("UI Rendered. Entering main loop.\n");
     // Display up and nothing crashed: a new OTA image is confirmed once it's on the
@@ -1025,7 +1077,9 @@ extern "C" void app_main(void) {
                 render_current_scenario();
             }
         }
-        status_led::set_core_silent(xTaskGetTickCount() - last_core_state >= pdMS_TO_TICKS(CORE_SILENT_MS));
+        const bool core_silent = xTaskGetTickCount() - last_core_state >= pdMS_TO_TICKS(CORE_SILENT_MS);
+        status_led::set_core_silent(core_silent);
+        show_waiting(!core_seen || core_silent, core_seen);
 
         if (++neokey_ticks >= NEOKEY_FRAME_MS / 10) {
             neokey_ticks = 0;

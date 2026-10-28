@@ -67,8 +67,10 @@ mark for USB-C, a Windows mark for DP, and an HDMI connector for HDMI.
 Matching monitor-to-hub assignments are shown with routes; mismatched
 assignments remain unconnected. Hub names are represented by keyboard and
 camera icons rather than labels. Companion-app volume data is not connected yet, so volume
-readings remain `--%`. The diagram shows the state reported by the core; until
-the first `STATE` arrives it shows a placeholder.
+readings remain `--%`. The diagram shows the state reported by the core. Until
+the first `STATE` arrives, and whenever none has come for 10 s, a spinner
+covers the screen ("Waiting for the core" / "Lost the core") so the deck never
+shows a state it hasn't been told.
 
 The HDMI input on Monitor 1 is Guest 3; HDMI on Monitor 2 is Guest 4. Hub 1
 carries the mouse and keyboard; Hub 2 carries the webcam and headset. The
