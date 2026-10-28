@@ -35,9 +35,20 @@ no daemon, so a monitor showing a guest stays on.
 
 ## Windows (PC)
 
-A tray app (`deskstrate-host.exe`) started at logon. It has to run in the
-user's session: sleeping/waking the displays and switching Extend/Duplicate
-can't be done from a service.
+One exe, `deskstrate-host.exe`, normally installed as a service:
+
+- **Service** (`--service`, LocalSystem, starts at boot): owns UDP 18200 and the
+  protocol, and gets suspend, shutdown and display on/off from the service
+  manager, so the core hears about them even before anyone signs in.
+- **Agent** (`--agent`): session 0 can't touch the displays, so the service
+  starts its own exe as SYSTEM in the console session and passes it each display
+  action (sleep, wake, extend, duplicate) over a pipe. The agent acts on
+  whichever desktop is showing: the sign-in screen, the lock screen or the
+  user's desktop. It's started on first use and again after it exits or another
+  user takes the console.
+- **Standalone** (no option): everything in one process with a tray icon, in
+  the user's session only. For debugging, or a no-admin install; it can't act
+  at the sign-in or lock screen.
 
 Build (Visual Studio 2022 with the C++ workload, or take the
 `deskstrate-host-windows` artifact from the `host` workflow run):
@@ -47,16 +58,20 @@ cmake -S host/windows -B host/windows/build -A x64
 cmake --build host/windows/build --config Release
 ```
 
-Install (current user, no admin; puts a shortcut in the Startup folder and
-starts it):
+Install the service from an elevated PowerShell. It copies the exe to
+`%ProgramFiles%\Deskstrate`, registers the service (restart on failure) and adds
+a firewall rule for UDP 18200 from the local subnet:
 
 ```
 powershell -ExecutionPolicy Bypass -File host\windows\install.ps1 -Exe host\windows\build\Release\deskstrate-host.exe
 ```
 
-The first run asks Windows Firewall to let it listen on UDP 18200: allow it on
-Private networks. Log: `%LOCALAPPDATA%\Deskstrate\host.log` (also from the tray
-icon's menu). Options: `--no-topology`, `--core <ipv4>` (edit the shortcut).
+`-User` installs the standalone tray app instead (Startup shortcut, no admin;
+allow the firewall prompt on Private networks). `-Uninstall` removes either.
+
+Logs: `%ProgramData%\Deskstrate\service.log` and `agent.log` (service), or
+`%LOCALAPPDATA%\Deskstrate\host.log` (standalone). Options `--no-topology` and
+`--core <ipv4>` go after `--service` in the service's command line.
 
 ## macOS (Mac)
 
