@@ -1,0 +1,53 @@
+# Builds the host daemons (host/) and runs the shared policy's tests. The images are kept
+# as artifacts of each run; nothing is deployed (the hosts are installed by hand, see
+# host/README.md).
+name: host
+
+on:
+  push:
+    paths: [host/**, components/kvm_proto/**, .github/workflows/host.yml]
+  pull_request:
+    paths: [host/**, components/kvm_proto/**, .github/workflows/host.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test host_policy.h
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -I components/kvm_proto/include -I host/common \
+            host/common/test_host_policy.c -o test_host_policy
+          ./test_host_policy
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -S host/windows -B build -A x64
+          cmake --build build --config Release
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item build/Release/deskstrate-host.exe, host/windows/install.ps1 out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deskstrate-host-windows
+          path: out/
+          if-no-files-found: error
+
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make -C host/mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deskstrate-host-mac
+          path: host/mac/build/deskstrate-host
+          if-no-files-found: error

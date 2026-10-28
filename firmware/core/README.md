@@ -31,8 +31,15 @@ The core binds `KVM_PORT` (18200) and broadcasts a `STATE` on every change and
 every 2 s (`KVM_HEARTBEAT_MS`), with the monitors' inputs (left/right by EDID
 serial, `KVM_IN_OFF` for standby) and both hubs' ports (0-3). It answers
 `REQUEST`s with a `RESULT` followed by the current `STATE`, sent straight back to
-the requester; `KVM_ACT_MON`, `KVM_ACT_USB` and `KVM_ACT_GET_STATE` (no change, just
-the reply: the deck sends it at start-up) are implemented.
+the requester; `KVM_ACT_MON`, `KVM_ACT_USB`, `KVM_ACT_ALL_OFF` and `KVM_ACT_GET_STATE`
+(no change, just the reply: the deck and the host daemons send it at start-up) are
+implemented.
+
+Screens off (`KVM_ACT_MON` with `KVM_IN_OFF`, or `KVM_ACT_ALL_OFF`) still sends VCP
+0xD6 = 4, but the Dells ignore it while a host sends a signal. So the core latches it
+per monitor: `STATE` shows `KVM_IN_OFF` and sets the monitor's bit in `STATE.off`
+until a real input is requested for that monitor. The host daemons (`host/`) sleep
+their displays for it, and the monitor then goes to standby by itself.
 Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
 connected or the write failed), `BUSY` (hub mid-switch).
 

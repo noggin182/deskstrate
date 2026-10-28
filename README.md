@@ -9,6 +9,7 @@ USB hubs switch over SWD.
 | `firmware/core` | Central box (ESP32-S3 Mini). Headless source of truth: DDC, SWD, UDP server. `deskstrate` |
 | `firmware/deck` | Desk unit (Feather ESP32-S3 TFT + NeoKeys). Screen and keys; client of the core. `deskstrate-deck` |
 | `components/kvm_proto` | UDP wire format shared by core, deck and the host daemons |
+| `host` | Host daemons for the PC (Windows tray app) and the Mac (LaunchAgent): layout, Screens off |
 | `components/wifi_sta` | Shared Wi-Fi station join (menuconfig: Deskstrate Wi-Fi) |
 | `components/ota_pull` | Shared self-update from GitHub Releases: hourly poll or UDP doorbell, with rollback |
 | `tools` | `release_manifest.py` (CI) and `doorbell.py` (ring the boards' update doorbells) |

@@ -24,6 +24,11 @@ uint32_t boot_epoch = 0;
 uint32_t packet_n = 0;
 uint32_t seq = 0;
 kvm_state_t last = {};        // last STATE sent, for change detection
+// Screens off, by enum kvm_mon_id: set by KVM_IN_OFF, cleared by any real input for that
+// monitor. The Dells ignore VCP 0xD6 = 4 while a host sends a signal, so this latch (sent
+// as STATE.off) is what tells the hosts to sleep their displays; the monitor then goes to
+// standby by itself.
+uint8_t screens_off = 0;
 TickType_t last_sent = 0;
 
 // KVM_COUNTER: (boot_epoch << 32) | n, boot_epoch bumped in NVS once per boot.
@@ -82,6 +87,9 @@ kvm_state_t snapshot() {
         const monitors::State m = i >= 0 ? monitors::get(i) : monitors::State{};
         if (!m.online) {
             st.mon[id] = KVM_IN_KEEP;
+        } else if (screens_off & (1u << id)) {
+            st.mon[id] = KVM_IN_OFF;
+            st.off |= 1u << id;
         } else {
             st.mon[id] = m.power == ddc::kPowerStandby ? KVM_IN_OFF : m.input;
         }
@@ -94,7 +102,7 @@ kvm_state_t snapshot() {
 }
 
 bool same_payload(const kvm_state_t &a, const kvm_state_t &b) {
-    return a.writer == b.writer && a.preset == b.preset && a.mon_count == b.mon_count &&
+    return a.writer == b.writer && a.preset == b.preset && a.mon_count == b.mon_count && a.off == b.off &&
            memcmp(a.usb, b.usb, sizeof a.usb) == 0 && memcmp(a.mon, b.mon, sizeof a.mon) == 0;
 }
 
@@ -134,8 +142,14 @@ uint8_t apply_mon(uint8_t mon_id, uint8_t input) {
     if (i < 0 || !monitors::get(i).online) return KVM_RES_REJECTED;  // not connected
     esp_err_t err;
     if (input == KVM_IN_OFF) {
-        err = monitors::set_power(i, ddc::kPowerStandby);
+        // Latched even if the monitor refuses standby: the hosts' daemons do the real work.
+        screens_off |= 1u << mon_id;
+        if (monitors::set_power(i, ddc::kPowerStandby) != ESP_OK) {
+            ESP_LOGW(TAG, "monitor %u: standby not accepted, hosts will sleep it", mon_id);
+        }
+        return KVM_RES_OK;
     } else if (input == KVM_IN_DP || input == KVM_IN_HDMI || input == KVM_IN_USBC) {
+        screens_off &= ~(1u << mon_id);
         err = ESP_OK;
         if (monitors::get(i).power == ddc::kPowerStandby) err = monitors::set_power(i, ddc::kPowerOn);
         if (err == ESP_OK) err = monitors::set_input(i, input);
@@ -155,6 +169,12 @@ void handle_request(const kvm_request_t &req, const sockaddr_in &from) {
     switch (req.action) {
         case KVM_ACT_MON: code = apply_mon(req.a, req.b); break;
         case KVM_ACT_USB: code = apply_usb(req.a, req.b); break;
+        case KVM_ACT_ALL_OFF: {
+            const uint8_t left = apply_mon(KVM_MON_LEFT, KVM_IN_OFF);
+            const uint8_t right = apply_mon(KVM_MON_RIGHT, KVM_IN_OFF);
+            code = left == KVM_RES_OK || right == KVM_RES_OK ? KVM_RES_OK : left;
+            break;
+        }
         case KVM_ACT_GET_STATE: code = KVM_RES_OK; break;
         default: code = KVM_RES_UNKNOWN; break;
     }

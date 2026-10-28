@@ -127,7 +127,10 @@ typedef struct {
     uint8_t   mon_count;            /* valid entries in mon[] */
     uint8_t   usb[KVM_HUB_COUNT];   /* enum kvm_usb_port, indexed by enum kvm_usb_hub */
     uint8_t   mon[KVM_MAX_MON];     /* enum kvm_input, desired, indexed by enum kvm_mon_id */
-    uint8_t   reserved[3];          /* zero; keeps the size a multiple of 8 */
+    uint8_t   off;                  /* bit per enum kvm_mon_id: Screens off asked for (mon[] is
+                                     * KVM_IN_OFF). Hosts sleep their own displays for it, since
+                                     * the Dells ignore VCP 0xD6 = 4 with a signal present */
+    uint8_t   reserved[2];          /* zero; keeps the size a multiple of 8 */
     uint8_t   tag[KVM_TAG_LEN];
 } kvm_state_t;
 
@@ -166,7 +169,7 @@ enum kvm_action {
     KVM_ACT_MON         = 5,  /* a = enum kvm_mon_id, b = enum kvm_input */
     KVM_ACT_SWAP        = 6,  /* split mode: swap which host owns which monitor */
     KVM_ACT_FOCUS       = 7,  /* HID hub follows the owner of monitor a (or the cursor's monitor); MEDIA untouched */
-    KVM_ACT_ALL_OFF     = 8,  /* every monitor to standby */
+    KVM_ACT_ALL_OFF     = 8,  /* every monitor to standby (same as KVM_ACT_MON KVM_IN_OFF on each) */
     KVM_ACT_GET_STATE   = 9,  /* no change: just the RESULT + STATE reply (a client starting up) */
     KVM_ACT_USER        = 0x80, /* 0x80-0xFF: free for custom bindings handled on the core */
 };
