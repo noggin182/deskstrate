@@ -154,6 +154,7 @@ static KvmState current_kvm_state = {
 };
 static lv_obj_t *routing_diagram = nullptr;
 static lv_obj_t *state_code_label = nullptr;
+static lv_obj_t *state_code_card = nullptr;
 
 static const char *host_label(HostId host) {
     switch (host) {
@@ -233,21 +234,26 @@ static void update_view(const kvm_state_t &core, controls::View &view) {
     }
 }
 
-// Key light level (menu.h) is kept in NVS so it survives updates.
-static uint8_t load_light_level(void) {
-    uint8_t level = 0;
+// Menu settings (menu.h) are kept in NVS so they survive updates.
+static menu::Settings load_settings(void) {
+    menu::Settings settings;
     nvs_handle_t nvs;
     if (nvs_open("deck", NVS_READONLY, &nvs) == ESP_OK) {
-        nvs_get_u8(nvs, "lights", &level);
+        uint8_t value;
+        if (nvs_get_u8(nvs, "lights", &value) == ESP_OK && value < menu::kLightLevels) {
+            settings.light_level = value;
+        }
+        if (nvs_get_u8(nvs, "debug_code", &value) == ESP_OK) settings.debug_code = value != 0;
         nvs_close(nvs);
     }
-    return level < menu::kLightLevels ? level : 0;
+    return settings;
 }
 
-static void save_light_level(uint8_t level) {
+static void save_settings(const menu::Settings &settings) {
     nvs_handle_t nvs;
     if (nvs_open("deck", NVS_READWRITE, &nvs) != ESP_OK) return;
-    nvs_set_u8(nvs, "lights", level);
+    nvs_set_u8(nvs, "lights", settings.light_level);
+    nvs_set_u8(nvs, "debug_code", settings.debug_code ? 1 : 0);
     nvs_commit(nvs);
     nvs_close(nvs);
 }
@@ -667,7 +673,7 @@ static void create_status_screen(void) {
     create_status_label(volume_card, "MAC", 65, 5, 43, 16, &lv_font_montserrat_14, muted);
     create_status_label(volume_card, "--%", 65, 21, 43, 17, &lv_font_montserrat_14, primary);
 
-    lv_obj_t *state_code_card = create_status_card(screen, 178, 55);
+    state_code_card = create_status_card(screen, 178, 55);
     create_status_label(
         state_code_card,
         "M1  M2  H1  H2",
@@ -691,6 +697,15 @@ static void create_status_screen(void) {
         LV_TEXT_ALIGN_CENTER
     );
     update_state_code(current_kvm_state);
+}
+
+// The state code card covers the volume panel while it is shown.
+static void show_state_code(bool show) {
+    if (show) {
+        lv_obj_clear_flag(state_code_card, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(state_code_card, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void render_current_scenario(void) {
@@ -859,7 +874,8 @@ extern "C" void app_main(void) {
     status_led::set_ready();
     
     // NVS is up once the network has started (network_start initialises it).
-    uint8_t light_level = load_light_level();
+    menu::Settings settings = load_settings();
+    show_state_code(settings.debug_code);
 
     // --- 9. The Main Loop ---
     uint16_t heartbeat_ticks = 0;
@@ -900,7 +916,7 @@ extern "C" void app_main(void) {
         for (uint8_t i = 0; i < event_count; ++i) {
             const controls::Event &event = events[i];
             if (menu::is_open()) {
-                const menu::Result r = menu::key(event.key, view, light_level);
+                const menu::Result r = menu::key(event.key, view, settings);
                 switch (r.command) {
                     case menu::Command::None: break;
                     case menu::Command::Close: menu::close(); break;
@@ -913,13 +929,19 @@ extern "C" void app_main(void) {
                         menu::close();
                         break;
                     case menu::Command::Lights:
-                        light_level = r.a;
-                        save_light_level(light_level);
-                        menu::refresh(view, light_level);
+                        settings.light_level = r.a;
+                        save_settings(settings);
+                        menu::refresh(view, settings);
+                        break;
+                    case menu::Command::DebugCode:
+                        settings.debug_code = r.a != 0;
+                        save_settings(settings);
+                        show_state_code(settings.debug_code);
+                        menu::refresh(view, settings);
                         break;
                 }
             } else if (event.type == controls::EventType::Tap && event.key == controls::kTopLeft) {
-                menu::open(view, light_level);
+                menu::open(view, settings);
             } else {
                 controls::Target target;
                 if (controls::plan(event, view, target)) request_target(target, view);
@@ -934,7 +956,7 @@ extern "C" void app_main(void) {
             last_core_state = xTaskGetTickCount();
             core_seen = true;
             update_view(core_state, view);
-            menu::refresh(view, light_level);
+            menu::refresh(view, settings);
             if (apply_core_state(core_state, current_kvm_state)) {
                 update_state_code(current_kvm_state);
                 render_current_scenario();
@@ -949,7 +971,7 @@ extern "C" void app_main(void) {
             scene.menu = menu::is_open();
             scene.held = pressed;
             scene.view = view;
-            scene.brightness = menu::light_brightness(light_level);
+            scene.brightness = menu::light_brightness(settings.light_level);
             neokeys::render(scene, now_ms);
         }
 

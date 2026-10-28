@@ -15,16 +15,17 @@ enum Item : uint8_t {
     kSwap,
     kScreensOff,
     kLights,
+    kDebugCode,
     kExit,
     kItemCount
 };
 
 const char *const kItemNames[kItemCount] = {
-    "Left", "Right", "Keyboard", "Media", "Swap screens", "Screens off", "Key lights", "Exit",
+    "Left", "Right", "Keyboard", "Media", "Swap screens", "Screens off", "Key lights", "Debug code", "Exit",
 };
 
 constexpr lv_coord_t kRowY = 30;
-constexpr lv_coord_t kRowHeight = 22;
+constexpr lv_coord_t kRowHeight = 20;
 
 lv_obj_t *panel = nullptr;
 lv_obj_t *rows[kItemCount] = {};
@@ -91,7 +92,7 @@ uint8_t light_brightness(uint8_t level) {
 
 bool is_open() { return panel != nullptr; }
 
-void open(const controls::View &view, uint8_t light_level) {
+void open(const controls::View &view, const Settings &settings) {
     if (panel != nullptr) return;
     selected = 0;
 
@@ -146,7 +147,7 @@ void open(const controls::View &view, uint8_t light_level) {
     lv_obj_set_style_text_color(version, lv_color_hex(0x91A3B8), 0);
 
     highlight();
-    refresh(view, light_level);
+    refresh(view, settings);
 }
 
 void close() {
@@ -155,16 +156,17 @@ void close() {
     panel = nullptr;
 }
 
-void refresh(const controls::View &view, uint8_t light_level) {
+void refresh(const controls::View &view, const Settings &settings) {
     if (panel == nullptr) return;
     lv_label_set_text(values[kLeft], input_name(view.mon[KVM_MON_LEFT]));
     lv_label_set_text(values[kRight], input_name(view.mon[KVM_MON_RIGHT]));
     lv_label_set_text(values[kKeyboard], host_name(view.usb[KVM_HUB_HID]));
     lv_label_set_text(values[kMedia], host_name(view.usb[KVM_HUB_MEDIA]));
-    lv_label_set_text(values[kLights], light_name(light_level));
+    lv_label_set_text(values[kLights], light_name(settings.light_level));
+    lv_label_set_text(values[kDebugCode], settings.debug_code ? "On" : "Off");
 }
 
-Result key(controls::Key key, const controls::View &view, uint8_t light_level) {
+Result key(controls::Key key, const controls::View &view, const Settings &settings) {
     Result r;
     switch (key) {
         case controls::kTopLeft:
@@ -197,7 +199,8 @@ Result key(controls::Key key, const controls::View &view, uint8_t light_level) {
         }
         case kSwap: r.command = Command::Swap; break;
         case kScreensOff: r.command = Command::ScreensOff; break;
-        case kLights: r = {Command::Lights, static_cast<uint8_t>((light_level + 1) % kLightLevels), 0}; break;
+        case kLights: r = {Command::Lights, static_cast<uint8_t>((settings.light_level + 1) % kLightLevels), 0}; break;
+        case kDebugCode: r = {Command::DebugCode, static_cast<uint8_t>(!settings.debug_code), 0}; break;
         case kExit: r.command = Command::Close; break;
     }
     return r;

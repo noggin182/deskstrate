@@ -104,7 +104,8 @@ held (and they were held under 1.5 s). Bottom keys act on press.
 In the menu (`src/menu.h`) top left is back, top right is select, and bottom
 left/right move up/down. Its items set each monitor's input (DP, USB-C, HDMI)
 and each hub's host (PC, Mac, Guest 3, Guest 4), swap the two screens, put both
-screens in standby, and set the key light level (High, Low, Off; kept in NVS).
+screens in standby, set the key light level (High, Low, Off), and show or
+hide the debug state code below. Both settings are kept in NVS.
 The firmware version is shown at the bottom. The menu closes after 20 s without
 a key press.
 
@@ -119,8 +120,8 @@ the first `STATE` arrives all four breathe amber. Each press flashes its key
 white. Which NeoPixel sits under which key is set in `kPixelForKey` in
 `src/neokeys.cpp`.
 
-A temporary code overlay covers the volume panel to make
-states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
+A debug code overlay (on by default; Debug code in the menu)
+covers the volume panel to make states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
 Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
 PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `2211` means both monitors
 are on USB-C and both hubs are assigned to PC.
