@@ -16,7 +16,7 @@
 #include "status_led.h"
 #include "lvgl.h"
 
-// Adafruit Feather ESP32-S3 TFT Pinout
+// Adafruit Feather ESP32-S3 TFT pinout
 #define PIN_POWER_TFT_I2C  GPIO_NUM_21
 #define PIN_TFT_BACKLIGHT  GPIO_NUM_45
 #define PIN_NEOPIXEL       GPIO_NUM_33
