@@ -6,9 +6,9 @@
 //                cool-white breath in standby
 //   bottom keys  the host each USB hub is on: bottom left the HID hub (keyboard,
 //                mouse), bottom right the media hub
-// A monitor or hub that isn't connected drifts through reds at half strength.
+// A monitor or hub that isn't connected breathes vivid red (logarithmic, high floor).
 // The animation cycles through hues close to the host's colour at a constant
-// brightness (the PC's orange drifts to yellow and a hint of red). When what a key
+// brightness (the PC's orange drifts to yellow). When what a key
 // shows changes (a new input, host, the menu...) it fades to the new colour.
 // While a top key is held, the bottom key it chords with pulses white. The menu
 // shows back (red), select (green) and up/down (white). Before the first STATE from

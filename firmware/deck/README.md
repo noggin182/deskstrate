@@ -120,9 +120,10 @@ a key press.
 The key lights (`src/neokeys.h`) each animate a host in that host's screen
 colour: the top keys show the host on the monitor above them (a slow, low
 cool-white breath in standby), bottom left the keyboard/mouse hub's host and bottom right the media
-hub's. A monitor or hub the core can't see drifts slowly through reds at half strength. The animation cycles through
+hub's. A monitor or hub the core can't see breathes vivid red, on a logarithmic fade
+with a high floor. The animation cycles through
 a few hues close to the host's colour at a constant brightness: the PC's orange
-drifts to yellow and a hint of red, the Mac's blue to azure and cyan, and the
+drifts to yellow, the Mac's blue to azure and cyan, and the
 guests through purples and corals. While a top key is held, the bottom key it
 chords with pulses white. When what a key shows changes, it fades to the new
 colour over about a third of a second. In the menu the keys show back (red), select (green) and up/down (white). Until

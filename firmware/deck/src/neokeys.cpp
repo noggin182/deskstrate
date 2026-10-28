@@ -68,8 +68,7 @@ Rgb hue_rgb(float hue) {
 float power(Rgb c) { return c.r * c.r + c.g * c.g + c.b * c.b; }
 
 // Each host cycles through a few hues close to its screen colour (host_color in
-// main.cpp), e.g. the PC's orange drifts to yellow, back through orange to a hint of
-// red. Every step is scaled to the same light output, so only the hue moves.
+// main.cpp), e.g. the PC's orange drifts to yellow and back. Every step is scaled to the same light output, so only the hue moves.
 struct Palette {
     float hues[4];
     float saturation;  // 1 = pure hue; lower mixes in white (coral, lavender)
@@ -77,7 +76,7 @@ struct Palette {
 };
 
 constexpr Palette kPalettes[4] = {
-    {{32.0f, 50.0f, 36.0f, 12.0f}, 1.0f, 4000},     // PC: orange, yellow, orange, red
+    {{30.0f, 48.0f, 36.0f, 52.0f}, 1.0f, 4000},     // PC: orange, yellow, orange, yellow (no red: that's "missing")
     {{222.0f, 202.0f, 188.0f, 240.0f}, 1.0f, 4400}, // Mac: blue, azure, cyan, deep blue
     {{272.0f, 292.0f, 256.0f, 306.0f}, 0.8f, 4200}, // Guest 3: purple, violet, indigo, magenta
     {{10.0f, 24.0f, 0.0f, 348.0f}, 0.65f, 4200},    // Guest 4: coral, salmon, red, pink
@@ -86,9 +85,6 @@ constexpr Palette kPalettes[4] = {
 Rgb palette_rgb(const Palette &palette, float hue) {
     return mix(hex(0xFFFFFF), hue_rgb(hue), palette.saturation);
 }
-
-// Not connected (monitor or hub): red drifting to red-orange and crimson.
-constexpr Palette kMissingPalette = {{0.0f, 14.0f, 2.0f, 346.0f}, 1.0f, 3600};
 
 Rgb palette_pattern(const Palette &palette, uint32_t now_ms, uint32_t phase_ms) {
     // Ease between the hues (taking the short way round the colour wheel).
@@ -122,8 +118,14 @@ Rgb standby_pattern(uint32_t now_ms, uint32_t phase_ms) {
     return scale(hex(0xB0C8FF), 0.18f + 0.27f * wave(now_ms, 5000, phase_ms));
 }
 
+// Not connected (monitor or hub): vivid red breathing between a high floor and full.
+// The light output moves exponentially (a logarithmic fade), so each step looks the
+// same size to the eye instead of rushing through the bright end.
 Rgb missing_pattern(uint32_t now_ms, uint32_t phase_ms) {
-    return scale(palette_pattern(kMissingPalette, now_ms, phase_ms), 0.5f);
+    constexpr float kPeak = 0.36f;   // light output at the top of the breath
+    constexpr float kFloor = 0.12f;  // ... and at the bottom: a third of the peak
+    const float output = kFloor * powf(kPeak / kFloor, wave(now_ms, 2400, phase_ms));
+    return scale(hex(0xFF0000), sqrtf(output));  // to_byte() squares it back
 }
 
 // What a key is showing, ignoring the animation: when this changes the key fades
@@ -167,7 +169,7 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
             const uint8_t mon = key == controls::kTopLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
             if (scene.view.mon[mon] == KVM_IN_OFF) return standby_pattern(now_ms, mon * 1200);
             const uint8_t host = controls::monitor_host(scene.view, mon);
-            // Monitor not connected (or its input unreadable): drifting reds.
+            // Monitor not connected (or its input unreadable): breathing red.
             if (host == KVM_USB_UNKNOWN) return missing_pattern(now_ms, mon * 900);
             return scale(host_pattern(host, now_ms, mon * 400), 0.6f);
         }
@@ -176,7 +178,7 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
             // Bottom left = the HID hub's host, bottom right = the media hub's.
             const uint8_t hub = key == controls::kBottomLeft ? KVM_HUB_HID : KVM_HUB_MEDIA;
             const uint8_t host = scene.view.usb[hub];
-            // Hub not connected: drifting reds, like a missing monitor.
+            // Hub not connected: breathing red, like a missing monitor.
             if (host > KVM_USB_GUEST2) return missing_pattern(now_ms, 1800 + hub * 900);
             return scale(host_pattern(host, now_ms, 200 + hub * 400), 0.6f);
         }
