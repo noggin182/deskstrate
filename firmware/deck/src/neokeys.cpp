@@ -123,14 +123,11 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         }
     }
 
-    // A held top key points at the bottom key it chords with.
-    const bool blink = (now_ms / 150) % 2 == 0;
-    if (key == controls::kBottomLeft && (scene.held & (1u << controls::kTopRight))) {
-        return blink ? hex(0xFFFFFF) : hex(0x000000);
-    }
-    if (key == controls::kBottomRight && (scene.held & (1u << controls::kTopLeft))) {
-        return blink ? hex(0xFFFFFF) : hex(0x000000);
-    }
+    // A held top key points at the bottom key it chords with: a soft white pulse.
+    const bool chord_hint =
+        (key == controls::kBottomLeft && (scene.held & (1u << controls::kTopRight)))
+        || (key == controls::kBottomRight && (scene.held & (1u << controls::kTopLeft)));
+    if (chord_hint) return scale(hex(0xFFFFFF), 0.3f + 0.5f * wave(now_ms, 900));
 
     const uint8_t hid = scene.view.usb[KVM_HUB_HID];
     switch (key) {
@@ -147,9 +144,11 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         case controls::kBottomRight: {
             const uint8_t host = bottom_key_host(scene.view, key == controls::kBottomLeft);
             // Full strength while the keyboard is on this host. If the HID hub is
-            // offline it is on no host, so both bottom keys stay dim.
+            // offline it is on no host, so both bottom keys stay dim. The dim glow
+            // holds still: at a few counts per channel a hue cycle jumps visibly.
             if (host == hid) return host_pattern(host, now_ms, 0);
-            return scale(host_pattern(host, now_ms, 0), 0.15f);
+            if (host > KVM_USB_GUEST2) return scale(hex(0xFFFFFF), 0.1f);
+            return scale(palette_rgb(kPalettes[host], kPalettes[host].hues[0]), 0.3f);
         }
         default:
             return hex(0x000000);
@@ -166,14 +165,26 @@ uint8_t to_byte(float v, uint8_t brightness) {
 }  // namespace
 
 esp_err_t start(gpio_num_t pin) {
-    led_strip_rmt_config_t rmt_config = {};
-    rmt_config.resolution_hz = 10 * 1000 * 1000;
-
     led_strip_config_t strip_config = {};
     strip_config.strip_gpio_num = pin;
     strip_config.max_leds = controls::kKeyCount;
     strip_config.led_model = LED_MODEL_WS2812;
-    return led_strip_new_rmt_device(&strip_config, &rmt_config, &strip);
+
+    // Four LEDs are 96 RMT symbols, more than one 48-symbol block, so without help
+    // the driver refills the block from an interrupt mid-frame. Wi-Fi interrupts can
+    // delay that refill, corrupting bits (flashes of the wrong colour). DMA streams
+    // the whole frame; failing that, three blocks hold it without any refill.
+    led_strip_rmt_config_t rmt_config = {};
+    rmt_config.resolution_hz = 10 * 1000 * 1000;
+    rmt_config.mem_block_symbols = 1024;
+    rmt_config.flags.with_dma = true;
+    esp_err_t err = led_strip_new_rmt_device(&strip_config, &rmt_config, &strip);
+    if (err != ESP_OK) {
+        rmt_config.mem_block_symbols = 144;
+        rmt_config.flags.with_dma = false;
+        err = led_strip_new_rmt_device(&strip_config, &rmt_config, &strip);
+    }
+    return err;
 }
 
 void flash(Key key, uint32_t now_ms) {

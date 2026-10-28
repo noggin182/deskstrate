@@ -9,7 +9,7 @@
 //                that host, dim otherwise (and while the HID hub is offline)
 // The animation cycles through hues close to the host's colour at a constant
 // brightness (the PC's orange drifts to yellow and a hint of red).
-// While a top key is held, the bottom key it chords with blinks white. The menu
+// While a top key is held, the bottom key it chords with pulses white. The menu
 // shows back (red), select (green) and up/down (white). Before the first STATE from
 // the core, all four breathe amber. Every press flashes its key white.
 

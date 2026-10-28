@@ -121,11 +121,11 @@ The key lights (`src/neokeys.h`) each animate the host they stand for, in that
 host's screen colour: the top keys show the host on the monitor above them
 (nearly dark in standby, a dim red glow when the core can't see the monitor),
 and the bottom keys the host they send the keyboard to, at full strength while
-the keyboard/mouse hub is on it and dim otherwise. The animation cycles through
+the keyboard/mouse hub is on it and a steady dim glow otherwise. The animation cycles through
 a few hues close to the host's colour at a constant brightness: the PC's orange
 drifts to yellow and a hint of red, the Mac's blue to azure and cyan, and the
 guests through purples and corals. While a top key is held, the bottom key it
-chords with blinks white. In the menu the keys show back (red), select (green) and up/down (white). Until
+chords with pulses white. In the menu the keys show back (red), select (green) and up/down (white). Until
 the first `STATE` arrives all four breathe amber. Each press flashes its key
 white. Which NeoPixel sits under which key is set in `kPixelForKey` in
 `src/neokeys.cpp`.
