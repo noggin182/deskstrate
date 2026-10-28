@@ -49,10 +49,10 @@ errors in the ESP-IDF log. UDP broadcast is limited to the local network;
 router client isolation or firewall rules may prevent devices from receiving
 each other's broadcasts.
 
-The NeoKey switches use Feather D5 (Menu/Back), D6 (A), D10 (Function/split),
-and D11 (B), configured as active-low inputs with internal pull-ups. The four
-chained NeoPixels share D9 and animate through the color wheel; pressing any
-key shifts the animation colors.
+The NeoKey switches use Feather D5 (top left), D6 (bottom left), D10 (top right),
+and D11 (bottom right), configured as active-low inputs with internal pull-ups.
+The four chained NeoPixels share D9; what they show is described under Status
+screen and controls.
 
 The Feather's built-in NeoPixel (GPIO33) is the status LED: see Status LED in the
 top README. It turns bright orange when no `STATE` has come from the core for 10 s.
@@ -86,15 +86,41 @@ guest hosts are purple and coral. Host labels appear below the hub icons,
 including guest numbers. Volume is planned for PC and Mac only and depends on
 a companion app running on those hosts.
 
-The four keys ask the core to switch: Menu/Back (top left) advances the left
-monitor's input, Function/split (top right) the right monitor's input, A
-(bottom left) the HID hub's host, and B (bottom right) the media hub's host.
-Monitor inputs cycle DP, USB-C, HDMI; hub hosts cycle PC, Mac, Guest 3,
-Guest 4. Each key changes only its corresponding value and wraps to the first
-value after the last. The screen updates when the core's `STATE` confirms the
-change, so it never shows a switch the core refused. A temporary code overlay covers the volume panel to make
+The keys ask the core to switch (`src/controls.h`). Split mode is not stored on
+the deck: it is whenever the two monitors show different hosts.
+
+| Keys | Outside split mode | In split mode |
+| --- | --- | --- |
+| Bottom left | everything (both monitors, both hubs) to the PC | keyboard/mouse hub to the left screen's host |
+| Bottom right | everything to the Mac | keyboard/mouse hub to the right screen's host |
+| Hold top right, tap bottom left | split: PC left, Mac right, both hubs on the PC | same |
+| Hold top left, tap bottom right | split: Mac left, PC right, both hubs on the Mac | same |
+| Tap top right | nothing | leave split: everything to the keyboard hub's host |
+| Tap top left | open the menu | open the menu |
+
+Top keys act on release, and only when no bottom key was tapped while they were
+held (and they were held under 1.5 s). Bottom keys act on press.
+
+In the menu (`src/menu.h`) top left is back, top right is select, and bottom
+left/right move up/down. Its items set each monitor's input (DP, USB-C, HDMI)
+and each hub's host (PC, Mac, Guest 3, Guest 4), swap the two screens, put both
+screens in standby, and set the key light level (High, Low, Off; kept in NVS).
+The firmware version is shown at the bottom. The menu closes after 20 s without
+a key press.
+
+The key lights (`src/neokeys.h`) each animate the host they stand for, in that
+host's screen colour: the top keys show the host on the monitor above them
+(nearly dark when it is in standby), and the bottom keys the host they send the
+keyboard to, fully animated while the keyboard/mouse hub is on it and a dim glow
+otherwise. The PC breathes, the Mac ripples between blue and cyan, and guests
+beat twice. While a top key is held, the bottom key it chords with blinks white.
+In the menu the keys show back (red), select (green) and up/down (white). Until
+the first `STATE` arrives all four breathe amber. Each press flashes its key
+white. Which NeoPixel sits under which key is set in `kPixelForKey` in
+`src/neokeys.cpp`.
+
+A temporary code overlay covers the volume panel to make
 states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
 Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
 PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `2211` means both monitors
-are on USB-C and both hubs are assigned to PC. Menu behaviors are not
-implemented yet.
+are on USB-C and both hubs are assigned to PC.

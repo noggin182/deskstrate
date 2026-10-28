@@ -7,10 +7,13 @@
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
+#include "controls.h"
+#include "menu.h"
+#include "neokeys.h"
 #include "network.h"
+#include "nvs.h"
 #include "ota_pull.h"
 #include "status_led.h"
-#include "led_strip.h"
 #include "lvgl.h"
 
 // Adafruit Feather ESP32-S3 TFT Pinout
@@ -31,11 +34,14 @@
 #define PIN_NEOKEY_SWITCH_FUNCTION GPIO_NUM_10
 #define PIN_NEOKEY_SWITCH_B GPIO_NUM_11
 #define PIN_NEOKEY_NEOPIXEL GPIO_NUM_9
-#define NEOKEY_NEOPIXEL_COUNT 4
 
 // Orange on the status LED after this long without a STATE from the core
 // (KVM_HEARTBEAT_MS apart when it's up).
 #define CORE_SILENT_MS 10000
+// The menu closes itself after this long without a key press.
+#define MENU_IDLE_MS 20000
+// NeoKey frame period.
+#define NEOKEY_FRAME_MS 30
 
 static lv_disp_drv_t disp_drv;
 
@@ -45,43 +51,18 @@ struct KeyDebounceState {
     uint8_t stable_samples = 0;
 };
 
-static bool key_press_detected(gpio_num_t pin, KeyDebounceState &state) {
+// Returns the debounced level (true = pressed): it follows the pin once it has read
+// the same for three samples in a row.
+static bool key_debounced(gpio_num_t pin, KeyDebounceState &state) {
     const bool pressed = gpio_get_level(pin) == 0;
     if (pressed != state.raw_pressed) {
         state.raw_pressed = pressed;
         state.stable_samples = 0;
-        return false;
+    } else if (pressed != state.stable_pressed && ++state.stable_samples >= 3) {
+        state.stable_pressed = pressed;
+        state.stable_samples = 0;
     }
-
-    if (pressed == state.stable_pressed) {
-        return false;
-    }
-
-    if (++state.stable_samples < 3) {
-        return false;
-    }
-
-    state.stable_pressed = pressed;
-    state.stable_samples = 0;
-    return pressed;
-}
-
-static void hue_to_rgb(uint8_t hue, uint8_t &red, uint8_t &green, uint8_t &blue) {
-    if (hue < 85) {
-        red = static_cast<uint8_t>(255 - hue * 3);
-        green = static_cast<uint8_t>(hue * 3);
-        blue = 0;
-    } else if (hue < 170) {
-        hue -= 85;
-        red = 0;
-        green = static_cast<uint8_t>(255 - hue * 3);
-        blue = static_cast<uint8_t>(hue * 3);
-    } else {
-        hue -= 170;
-        red = static_cast<uint8_t>(hue * 3);
-        green = 0;
-        blue = static_cast<uint8_t>(255 - hue * 3);
-    }
+    return state.stable_pressed;
 }
 
 static lv_obj_t *create_status_label(
@@ -194,18 +175,6 @@ static HostId input_host(MonitorInput input, uint8_t monitor_index) {
     return HostId::Guest1;
 }
 
-static void advance_monitor_input(MonitorInput &input) {
-    input = static_cast<MonitorInput>(
-        (static_cast<uint8_t>(input) + 1) % 3
-    );
-}
-
-static void advance_hub_host(HostId &host) {
-    host = static_cast<HostId>(
-        (static_cast<uint8_t>(host) + 1) % 4
-    );
-}
-
 // kvm_proto <-> deck view. HostId is already in kvm_usb_port order (PC, Mac, Guest1, Guest2).
 static bool from_kvm_input(uint8_t input, MonitorInput &out) {
     switch (input) {
@@ -214,15 +183,6 @@ static bool from_kvm_input(uint8_t input, MonitorInput &out) {
         case KVM_IN_HDMI: out = MonitorInput::Hdmi; return true;
     }
     return false;  // KEEP (unknown) or OFF (standby): leave the drawing as it was
-}
-
-static uint8_t to_kvm_input(MonitorInput input) {
-    switch (input) {
-        case MonitorInput::DisplayPort: return KVM_IN_DP;
-        case MonitorInput::UsbC: return KVM_IN_USBC;
-        case MonitorInput::Hdmi: return KVM_IN_HDMI;
-    }
-    return KVM_IN_KEEP;
 }
 
 // Copies the core's STATE into the view. Returns true if anything visible changed.
@@ -247,6 +207,49 @@ static void request_change(uint8_t action, uint8_t a, uint8_t b) {
     if (err != ESP_OK) {
         printf("Request not sent: %s\n", esp_err_to_name(err));
     }
+}
+
+// Asks for every part of target that differs from what the core last reported.
+static void request_target(const controls::Target &target, const controls::View &view) {
+    for (uint8_t mon = 0; mon < 2; ++mon) {
+        if (target.mon[mon] != KVM_IN_KEEP && target.mon[mon] != view.mon[mon]) {
+            request_change(KVM_ACT_MON, mon, target.mon[mon]);
+        }
+    }
+    for (uint8_t hub = 0; hub < KVM_HUB_COUNT; ++hub) {
+        if (target.usb[hub] != KVM_USB_UNKNOWN && target.usb[hub] != view.usb[hub]) {
+            request_change(KVM_ACT_USB, hub, target.usb[hub]);
+        }
+    }
+}
+
+// The core's STATE as controls/neokeys/menu see it (keeps standby and unknown).
+static void update_view(const kvm_state_t &core, controls::View &view) {
+    for (uint8_t mon = 0; mon < 2; ++mon) {
+        view.mon[mon] = core.mon_count > mon ? core.mon[mon] : KVM_IN_KEEP;
+    }
+    for (uint8_t hub = 0; hub < KVM_HUB_COUNT; ++hub) {
+        view.usb[hub] = core.usb[hub];
+    }
+}
+
+// Key light level (menu.h) is kept in NVS so it survives updates.
+static uint8_t load_light_level(void) {
+    uint8_t level = 0;
+    nvs_handle_t nvs;
+    if (nvs_open("deck", NVS_READONLY, &nvs) == ESP_OK) {
+        nvs_get_u8(nvs, "lights", &level);
+        nvs_close(nvs);
+    }
+    return level < menu::kLightLevels ? level : 0;
+}
+
+static void save_light_level(uint8_t level) {
+    nvs_handle_t nvs;
+    if (nvs_open("deck", NVS_READWRITE, &nvs) != ESP_OK) return;
+    nvs_set_u8(nvs, "lights", level);
+    nvs_commit(nvs);
+    nvs_close(nvs);
 }
 
 static void update_state_code(const KvmState &state) {
@@ -756,16 +759,7 @@ extern "C" void app_main(void) {
     neokey_gpio_config.intr_type = GPIO_INTR_DISABLE;
     ESP_ERROR_CHECK(gpio_config(&neokey_gpio_config));
 
-    led_strip_rmt_config_t rmt_config = {};
-    rmt_config.resolution_hz = 10 * 1000 * 1000;
-
-    led_strip_config_t neokey_strip_config = {};
-    neokey_strip_config.strip_gpio_num = PIN_NEOKEY_NEOPIXEL;
-    neokey_strip_config.max_leds = NEOKEY_NEOPIXEL_COUNT;
-    neokey_strip_config.led_model = LED_MODEL_WS2812;
-
-    led_strip_handle_t neokey_strip;
-    ESP_ERROR_CHECK(led_strip_new_rmt_device(&neokey_strip_config, &rmt_config, &neokey_strip));
+    if (neokeys::start(PIN_NEOKEY_NEOPIXEL) != ESP_OK) printf("NeoKey lights not started\n");
 
     esp_err_t network_err = network_start();
     if (network_err != ESP_OK) {
@@ -864,50 +858,83 @@ extern "C" void app_main(void) {
     ota_pull::confirm_boot(network_err == ESP_OK);
     status_led::set_ready();
     
+    // NVS is up once the network has started (network_start initialises it).
+    uint8_t light_level = load_light_level();
+
     // --- 9. The Main Loop ---
     uint16_t heartbeat_ticks = 0;
-    uint8_t animation_hue = 0;
-    uint8_t key_hue_offset = 0;
-    uint8_t animation_ticks = 0;
-    KeyDebounceState key_a_state;
-    KeyDebounceState key_b_state;
-    KeyDebounceState key_menu_state;
-    KeyDebounceState key_function_state;
+    uint8_t neokey_ticks = 0;
+    const gpio_num_t key_pins[controls::kKeyCount] = {
+        PIN_NEOKEY_SWITCH_MENU,      // top left
+        PIN_NEOKEY_SWITCH_FUNCTION,  // top right
+        PIN_NEOKEY_SWITCH_A,         // bottom left
+        PIN_NEOKEY_SWITCH_B,         // bottom right
+    };
+    KeyDebounceState key_states[controls::kKeyCount];
+    controls::Gestures gestures;
+    uint8_t prev_pressed = 0;
+    controls::View view;
+    bool core_seen = false;
     TickType_t last_core_state = xTaskGetTickCount();
+    TickType_t last_key = xTaskGetTickCount();
 
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
         lv_tick_inc(10);
         lv_timer_handler(); 
 
-        if (key_press_detected(PIN_NEOKEY_SWITCH_A, key_a_state)) {
-            key_hue_offset += 48;
-            HostId next = current_kvm_state.hub1_host;
-            advance_hub_host(next);
-            request_change(KVM_ACT_USB, KVM_HUB_HID, static_cast<uint8_t>(next));
+        const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
+        uint8_t pressed = 0;
+        for (uint8_t k = 0; k < controls::kKeyCount; ++k) {
+            if (key_debounced(key_pins[k], key_states[k])) pressed |= 1u << k;
         }
-        if (key_press_detected(PIN_NEOKEY_SWITCH_B, key_b_state)) {
-            key_hue_offset += 96;
-            HostId next = current_kvm_state.hub2_host;
-            advance_hub_host(next);
-            request_change(KVM_ACT_USB, KVM_HUB_MEDIA, static_cast<uint8_t>(next));
+        const uint8_t newly_pressed = pressed & ~prev_pressed;
+        prev_pressed = pressed;
+        for (uint8_t k = 0; k < controls::kKeyCount; ++k) {
+            if (newly_pressed & (1u << k)) neokeys::flash(static_cast<controls::Key>(k), now_ms);
         }
-        if (key_press_detected(PIN_NEOKEY_SWITCH_MENU, key_menu_state)) {
-            key_hue_offset += 144;
-            MonitorInput next = current_kvm_state.monitor1_input;
-            advance_monitor_input(next);
-            request_change(KVM_ACT_MON, KVM_MON_LEFT, to_kvm_input(next));
+        if (newly_pressed) last_key = xTaskGetTickCount();
+
+        controls::Event events[controls::kKeyCount];
+        const uint8_t event_count = gestures.update(pressed, now_ms, menu::is_open(), events);
+        for (uint8_t i = 0; i < event_count; ++i) {
+            const controls::Event &event = events[i];
+            if (menu::is_open()) {
+                const menu::Result r = menu::key(event.key, view, light_level);
+                switch (r.command) {
+                    case menu::Command::None: break;
+                    case menu::Command::Close: menu::close(); break;
+                    case menu::Command::Monitor: request_change(KVM_ACT_MON, r.a, r.b); break;
+                    case menu::Command::Usb: request_change(KVM_ACT_USB, r.a, r.b); break;
+                    case menu::Command::Swap: request_target(controls::plan_swap(view), view); break;
+                    case menu::Command::ScreensOff:
+                        request_change(KVM_ACT_MON, KVM_MON_LEFT, KVM_IN_OFF);
+                        request_change(KVM_ACT_MON, KVM_MON_RIGHT, KVM_IN_OFF);
+                        menu::close();
+                        break;
+                    case menu::Command::Lights:
+                        light_level = r.a;
+                        save_light_level(light_level);
+                        menu::refresh(view, light_level);
+                        break;
+                }
+            } else if (event.type == controls::EventType::Tap && event.key == controls::kTopLeft) {
+                menu::open(view, light_level);
+            } else {
+                controls::Target target;
+                if (controls::plan(event, view, target)) request_target(target, view);
+            }
         }
-        if (key_press_detected(PIN_NEOKEY_SWITCH_FUNCTION, key_function_state)) {
-            key_hue_offset += 192;
-            MonitorInput next = current_kvm_state.monitor2_input;
-            advance_monitor_input(next);
-            request_change(KVM_ACT_MON, KVM_MON_RIGHT, to_kvm_input(next));
+        if (menu::is_open() && xTaskGetTickCount() - last_key >= pdMS_TO_TICKS(MENU_IDLE_MS)) {
+            menu::close();
         }
 
         kvm_state_t core_state;
         if (network_take_kvm_state(core_state)) {
             last_core_state = xTaskGetTickCount();
+            core_seen = true;
+            update_view(core_state, view);
+            menu::refresh(view, light_level);
             if (apply_core_state(core_state, current_kvm_state)) {
                 update_state_code(current_kvm_state);
                 render_current_scenario();
@@ -915,22 +942,15 @@ extern "C" void app_main(void) {
         }
         status_led::set_core_silent(xTaskGetTickCount() - last_core_state >= pdMS_TO_TICKS(CORE_SILENT_MS));
 
-        if (++animation_ticks >= 3) {
-            animation_ticks = 0;
-            ++animation_hue;
-
-            for (uint32_t pixel = 0; pixel < NEOKEY_NEOPIXEL_COUNT; ++pixel) {
-                uint8_t red;
-                uint8_t green;
-                uint8_t blue;
-                const uint8_t hue = static_cast<uint8_t>(
-                    animation_hue + key_hue_offset
-                    + pixel * (256 / NEOKEY_NEOPIXEL_COUNT)
-                );
-                hue_to_rgb(hue, red, green, blue);
-                ESP_ERROR_CHECK(led_strip_set_pixel(neokey_strip, pixel, red, green, blue));
-            }
-            ESP_ERROR_CHECK(led_strip_refresh(neokey_strip));
+        if (++neokey_ticks >= NEOKEY_FRAME_MS / 10) {
+            neokey_ticks = 0;
+            neokeys::Scene scene;
+            scene.core_seen = core_seen;
+            scene.menu = menu::is_open();
+            scene.held = pressed;
+            scene.view = view;
+            scene.brightness = menu::light_brightness(light_level);
+            neokeys::render(scene, now_ms);
         }
 
         if (++heartbeat_ticks >= 200) {
