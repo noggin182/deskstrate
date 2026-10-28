@@ -39,6 +39,8 @@
 // Orange on the status LED after this long without a STATE from the core
 // (KVM_HEARTBEAT_MS apart when it's up).
 #define CORE_SILENT_MS 10000
+// Until a STATE arrives (at boot, or after the core went silent), ask for one this often.
+#define STATE_PING_MS 1000
 // The menu closes itself after this long without a key press.
 #define MENU_IDLE_MS 20000
 // NeoKey frame period.
@@ -1129,6 +1131,7 @@ extern "C" void app_main(void) {
     bool core_seen = false;
     TickType_t last_core_state = xTaskGetTickCount();
     TickType_t last_key = xTaskGetTickCount();
+    TickType_t last_ping = 0;
 
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
@@ -1203,6 +1206,13 @@ extern "C" void app_main(void) {
         }
         const bool core_silent = xTaskGetTickCount() - last_core_state >= pdMS_TO_TICKS(CORE_SILENT_MS);
         status_led::set_core_silent(core_silent);
+        // The core answers any request with its STATE, so this clears the waiting screen
+        // as soon as Wi-Fi is up instead of at the next heartbeat. Errors before Wi-Fi
+        // has an IP are expected, so they aren't logged.
+        if ((!core_seen || core_silent) && xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(STATE_PING_MS)) {
+            last_ping = xTaskGetTickCount();
+            network_send_kvm_request(KVM_ACT_GET_STATE, 0, 0);
+        }
         show_waiting(!core_seen ? Waiting::ForCore : (core_silent ? Waiting::LostCore : Waiting::Hidden));
         update_ota_panel();
 

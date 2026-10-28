@@ -30,7 +30,9 @@ A hub request while the hub is still carrying out the previous switch is refused
 The core binds `KVM_PORT` (18200) and broadcasts a `STATE` on every change and
 every 2 s (`KVM_HEARTBEAT_MS`), with the monitors' inputs (left/right by EDID
 serial, `KVM_IN_OFF` for standby) and both hubs' ports (0-3). It answers
-`REQUEST`s with a `RESULT`; `KVM_ACT_MON` and `KVM_ACT_USB` are implemented.
+`REQUEST`s with a `RESULT` followed by the current `STATE`, sent straight back to
+the requester; `KVM_ACT_MON`, `KVM_ACT_USB` and `KVM_ACT_GET_STATE` (no change, just
+the reply: the deck sends it at start-up) are implemented.
 Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
 connected or the write failed), `BUSY` (hub mid-switch).
 

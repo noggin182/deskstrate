@@ -6,7 +6,7 @@
  *
  * Transport: UDP, one message per datagram, KVM_PORT on every node.
  *   core  -> all   : KVM_STATE  (on change + every KVM_HEARTBEAT_MS)
- *   core  -> one   : KVM_RESULT (reply to a REQUEST)
+ *   core  -> one   : KVM_RESULT (reply to a REQUEST), then KVM_STATE (the current one)
  *   hosts -> core  : KVM_STATUS (reply to each STATE + on local change)
  *   hosts,
  *   deck  -> core  : KVM_REQUEST
@@ -155,7 +155,8 @@ enum kvm_err { KVM_ERR_NONE = 0, KVM_ERR_DDC_TIMEOUT = 1, KVM_ERR_NOT_FOUND = 2,
 
 /* ---- REQUEST: host or deck -> core (40 bytes) -------------------------- */
 /* Deck keys, or hotkeys on whichever host currently has the keyboard. The core
- * decides; the outcome arrives as a RESULT plus (if accepted) a new STATE. */
+ * decides; the outcome arrives as a RESULT, then the current STATE sent straight back
+ * to the requester (and, if accepted, broadcast as usual). */
 
 enum kvm_action {
     KVM_ACT_PRESET      = 1,  /* a = preset id (presets live in core config) */
@@ -166,6 +167,7 @@ enum kvm_action {
     KVM_ACT_SWAP        = 6,  /* split mode: swap which host owns which monitor */
     KVM_ACT_FOCUS       = 7,  /* HID hub follows the owner of monitor a (or the cursor's monitor); MEDIA untouched */
     KVM_ACT_ALL_OFF     = 8,  /* every monitor to standby */
+    KVM_ACT_GET_STATE   = 9,  /* no change: just the RESULT + STATE reply (a client starting up) */
     KVM_ACT_USER        = 0x80, /* 0x80-0xFF: free for custom bindings handled on the core */
 };
 

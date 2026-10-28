@@ -155,6 +155,7 @@ void handle_request(const kvm_request_t &req, const sockaddr_in &from) {
     switch (req.action) {
         case KVM_ACT_MON: code = apply_mon(req.a, req.b); break;
         case KVM_ACT_USB: code = apply_usb(req.a, req.b); break;
+        case KVM_ACT_GET_STATE: code = KVM_RES_OK; break;
         default: code = KVM_RES_UNKNOWN; break;
     }
     ESP_LOGI(TAG, "REQUEST %u from node 0x%02X (action %u a=%u b=%u): result %u",
@@ -168,6 +169,14 @@ void handle_request(const kvm_request_t &req, const sockaddr_in &from) {
     res.new_seq = code == KVM_RES_OK ? seq : 0;
     res.code = code;
     send_to(&res, sizeof res, from);
+
+    // Every requester gets the current STATE straight back, so a client that has just
+    // started (KVM_ACT_GET_STATE) needn't wait for the next heartbeat.
+    // publish_state() first, so a change it hasn't broadcast yet gets its seq.
+    publish_state(false);
+    kvm_state_t st = last;
+    fill_hdr(st.hdr, KVM_STATE, KVM_F_HEARTBEAT);
+    send_to(&st, sizeof st, from);
 }
 
 void server_task(void *) {
