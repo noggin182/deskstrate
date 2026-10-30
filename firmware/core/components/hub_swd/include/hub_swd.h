@@ -68,8 +68,13 @@ public:
     esp_err_t read_word(uint32_t addr, uint32_t &out);
     esp_err_t write_word(uint32_t addr, uint32_t value);
 
-    // Name of the last connect() stage that failed, for diagnostics ("OK" if none).
+    // Name of the last stage that failed (connect() stages, or "read"/"write" for memory
+    // access), for diagnostics ("OK" if none).
     const char *last_stage() const { return stage_; }
+
+    // SWD ACK of the transfer that failed: 7 = no reply (nothing driving SWDIO), 2 = WAIT,
+    // 4 = FAULT, 8 = parity error, anything else = out of step (often SWCLK/SWDIO swapped).
+    uint8_t last_ack() const { return ack_; }
 
 private:
     uint8_t transfer(bool ap, bool read, uint8_t addr, uint32_t &data);
@@ -84,6 +89,7 @@ private:
     uint32_t status_addr_ = kStatusAddr;
     uint32_t half_us_ = 5;
     const char *stage_ = "OK";
+    uint8_t ack_ = 1;
 };
 
 }  // namespace hub_swd

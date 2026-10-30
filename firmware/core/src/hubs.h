@@ -14,6 +14,8 @@ inline constexpr uint8_t kUnknown = 0xFF;  // == KVM_USB_UNKNOWN
 struct State {
     bool online = false;       // SWD connected and the status word read back
     uint8_t port = kUnknown;   // selected port 0..3 (panel label = port + 1)
+    uint32_t raw = 0;          // status word as read (online only), for diagnostics
+    const char *error = "not polled yet";  // why it's offline (static string), or nullptr
 };
 
 // Starts the poll task. A hub that isn't wired or powered just stays offline and is
