@@ -19,6 +19,9 @@ const char *kNames[kCount] = {"HID", "MEDIA"};
 
 constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kOfflineRetryMs = 15000;  // don't keep line-resetting a hub that isn't there
+// SWD half clock period: 25 us = 20 kHz. Speed doesn't matter here (one status read a
+// second, ~5 ms each) and slow edges tolerate jumper wires and series resistors.
+constexpr uint32_t kSwdHalfUs = 25;
 
 struct Hub {
     hub_swd::Hub swd;
@@ -120,7 +123,7 @@ void start() {
                                         {board::kMediaSwclk, board::kMediaSwdio}};
     bool any = false;
     for (int i = 0; i < kCount; i++) {
-        const esp_err_t err = hubs_[i].swd.init(pins[i]);
+        const esp_err_t err = hubs_[i].swd.init(pins[i], hub_swd::kStatusAddr, kSwdHalfUs);
         hubs_[i].init_ok = err == ESP_OK;
         any |= hubs_[i].init_ok;
         if (err != ESP_OK) ESP_LOGE(TAG, "%s hub init failed: %s", kNames[i], esp_err_to_name(err));

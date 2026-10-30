@@ -108,6 +108,10 @@ esp_err_t Hub::init(Pins pins, uint32_t status_addr, uint32_t clk_half_us) {
     io.pull_up_en = GPIO_PULLUP_ENABLE;
     esp_err_t err = gpio_config(&io);
     if (err != ESP_OK) return err;
+    // Weakest drive: softer edges ring less on unshielded jumper wires (an extra SWCLK edge
+    // from ringing or crosstalk puts the target out of step).
+    gpio_set_drive_capability(pins_.swclk, GPIO_DRIVE_CAP_0);
+    gpio_set_drive_capability(pins_.swdio, GPIO_DRIVE_CAP_0);
     gpio_set_level(pins_.swclk, 1);
     gpio_set_level(pins_.swdio, 1);
     return ESP_OK;
