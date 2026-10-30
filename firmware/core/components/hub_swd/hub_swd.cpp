@@ -114,7 +114,8 @@ esp_err_t Hub::init(Pins pins, uint32_t status_addr, uint32_t clk_half_us) {
 }
 
 void Hub::release() {
-    for (gpio_num_t pin : {pins_.swclk, pins_.swdio}) {
+    const gpio_num_t pins[] = {pins_.swclk, pins_.swdio};
+    for (gpio_num_t pin : pins) {
         gpio_set_direction(pin, GPIO_MODE_INPUT);
         gpio_set_pull_mode(pin, GPIO_FLOATING);
     }
