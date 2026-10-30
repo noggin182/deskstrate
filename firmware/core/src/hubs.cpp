@@ -75,6 +75,8 @@ void poll(int i) {
         h.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kPollMs);
     } else {
         s.error = failure(h.swd);
+        s.stage = h.swd.last_stage();
+        s.ack = h.swd.last_ack();
         h.connected = false;
         h.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kOfflineRetryMs);
     }
