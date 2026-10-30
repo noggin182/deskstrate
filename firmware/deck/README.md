@@ -68,8 +68,10 @@ top README. It turns bright orange when no `STATE` has come from the core for 10
 The TFT status screen is portrait (135 x 240). Its routing diagram shows the
 host routed to each monitor (PC, Mac, Guest 3, or Guest 4) and the assigned
 host for each hub. USB-C, DP, and HDMI remain internal monitor input state and
-are represented by input-specific icons inside each monitor: an Apple-style
-mark for USB-C, a Windows mark for DP, and an HDMI connector for HDMI.
+are represented by input-specific icons inside each monitor: the Apple logo
+for USB-C, the Windows logo for DP, and an HDMI connector for HDMI. The logos are
+anti-aliased alpha masks tinted on the device (`src/icons.h`), rendered from
+`icons/*.svg` by `tools/render_icons.py`; rerun it after changing an SVG or size.
 Matching monitor-to-hub assignments are shown with routes; mismatched
 assignments remain unconnected. Hub names are represented by keyboard and
 camera icons rather than labels. Companion-app volume data is not connected yet, so volume
