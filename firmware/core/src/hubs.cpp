@@ -19,6 +19,14 @@ const char *kNames[kCount] = {"HID", "MEDIA"};
 
 constexpr uint32_t kPollMs = 1000;
 constexpr uint32_t kOfflineRetryMs = 15000;  // don't keep line-resetting a hub that isn't there
+// A requested switch is read back until the hub reports it. The hub clears its
+// "requested" byte as soon as it starts switching, so idle and still on the old port this
+// long after a write means the write was lost (or overwritten by the hub's own loop):
+// write it again, up to kSwitchTries writes, within kSwitchGiveUpMs overall.
+constexpr uint32_t kPendingPollMs = 200;
+constexpr uint32_t kSwitchSettleMs = 1500;
+constexpr int kSwitchTries = 3;
+constexpr uint32_t kSwitchGiveUpMs = 8000;
 
 struct Hub {
     hub_swd::Hub swd;
@@ -26,6 +34,11 @@ struct Hub {
     bool connected = false;
     State state;
     TickType_t next_poll = 0;
+    // Switch in progress: target port (kUnknown = none), writes so far, last write, start.
+    uint8_t target = kUnknown;
+    int writes = 0;
+    TickType_t written_at = 0;
+    TickType_t target_since = 0;
 };
 
 Hub hubs_[kCount];
@@ -54,6 +67,44 @@ const char *failure(const hub_swd::Hub &swd) {
     return "SWD out of step (SWCLK/SWDIO swapped?)";
 }
 
+// Writes the pending target to the hub (caller holds op_lock). ESP_ERR_NOT_FINISHED (hub
+// mid-switch) leaves it for a later poll; other errors mean the hub was lost.
+esp_err_t write_target(int i) {
+    Hub &h = hubs_[i];
+    const esp_err_t err = h.swd.request(h.target);
+    if (err == ESP_OK) {
+        h.writes++;
+        h.written_at = xTaskGetTickCount();
+        ESP_LOGI(TAG, "%s hub: requested port %u%s", kNames[i], h.target,
+                 h.writes > 1 ? " (again: the last write didn't take)" : "");
+    } else if (err != ESP_ERR_NOT_FINISHED) {
+        h.connected = false;  // unplugged or power-cycled: reconnect on the next poll
+        h.next_poll = xTaskGetTickCount();
+    }
+    return err;
+}
+
+// Read-back of a pending switch, after a successful status read.
+void check_target(int i, const hub_swd::Status &st) {
+    Hub &h = hubs_[i];
+    if (h.target == kUnknown) return;
+    const TickType_t now = xTaskGetTickCount();
+    if (st.current == h.target && st.requested == hub_swd::kNoPort) {
+        if (h.writes > 1) ESP_LOGI(TAG, "%s hub: port %u took on write %d", kNames[i], h.target, h.writes);
+        h.target = kUnknown;
+        return;
+    }
+    if (now - h.target_since >= pdMS_TO_TICKS(kSwitchGiveUpMs)) {
+        ESP_LOGW(TAG, "%s hub: gave up on port %u after %d writes (still on %u)", kNames[i],
+                 h.target, h.writes, st.current);
+        h.target = kUnknown;
+        return;
+    }
+    if (st.requested != hub_swd::kNoPort) return;  // the hub is still switching
+    const bool settled = h.writes == 0 || now - h.written_at >= pdMS_TO_TICKS(kSwitchSettleMs);
+    if (settled && h.writes < kSwitchTries) write_target(i);
+}
+
 void poll(int i) {
     Hub &h = hubs_[i];
     if (!h.init_ok || !reached(h.next_poll)) return;
@@ -67,13 +118,29 @@ void poll(int i) {
         if (h.connected) ESP_LOGI(TAG, "%s hub: SWD connected, idcode %08x", kNames[i], (unsigned)idcode);
     }
     hub_swd::Status st = {};
-    if (h.connected && h.swd.read_status(st) == ESP_OK) {
+    bool ok = h.connected && h.swd.read_status(st) == ESP_OK;
+    if (!ok && h.connected) {
+        // One bad transfer (noise, or the hub busy switching) shouldn't take the hub offline
+        // for kOfflineRetryMs: reconnect and read once more first.
+        ok = h.swd.connect() == ESP_OK && h.swd.read_status(st) == ESP_OK;
+        ESP_LOGW(TAG, "%s hub: status read failed, %s", kNames[i], ok ? "recovered" : "retry failed too");
+    }
+    if (ok) {
         s.online = true;
         s.port = st.current <= 3 ? st.current : kUnknown;
         s.raw = (uint32_t)st.held_lockout | (uint32_t)st.requested << 8 |
                 (uint32_t)st.current << 16 | (uint32_t)st.applied << 24;
-        h.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kPollMs);
+        check_target(i, st);
+        // Show the switch being made until it lands (or is given up), so the deck doesn't
+        // flicker back to the old port.
+        if (h.target != kUnknown) s.port = h.target;
+        h.next_poll = xTaskGetTickCount() +
+                      pdMS_TO_TICKS(h.target != kUnknown ? kPendingPollMs : kPollMs);
     } else {
+        if (h.target != kUnknown) {
+            ESP_LOGW(TAG, "%s hub: dropped switch to port %u (hub lost)", kNames[i], h.target);
+            h.target = kUnknown;
+        }
         s.error = failure(h.swd);
         s.stage = h.swd.last_stage();
         s.ack = h.swd.last_ack();
@@ -141,22 +208,23 @@ esp_err_t set_port(int hub, uint8_t port) {
     if (hub < 0 || hub >= kCount || port > 3) return ESP_ERR_INVALID_ARG;
     const State now = get(hub);
     if (!now.online) return ESP_ERR_NOT_FOUND;
-    if (now.port == port) return ESP_OK;
 
     xSemaphoreTake(op_lock, portMAX_DELAY);
     Hub &h = hubs_[hub];
-    const esp_err_t err = h.swd.request(port);
-    if (err != ESP_OK && err != ESP_ERR_NOT_FINISHED) {
-        // Lost the hub (unplugged or power-cycled): reconnect on the next poll.
-        h.connected = false;
-        h.next_poll = xTaskGetTickCount();
+    if (now.port == port && h.target == kUnknown) {
+        xSemaphoreGive(op_lock);
+        return ESP_OK;  // already there
     }
+    // The latest request wins; the poll reads it back and writes again if it's lost.
+    h.target = port;
+    h.writes = 0;
+    h.target_since = xTaskGetTickCount();
+    esp_err_t err = write_target(hub);
+    if (err == ESP_ERR_NOT_FINISHED) err = ESP_OK;  // mid-switch: written once the hub is idle
+    if (err != ESP_OK) h.target = kUnknown;
+    h.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kPendingPollMs);
     xSemaphoreGive(op_lock);
-    if (err == ESP_OK) {
-        // The hub switches on its next main-loop pass; show the target until the poll confirms.
-        publish(hub, State{.online = true, .port = port, .raw = now.raw, .error = nullptr});
-        ESP_LOGI(TAG, "%s hub: requested port %u", kNames[hub], port);
-    }
+    if (err == ESP_OK) publish(hub, State{.online = true, .port = port, .raw = now.raw, .error = nullptr});
     return err;
 }
 
