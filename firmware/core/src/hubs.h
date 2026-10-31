@@ -27,9 +27,11 @@ void start();
 // Last polled (or just requested) state. Cheap, never blocks on SWD.
 State get(int hub);
 
-// Asks the hub to switch (ESP_OK at once if it's already on that port).
+// Asks the hub to switch (ESP_OK at once if it's already on that port). The poll reads
+// the switch back and writes it again if it didn't take; a request while the hub is still
+// carrying out a previous switch is held and written once it's idle (the latest wins).
 // ESP_ERR_INVALID_ARG for a bad hub or port, ESP_ERR_NOT_FOUND if the hub isn't online,
-// ESP_ERR_NOT_FINISHED if it is still carrying out a previous switch.
+// or the SWD error if the write failed (the hub was lost).
 esp_err_t set_port(int hub, uint8_t port);
 
 }  // namespace hubs

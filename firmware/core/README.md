@@ -22,8 +22,12 @@ Monitors are matched to left/right by EDID serial, re-read whenever a monitor
 reappears. Until a serial has been read, bus order is assumed (DDC1 = left), but
 a bus already identified as one monitor never stands in for the other.
 
-A hub request while the hub is still carrying out the previous switch is refused
-(`KVM_RES_BUSY`) rather than racing its firmware.
+Hub switches are read back: the core polls a switching hub every 200 ms and, if the
+hub is idle but still on the old port 1.5 s after a write, writes it again (up to 3
+writes, giving up after 8 s). A request while the hub is still carrying out the previous
+switch is held and written once the hub is idle, rather than racing its firmware; the
+latest request wins. One failed status read is retried (with a reconnect) before the hub
+is marked offline.
 
 ## UDP (kvm_proto)
 
@@ -50,7 +54,7 @@ Mac), and the host's daemon wakes its displays. A request for what a monitor or 
 already has switches nothing but still bumps it; the deck always sends its keys'
 requests, so pressing a host's key wakes it.
 Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
-connected or the write failed), `BUSY` (hub mid-switch).
+connected or the write failed), `BUSY` (not used for hubs any more).
 
 Not yet implemented: HMAC tags (sent as zeros, not checked) and per-sender
 counter checks, so treat it as bench-only on a trusted LAN.
