@@ -144,6 +144,7 @@ void poll(int i) {
         s.error = failure(h.swd);
         s.stage = h.swd.last_stage();
         s.ack = h.swd.last_ack();
+        h.swd.release();  // don't back-power an absent hub until the next retry
         h.connected = false;
         h.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kOfflineRetryMs);
     }
@@ -189,6 +190,7 @@ void start() {
     for (int i = 0; i < kCount; i++) {
         const esp_err_t err = hubs_[i].swd.init(pins[i]);
         hubs_[i].init_ok = err == ESP_OK;
+        if (err == ESP_OK) hubs_[i].swd.release();  // until the first poll connects
         any |= hubs_[i].init_ok;
         if (err != ESP_OK) ESP_LOGE(TAG, "%s hub init failed: %s", kNames[i], esp_err_to_name(err));
     }
