@@ -1160,14 +1160,12 @@ extern "C" void app_main(void) {
                     case menu::Command::Monitor: request_change(KVM_ACT_MON, r.a, r.b); break;
                     case menu::Command::Usb: request_change(KVM_ACT_USB, r.a, r.b); break;
                     case menu::Command::Swap: request_target(controls::plan_swap(view), view); break;
-                    case menu::Command::ScreensOff: {
-                        controls::Target off;
-                        off.mon[KVM_MON_LEFT] = KVM_IN_OFF;
-                        off.mon[KVM_MON_RIGHT] = KVM_IN_OFF;
-                        request_target(off, view);
+                    case menu::Command::ScreensOff:
+                        // The keyboard's host sleeps its displays; in split mode the
+                        // other host follows. The core never sleeps the monitors itself.
+                        request_change(KVM_ACT_ALL_OFF, 0, 0);
                         menu::close();
                         break;
-                    }
                     case menu::Command::Lights:
                         settings.light_level = r.a;
                         save_settings(settings);

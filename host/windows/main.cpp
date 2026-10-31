@@ -1,9 +1,10 @@
 // deskstrate-host for Windows: the PC's daemon.
 //
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
-// extend or duplicate the displays, sleep them for Screens off, wake them when a monitor
-// comes back to the PC, and if they wake locally during Screens off, ask the core to put
-// those monitors back on DisplayPort. Replies to each STATE with a STATUS.
+// extend or duplicate the displays; in split mode without the keyboard, keep them awake,
+// sleep them and wake them with the keyboard's host; sleep them for the deck's Screens off;
+// wake them when a deck key asks for the PC. Replies to each STATE with a STATUS, which
+// carries this PC's display state to the core (and so to the other host).
 //
 // One exe, three ways to run:
 //   --service    the normal install: a LocalSystem service started at boot, so it works
@@ -19,8 +20,9 @@
 // The protocol runs on one thread with a hidden window: the socket reports through
 // WSAAsyncSelect and a 1 s timer asks for STATE while the core is silent.
 //
-// Options: --core <ipv4>  send to the core directly instead of broadcasting until it answers
-//          --no-topology  never change extend/duplicate
+// Options: --core <ipv4>   send to the core directly instead of broadcasting until it answers
+//          --no-topology   never change extend/duplicate
+//          --displays-off  just sleep the displays and exit (bind a key to it)
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -53,10 +55,9 @@ constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kTimerMs = 1000;
 constexpr UINT kMenuOpenLog = 1;
 constexpr UINT kMenuExit = 2;
-constexpr ULONGLONG kLocalWakeGuardMs = 3000;  // ignore a display wake this soon after sleeping it
 const wchar_t kServiceName[] = L"deskstrate-host";
 
-enum class Mode { Standalone, Service, Agent };
+enum class Mode { Standalone, Service, Agent, DisplaysOff };
 Mode g_mode = Mode::Standalone;
 
 HWND g_hwnd = nullptr;
@@ -75,7 +76,8 @@ host_policy_t g_policy;
 kvm_state_t g_state = {};
 bool g_displays_on = true;
 uint8_t g_topology = KVM_TOPO_NONE;
-ULONGLONG g_slept_ms = 0;
+HANDLE g_keep_awake_req = nullptr;  // power request: display required while following
+bool g_keep_awake = false;
 
 SERVICE_STATUS_HANDLE g_svc = nullptr;
 SERVICE_STATUS g_svc_status = {};
@@ -131,14 +133,32 @@ void show_menu() {
 // ---- display actions: here (standalone) or through the agent (service) -----
 
 void sleep_displays() {
-    trace("displays: sleep (Screens off)");
-    g_slept_ms = GetTickCount64();
+    trace("displays: sleep");
     if (g_mode == Mode::Service) agent::sleep_displays(); else displays::sleep();
 }
 
 void wake_displays() {
     trace("displays: wake");
     if (g_mode == Mode::Service) agent::wake_displays(); else displays::wake();
+}
+
+// While following the keyboard's host in split mode: no idle display sleep here. A power
+// request is per process, so it works from the service as well as standalone.
+void set_keep_awake(bool on) {
+    if (on == g_keep_awake) return;
+    if (!g_keep_awake_req) {
+        REASON_CONTEXT why = {};
+        why.Version = POWER_REQUEST_CONTEXT_VERSION;
+        why.Flags = POWER_REQUEST_CONTEXT_SIMPLE_STRING;
+        why.Reason.SimpleReasonString = const_cast<LPWSTR>(L"Deskstrate: following the host with the keyboard");
+        g_keep_awake_req = PowerCreateRequest(&why);
+        if (g_keep_awake_req == INVALID_HANDLE_VALUE) g_keep_awake_req = nullptr;
+    }
+    if (!g_keep_awake_req) return;
+    const BOOL ok = on ? PowerSetRequest(g_keep_awake_req, PowerRequestDisplayRequired)
+                       : PowerClearRequest(g_keep_awake_req, PowerRequestDisplayRequired);
+    trace("displays: keep awake %s%s", on ? "on" : "off", ok ? "" : " (failed)");
+    if (ok) g_keep_awake = on;
 }
 
 void set_topology(uint8_t topo) {
@@ -223,12 +243,13 @@ void on_state(const kvm_state_t &st, const sockaddr_in &from) {
     if (changed) {
         char ip[INET_ADDRSTRLEN] = "";
         inet_ntop(AF_INET, &from.sin_addr, ip, sizeof ip);
-        trace("STATE seq %u from %s: left %s, right %s, off 0x%x", st.seq, ip, input_name(st.mon[0]),
-              input_name(st.mon[1]), st.off);
+        trace("STATE seq %u from %s: left %s, right %s, keyboard %u, hosts 0x%x", st.seq, ip,
+              input_name(st.mon[0]), input_name(st.mon[1]), st.usb[KVM_HUB_HID], st.hosts);
     }
 
     const host_actions_t act = host_policy_on_state(&g_policy, &st);
     if (act.set_topology && g_topology_enabled) set_topology(act.topology);
+    set_keep_awake(act.keep_awake);  // first: released before sleeping
     if (act.sleep_displays) sleep_displays();
     if (act.wake_displays) wake_displays();
 
@@ -284,16 +305,7 @@ void on_display_state(DWORD value) {  // GUID_CONSOLE_DISPLAY_STATE: 0 off, 1 on
     if (on == g_displays_on) return;
     g_displays_on = on;
     trace("displays: %s", on ? "on" : "off");
-    if (on && GetTickCount64() - g_slept_ms > kLocalWakeGuardMs) {
-        // Woken here (mouse, keyboard) while Screens off holds our monitors: take them back.
-        const uint8_t reclaim = host_policy_reclaim(&g_policy);
-        for (uint8_t m = 0; m < 2; m++) {
-            if (reclaim & (1u << m)) {
-                trace("woken locally: asking for monitor %u back", m);
-                send_request(KVM_ACT_MON, m, g_policy.my_input);
-            }
-        }
-    }
+    // The core relays it in STATE.hosts: in split mode the other host follows.
     if (g_last_state_ms) send_status(false);
 }
 
@@ -487,6 +499,8 @@ void parse_args() {
             g_mode = Mode::Service;
         } else if (wcscmp(argv[i], L"--agent") == 0) {
             g_mode = Mode::Agent;
+        } else if (wcscmp(argv[i], L"--displays-off") == 0) {
+            g_mode = Mode::DisplaysOff;
         }
     }
     LocalFree(argv);
@@ -496,6 +510,13 @@ void parse_args() {
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int) {
     parse_args();
+
+    if (g_mode == Mode::DisplaysOff) {
+        // For a key binding: sleep this PC's displays and exit. The daemon sees them go
+        // off and the core tells the other host in split mode to follow.
+        displays::sleep();
+        return 0;
+    }
 
     if (g_mode == Mode::Agent) {
         hostlog::open(known_folder(FOLDERID_ProgramData), L"agent.log");

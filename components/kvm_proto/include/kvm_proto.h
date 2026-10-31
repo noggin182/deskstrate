@@ -119,6 +119,13 @@ typedef struct {
 
 /* ---- STATE: core -> all (48 bytes) ------------------------------------- */
 
+/* STATE.hosts, from each daemon's STATUS. h = 0 for the PC, 1 for the Mac (= kvm_usb_port).
+ * The core never sleeps the monitors: they follow their hosts' signal. The host with the
+ * keyboard (HID hub) leads; in split mode the other host keeps its displays awake while
+ * the leader's are on, and sleeps and wakes them with the leader's. */
+#define KVM_HOST_SEEN(h)        (1u << (2 * (h)))      /* STATUS within KVM_HOST_TIMEOUT_MS */
+#define KVM_HOST_DISPLAYS_ON(h) (2u << (2 * (h)))      /* awake, displays on */
+
 typedef struct {
     kvm_hdr_t hdr;
     uint32_t  seq;                  /* bumps only when the desired state changes */
@@ -127,14 +134,13 @@ typedef struct {
     uint8_t   mon_count;            /* valid entries in mon[] */
     uint8_t   usb[KVM_HUB_COUNT];   /* enum kvm_usb_port, indexed by enum kvm_usb_hub */
     uint8_t   mon[KVM_MAX_MON];     /* enum kvm_input, desired, indexed by enum kvm_mon_id */
-    uint8_t   off;                  /* bit per enum kvm_mon_id: Screens off asked for (mon[] is
-                                     * KVM_IN_OFF). The core puts the monitor in standby; the
-                                     * hosts that were on it also sleep their own displays */
+    uint8_t   hosts;                /* host daemons' displays, 2 bits per host (KVM_HOST_*) */
     uint8_t   wake;                 /* wake counters, 4 bits per host: low = PC, high = Mac.
                                      * Bumped whenever a deck key (or anyone) asks for that
                                      * host's input on a monitor, or the HID hub for it, even
                                      * if it already has it. A change = wake your displays */
-    uint8_t   reserved[1];          /* zero; keeps the size a multiple of 8 */
+    uint8_t   sleep;                /* sleep counters, same layout: bumped by KVM_ACT_ALL_OFF
+                                     * for the HID hub's host. A change = sleep your displays */
     uint8_t   tag[KVM_TAG_LEN];
 } kvm_state_t;
 
@@ -173,7 +179,7 @@ enum kvm_action {
     KVM_ACT_MON         = 5,  /* a = enum kvm_mon_id, b = enum kvm_input */
     KVM_ACT_SWAP        = 6,  /* split mode: swap which host owns which monitor */
     KVM_ACT_FOCUS       = 7,  /* HID hub follows the owner of monitor a (or the cursor's monitor); MEDIA untouched */
-    KVM_ACT_ALL_OFF     = 8,  /* every monitor to standby (same as KVM_ACT_MON KVM_IN_OFF on each) */
+    KVM_ACT_ALL_OFF     = 8,  /* Screens off: the HID hub's host sleeps its displays (STATE.sleep) */
     KVM_ACT_GET_STATE   = 9,  /* no change: just the RESULT + STATE reply (a client starting up) */
     KVM_ACT_USER        = 0x80, /* 0x80-0xFF: free for custom bindings handled on the core */
 };
