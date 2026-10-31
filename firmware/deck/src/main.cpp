@@ -9,6 +9,7 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
 #include "controls.h"
+#include "icons.h"
 #include "menu.h"
 #include "neokeys.h"
 #include "network.h"
@@ -391,23 +392,23 @@ static void create_camera_icon(lv_obj_t *parent, lv_coord_t center_x, lv_coord_t
     create_diagram_shape(parent, center_x + 6, y + 4, 4, 8, icon_color, 1);
 }
 
+// An alpha-only logo (icons.h) tinted with color: LVGL draws ALPHA_8BIT images in the
+// img_recolor colour, so the anti-aliased edges blend into the screen.
+static void create_logo_icon(lv_obj_t *parent, const lv_img_dsc_t *icon, lv_coord_t x, lv_coord_t y, lv_color_t color) {
+    lv_obj_t *img = lv_img_create(parent);
+    lv_img_set_src(img, icon);
+    lv_obj_set_pos(img, x, y);
+    lv_obj_set_style_img_recolor(img, color, 0);
+    lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
+}
+
 static void create_monitor_input_icon(lv_obj_t *screen, MonitorInput input) {
     const lv_color_t icon_color = lv_color_hex(0xDCEBFF);
-    const lv_color_t screen_color = lv_color_hex(0x12283A);
 
     if (input == MonitorInput::DisplayPort) {
-        const lv_color_t window_color = lv_color_hex(0x58B9FF);
-        create_diagram_shape(screen, 11, 10, 9, 8, window_color);
-        create_diagram_shape(screen, 22, 9, 10, 8, window_color);
-        create_diagram_shape(screen, 11, 20, 9, 9, window_color);
-        create_diagram_shape(screen, 22, 19, 10, 9, window_color);
+        create_logo_icon(screen, &icon_windows, 13, 10, lv_color_hex(0x58B9FF));
     } else if (input == MonitorInput::UsbC) {
-        create_diagram_shape(screen, 14, 13, 10, 11, icon_color, 5);
-        create_diagram_shape(screen, 21, 13, 10, 11, icon_color, 5);
-        create_diagram_shape(screen, 16, 19, 13, 9, icon_color, 5);
-        create_diagram_shape(screen, 26, 13, 5, 5, screen_color, 2);
-        create_diagram_shape(screen, 20, 11, 2, 5, icon_color, 1);
-        create_diagram_shape(screen, 23, 9, 5, 3, lv_color_hex(0x78C8FF), 2);
+        create_logo_icon(screen, &icon_apple, 13, 8, icon_color);
     } else if (input == MonitorInput::Standby || input == MonitorInput::Disconnected) {
         create_status_label(
             screen,

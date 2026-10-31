@@ -87,6 +87,7 @@ uint8_t Hub::transfer(bool ap, bool read, uint8_t addr, uint32_t &data) {
 uint8_t Hub::transfer_retry(bool ap, bool read, uint8_t addr, uint32_t &data) {
     uint8_t ack = kAckWait;
     for (int tries = 0; tries < 100 && ack == kAckWait; tries++) ack = transfer(ap, read, addr, data);
+    if (ack != kAckOk) ack_ = ack;
     if (ack == kAckFault) {
         uint32_t abort = 0x1E;  // clear sticky error bits
         transfer(false, false, kDpAbort, abort);
@@ -99,6 +100,7 @@ esp_err_t Hub::init(Pins pins, uint32_t status_addr, uint32_t clk_half_us) {
     status_addr_ = status_addr;
     half_us_ = clk_half_us ? clk_half_us : 1;
     stage_ = "OK";
+    ack_ = kAckOk;
 
     gpio_config_t io = {};
     io.pin_bit_mask = (1ULL << pins_.swclk) | (1ULL << pins_.swdio);
@@ -161,16 +163,20 @@ esp_err_t Hub::connect(uint32_t *idcode) {
 
 esp_err_t Hub::read_word(uint32_t addr, uint32_t &out) {
     uint32_t scratch = 0;
+    stage_ = "read";
     if (transfer_retry(true, false, kApTar, addr) != kAckOk) return ESP_ERR_INVALID_RESPONSE;
     // AP reads are posted: the value arrives on the following DP RDBUFF read.
     if (transfer_retry(true, true, kApDrw, scratch) != kAckOk) return ESP_ERR_INVALID_RESPONSE;
     if (transfer_retry(false, true, kDpRdbuff, out) != kAckOk) return ESP_ERR_INVALID_RESPONSE;
+    stage_ = "OK";
     return ESP_OK;
 }
 
 esp_err_t Hub::write_word(uint32_t addr, uint32_t value) {
+    stage_ = "write";
     if (transfer_retry(true, false, kApTar, addr) != kAckOk) return ESP_ERR_INVALID_RESPONSE;
     if (transfer_retry(true, false, kApDrw, value) != kAckOk) return ESP_ERR_INVALID_RESPONSE;
+    stage_ = "OK";
     return ESP_OK;
 }
 

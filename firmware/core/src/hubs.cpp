@@ -1,5 +1,7 @@
 #include "hubs.h"
 
+#include <cstring>
+
 #include "board_config.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -38,19 +40,43 @@ void publish(int i, const State &s) {
     taskEXIT_CRITICAL(&state_mux);
 }
 
+// Plain-words reason for an SWD failure, from the stage and ACK that failed.
+const char *failure(const hub_swd::Hub &swd) {
+    const uint8_t ack = swd.last_ack();
+    if (ack == 7) {
+        return strcmp(swd.last_stage(), "idcode") == 0
+            ? "no SWD reply (check wiring, hub power and common ground)"
+            : "SWD reply lost";
+    }
+    if (ack == 2) return "SWD WAIT timeout";
+    if (ack == 4) return "SWD FAULT";
+    if (ack == 8) return "SWD parity error (noisy or slow lines)";
+    return "SWD out of step (SWCLK/SWDIO swapped?)";
+}
+
 void poll(int i) {
     Hub &h = hubs_[i];
     if (!h.init_ok || !reached(h.next_poll)) return;
 
     const State was = get(i);
     State s;
-    if (!h.connected) h.connected = h.swd.connect() == ESP_OK;
+    s.error = nullptr;
+    if (!h.connected) {
+        uint32_t idcode = 0;
+        h.connected = h.swd.connect(&idcode) == ESP_OK;
+        if (h.connected) ESP_LOGI(TAG, "%s hub: SWD connected, idcode %08x", kNames[i], (unsigned)idcode);
+    }
     hub_swd::Status st = {};
     if (h.connected && h.swd.read_status(st) == ESP_OK) {
         s.online = true;
         s.port = st.current <= 3 ? st.current : kUnknown;
+        s.raw = (uint32_t)st.held_lockout | (uint32_t)st.requested << 8 |
+                (uint32_t)st.current << 16 | (uint32_t)st.applied << 24;
         h.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kPollMs);
     } else {
+        s.error = failure(h.swd);
+        s.stage = h.swd.last_stage();
+        s.ack = h.swd.last_ack();
         h.connected = false;
         h.next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kOfflineRetryMs);
     }
@@ -58,7 +84,19 @@ void poll(int i) {
     if (was.online != s.online) {
         ESP_LOGI(TAG, "%s hub: %s", kNames[i], s.online ? "responding" : "not responding");
     }
-    if (s.online && was.port != s.port) ESP_LOGI(TAG, "%s hub: port %u", kNames[i], s.port);
+    // Logged once per change, so a hub that never answers still says why.
+    if (!s.online && s.error != was.error) {
+        ESP_LOGW(TAG, "%s hub: %s (stage %s, ack %u)", kNames[i], s.error, h.swd.last_stage(),
+                 h.swd.last_ack());
+    }
+    if (s.online && was.port != s.port) {
+        if (s.port == kUnknown) {
+            // The status word isn't where this build keeps it (see hub_swd.h kStatusAddr).
+            ESP_LOGW(TAG, "%s hub: status word %08x has no valid port", kNames[i], (unsigned)s.raw);
+        } else {
+            ESP_LOGI(TAG, "%s hub: port %u", kNames[i], s.port);
+        }
+    }
     publish(i, s);
 }
 
@@ -116,7 +154,7 @@ esp_err_t set_port(int hub, uint8_t port) {
     xSemaphoreGive(op_lock);
     if (err == ESP_OK) {
         // The hub switches on its next main-loop pass; show the target until the poll confirms.
-        publish(hub, State{.online = true, .port = port});
+        publish(hub, State{.online = true, .port = port, .raw = now.raw, .error = nullptr});
         ESP_LOGI(TAG, "%s hub: requested port %u", kNames[hub], port);
     }
     return err;

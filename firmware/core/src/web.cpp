@@ -73,7 +73,7 @@ function row(name,note,bad,groups){
 function render(){
   rows.replaceChildren();
   (state?state.hub:[{},{}]).forEach((h,i)=>{
-    const note=!state?'loading…':h.online?(PORTS[h.port]||'unknown'):'not connected';
+    const note=!state?'loading…':h.online?(PORTS[h.port]||'unknown port (status '+h.raw+')'):'not connected'+(h.why?' ('+h.why+(h.stage?', '+h.stage+' ack '+h.ack:'')+')':'');
     const off=!h.online||busy;
     rows.append(row(HUBS[i],note,state&&!h.online,[
       group(PORTS.map((p,port)=>btn(p,h.online&&h.port===port,off,b=>send(b,`/api/hub?i=${i}&port=${port}`)))),
@@ -129,8 +129,9 @@ int state_json(char *buf, size_t len, const char *error) {
     if (n < (int)len) n += snprintf(buf + n, len - n, "],\"hub\":[");
     for (int i = 0; i < hubs::kCount && n < (int)len; i++) {
         const hubs::State s = hubs::get(i);
-        n += snprintf(buf + n, len - n, "%s{\"online\":%s,\"port\":%u}", i ? "," : "",
-                      s.online ? "true" : "false", s.port);
+        n += snprintf(buf + n, len - n, "%s{\"online\":%s,\"port\":%u,\"raw\":\"%08x\",\"why\":\"%s\",\"stage\":\"%s\",\"ack\":%u}",
+                      i ? "," : "", s.online ? "true" : "false", s.port, (unsigned)s.raw,
+                      s.error ? s.error : "", s.stage ? s.stage : "", s.ack);
     }
     if (n < (int)len) {
         n += error ? snprintf(buf + n, len - n, "],\"error\":\"%s\"}", error)
@@ -161,7 +162,7 @@ void set_error_status(httpd_req_t *req, esp_err_t err) {
 }
 
 esp_err_t send_state(httpd_req_t *req, const char *error) {
-    char buf[640];
+    char buf[1024];
     const int n = state_json(buf, sizeof buf, error);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
