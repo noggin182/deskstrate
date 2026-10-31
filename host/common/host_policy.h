@@ -7,6 +7,8 @@
  *   - Topology: 2 monitors on my input = extend, 1 = mirror onto it, 0 = leave alone.
  *   - Screens off: once every monitor I was on is in STATE.off, sleep my displays.
  *   - A monitor coming (back) to my input wakes my displays.
+ *   - So does my STATE.wake nibble changing: a deck key asked for me, even if I already
+ *     had the monitors (or the keyboard).
  *   - My displays waking locally (mouse, keyboard) while Screens off holds my monitors:
  *     ask the core to put those monitors back on my input (host_policy_reclaim()).
  */
@@ -27,6 +29,7 @@ typedef struct {
     uint8_t sleeping;   /* Screens off holds every monitor I'm on, and none shows me */
     uint8_t topology;   /* enum kvm_topology last asked for (NONE until the first) */
     uint8_t mirror_mon; /* kvm_mon_id mirrored onto, when topology is MIRROR */
+    uint8_t wake;       /* my STATE.wake nibble, last seen */
 } host_policy_t;
 
 typedef struct {
@@ -42,6 +45,13 @@ static inline void host_policy_init(host_policy_t *p, uint8_t my_input) {
     memset(p, 0, sizeof *p);
     p->my_input = my_input;
     p->topology = KVM_TOPO_NONE;
+}
+
+/* My 4-bit wake counter in STATE.wake (PC low, Mac high); 0xFF if I have none. */
+static inline uint8_t host_policy_wake_nibble(uint8_t my_input, uint8_t wake) {
+    if (my_input == KVM_IN_DP) return wake & 0x0F;
+    if (my_input == KVM_IN_USBC) return wake >> 4;
+    return 0xFF;
 }
 
 static inline int host_policy_is_real_input(uint8_t in) {
@@ -67,10 +77,13 @@ static inline host_actions_t host_policy_on_state(host_policy_t *p, const kvm_st
     assigned = visible | asleep;
 
     const uint8_t sleeping = !visible && asleep;
+    const uint8_t wake = host_policy_wake_nibble(p->my_input, st->wake);
     if (p->started) {
         if (!p->visible && visible) act.wake_displays = 1;
+        if (wake != p->wake) act.wake_displays = 1;
         if (sleeping && !p->sleeping) act.sleep_displays = 1;
     }
+    p->wake = wake;
 
     uint8_t topo = KVM_TOPO_NONE, mirror = 0;
     if (assigned == 0x3) {

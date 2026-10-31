@@ -43,6 +43,12 @@ reads it back. It is latched per monitor: `STATE` shows `KVM_IN_OFF` and sets th
 monitor's bit in `STATE.off` until a real input is requested for that monitor, which
 wakes it (D6 = 1, accepted because HDMI is still the active port) and switches it. The
 host daemons (`host/`) also sleep their own displays for it.
+
+Wake: each accepted `KVM_ACT_MON` for DP or USB-C, and each `KVM_ACT_USB` moving the
+HID hub to the PC or Mac, bumps that host's nibble in `STATE.wake` (low = PC, high =
+Mac), and the host's daemon wakes its displays. A request for what a monitor or hub
+already has switches nothing but still bumps it; the deck always sends its keys'
+requests, so pressing a host's key wakes it.
 Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
 connected or the write failed), `BUSY` (hub mid-switch).
 

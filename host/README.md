@@ -10,6 +10,7 @@ A small program on each host that follows the core's `STATE` broadcasts
 | No monitor on my input | Leave the layout alone |
 | Screens off holds every monitor I was on | Sleep my displays |
 | A monitor comes (back) to my input | Wake my displays |
+| A deck key asks for me (`STATE.wake`), even if I already have the monitors or keyboard | Wake my displays |
 | My displays wake locally (mouse, keyboard) during Screens off | Ask the core for those monitors back on my input |
 
 The rules live in one place, `common/host_policy.h` (plain C, used by both

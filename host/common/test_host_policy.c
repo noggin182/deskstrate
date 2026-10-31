@@ -23,9 +23,14 @@ static kvm_state_t state(uint8_t left, uint8_t right, uint8_t off) {
     return st;
 }
 
-static host_actions_t feed(host_policy_t *p, uint8_t left, uint8_t right, uint8_t off) {
+static host_actions_t feed_wake(host_policy_t *p, uint8_t left, uint8_t right, uint8_t off, uint8_t wake) {
     kvm_state_t st = state(left, right, off);
+    st.wake = wake;
     return host_policy_on_state(p, &st);
+}
+
+static host_actions_t feed(host_policy_t *p, uint8_t left, uint8_t right, uint8_t off) {
+    return feed_wake(p, left, right, off, 0);
 }
 
 static void test_topology(void) {
@@ -114,12 +119,33 @@ static void test_never_mine(void) {
     CHECK(host_policy_reclaim(&mac) == 0);
 }
 
+static void test_wake_request(void) {
+    host_policy_t pc, mac;
+    host_policy_init(&pc, KVM_IN_DP);
+    host_policy_init(&mac, KVM_IN_USBC);
+    host_actions_t a = feed_wake(&pc, KVM_IN_DP, KVM_IN_DP, 0, 0x35);  /* first: just note it */
+    host_actions_t b = feed_wake(&mac, KVM_IN_DP, KVM_IN_DP, 0, 0x35);
+    CHECK(!a.wake_displays && !b.wake_displays);
+    a = feed_wake(&pc, KVM_IN_DP, KVM_IN_DP, 0, 0x36);  /* PC asked for, already showing */
+    b = feed_wake(&mac, KVM_IN_DP, KVM_IN_DP, 0, 0x36);
+    CHECK(a.wake_displays && !a.set_topology);
+    CHECK(!b.wake_displays);
+    a = feed_wake(&pc, KVM_IN_DP, KVM_IN_DP, 0, 0x46);  /* Mac asked for (e.g. the keyboard) */
+    b = feed_wake(&mac, KVM_IN_DP, KVM_IN_DP, 0, 0x46);
+    CHECK(!a.wake_displays && b.wake_displays);
+    a = feed_wake(&pc, KVM_IN_DP, KVM_IN_DP, 0, 0x46);  /* heartbeat: once only */
+    CHECK(!a.wake_displays);
+    a = feed_wake(&pc, KVM_IN_DP, KVM_IN_DP, 0, 0x40);  /* nibble wraps 0xF -> 0x0 */
+    CHECK(a.wake_displays);
+}
+
 int main(void) {
     test_topology();
     test_screens_off();
     test_partial_off();
     test_standby_without_latch();
     test_never_mine();
+    test_wake_request();
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);
         return EXIT_FAILURE;

@@ -30,6 +30,7 @@ kvm_state_t last = {};        // last STATE sent, for change detection
 // unless HDMI is already the input, Screens off switches the monitor to HDMI first and
 // sends standby once the switch has settled (standby_at), checking it took.
 uint8_t screens_off = 0;
+uint8_t wake = 0;                    // STATE.wake: low nibble PC, high nibble Mac
 TickType_t standby_at[2] = {};       // 0 = nothing pending
 uint8_t standby_tries[2] = {};
 constexpr int kStandbyTries = 3;
@@ -103,11 +104,12 @@ kvm_state_t snapshot() {
         const hubs::State s = hubs::get(h);
         st.usb[h] = s.online ? s.port : KVM_USB_UNKNOWN;
     }
+    st.wake = wake;
     return st;
 }
 
 bool same_payload(const kvm_state_t &a, const kvm_state_t &b) {
-    return a.writer == b.writer && a.preset == b.preset && a.mon_count == b.mon_count && a.off == b.off &&
+    return a.writer == b.writer && a.preset == b.preset && a.mon_count == b.mon_count && a.off == b.off && a.wake == b.wake &&
            memcmp(a.usb, b.usb, sizeof a.usb) == 0 && memcmp(a.mon, b.mon, sizeof a.mon) == 0;
 }
 
@@ -141,6 +143,12 @@ void publish_state(bool force) {
     last_sent = xTaskGetTickCount();
 }
 
+// Asked-for host: its daemon wakes its displays when its STATE.wake nibble changes.
+void bump_wake(uint8_t usb_port) {
+    if (usb_port == KVM_USB_PC) wake = (wake & 0xF0) | ((wake + 0x01) & 0x0F);
+    if (usb_port == KVM_USB_MAC) wake = (wake & 0x0F) | ((wake + 0x10) & 0xF0);
+}
+
 uint8_t apply_mon(uint8_t mon_id, uint8_t input) {
     if (mon_id >= monitors::kCount) return KVM_RES_UNKNOWN;
     const int i = monitor_index(mon_id);
@@ -159,11 +167,17 @@ uint8_t apply_mon(uint8_t mon_id, uint8_t input) {
         standby_at[mon_id] = (xTaskGetTickCount() + pdMS_TO_TICKS(wait_ms)) | 1;  // never 0
         return KVM_RES_OK;
     } else if (input == KVM_IN_DP || input == KVM_IN_HDMI || input == KVM_IN_USBC) {
+        const bool was_off = screens_off & (1u << mon_id);
         screens_off &= ~(1u << mon_id);
         standby_at[mon_id] = 0;
         err = ESP_OK;
-        if (monitors::get(i).power == ddc::kPowerStandby) err = monitors::set_power(i, ddc::kPowerOn);
-        if (err == ESP_OK) err = monitors::set_input(i, input);
+        const monitors::State m = monitors::get(i);
+        if (m.power == ddc::kPowerStandby) err = monitors::set_power(i, ddc::kPowerOn);
+        // Asking for the input it already shows only wakes the host (deck keys always ask).
+        if (err == ESP_OK && (was_off || m.input != input || m.power == ddc::kPowerStandby)) {
+            err = monitors::set_input(i, input);
+        }
+        if (err == ESP_OK) bump_wake(input == KVM_IN_DP ? KVM_USB_PC : input == KVM_IN_USBC ? KVM_USB_MAC : KVM_USB_UNKNOWN);
     } else {
         return KVM_RES_UNKNOWN;
     }
@@ -200,7 +214,11 @@ void standby_tick() {
 
 uint8_t apply_usb(uint8_t hub, uint8_t port) {
     if (hub >= hubs::kCount || port > KVM_USB_GUEST2) return KVM_RES_UNKNOWN;
-    return result_code(hubs::set_port(hub, port));
+    const hubs::State h = hubs::get(hub);
+    // Already there: nothing to switch (deck keys always ask, to wake the host).
+    const esp_err_t err = h.online && h.port == port ? ESP_OK : hubs::set_port(hub, port);
+    if (err == ESP_OK && hub == KVM_HUB_HID) bump_wake(port);  // the keyboard's new host
+    return result_code(err);
 }
 
 void handle_request(const kvm_request_t &req, const sockaddr_in &from) {

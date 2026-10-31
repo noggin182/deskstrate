@@ -233,20 +233,17 @@ static void request_change(uint8_t action, uint8_t a, uint8_t b) {
     }
 }
 
-// Asks for every part of target that differs from what the core last reported.
+// Asks for every part of target, even parts the core already reports: the core skips
+// those switches but still wakes the host asked for (STATE.wake).
 static void request_target(const controls::Target &target, const controls::View &view) {
     for (uint8_t mon = 0; mon < 2; ++mon) {
         // A monitor or hub that isn't connected is skipped: the core would refuse it.
         if (view.mon[mon] == KVM_IN_KEEP) continue;
-        if (target.mon[mon] != KVM_IN_KEEP && target.mon[mon] != view.mon[mon]) {
-            request_change(KVM_ACT_MON, mon, target.mon[mon]);
-        }
+        if (target.mon[mon] != KVM_IN_KEEP) request_change(KVM_ACT_MON, mon, target.mon[mon]);
     }
     for (uint8_t hub = 0; hub < KVM_HUB_COUNT; ++hub) {
         if (view.usb[hub] == KVM_USB_UNKNOWN) continue;
-        if (target.usb[hub] != KVM_USB_UNKNOWN && target.usb[hub] != view.usb[hub]) {
-            request_change(KVM_ACT_USB, hub, target.usb[hub]);
-        }
+        if (target.usb[hub] != KVM_USB_UNKNOWN) request_change(KVM_ACT_USB, hub, target.usb[hub]);
     }
 }
 

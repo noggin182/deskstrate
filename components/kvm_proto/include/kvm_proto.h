@@ -130,7 +130,11 @@ typedef struct {
     uint8_t   off;                  /* bit per enum kvm_mon_id: Screens off asked for (mon[] is
                                      * KVM_IN_OFF). The core puts the monitor in standby; the
                                      * hosts that were on it also sleep their own displays */
-    uint8_t   reserved[2];          /* zero; keeps the size a multiple of 8 */
+    uint8_t   wake;                 /* wake counters, 4 bits per host: low = PC, high = Mac.
+                                     * Bumped whenever a deck key (or anyone) asks for that
+                                     * host's input on a monitor, or the HID hub for it, even
+                                     * if it already has it. A change = wake your displays */
+    uint8_t   reserved[1];          /* zero; keeps the size a multiple of 8 */
     uint8_t   tag[KVM_TAG_LEN];
 } kvm_state_t;
 
