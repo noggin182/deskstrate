@@ -113,7 +113,22 @@ esp_err_t Hub::init(Pins pins, uint32_t status_addr, uint32_t clk_half_us) {
     return ESP_OK;
 }
 
+void Hub::release() {
+    const gpio_num_t pins[] = {pins_.swclk, pins_.swdio};
+    for (gpio_num_t pin : pins) {
+        gpio_set_direction(pin, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(pin, GPIO_FLOATING);
+    }
+}
+
 esp_err_t Hub::connect(uint32_t *idcode) {
+    // Take the lines back (after release()), idle high.
+    gpio_set_pull_mode(pins_.swclk, GPIO_PULLUP_ONLY);
+    gpio_set_pull_mode(pins_.swdio, GPIO_PULLUP_ONLY);
+    gpio_set_level(pins_.swclk, 1);
+    gpio_set_level(pins_.swdio, 1);
+    gpio_set_direction(pins_.swclk, GPIO_MODE_OUTPUT);
+
     // Line reset + JTAG-to-SWD select sequence.
     dio_output();
     write_bits(0xFFFFFFFF, 32);

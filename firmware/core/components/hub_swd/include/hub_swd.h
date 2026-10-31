@@ -54,6 +54,11 @@ public:
     // ESP_OK, or ESP_ERR_INVALID_RESPONSE / ESP_ERR_TIMEOUT with the failing stage logged.
     esp_err_t connect(uint32_t *idcode = nullptr);
 
+    // Lets go of both lines (inputs, no pulls) so a hub that is unplugged or powered off
+    // isn't fed through its protection diodes, and a jack being plugged in can't short a
+    // driven pin. connect() takes them back.
+    void release();
+
     // Read the four state bytes. No reversal: ports come back 0..3 or kNoPort.
     esp_err_t read_status(Status &out);
 
