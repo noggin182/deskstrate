@@ -39,14 +39,13 @@ the requester; `KVM_ACT_MON`, `KVM_ACT_USB`, `KVM_ACT_ALL_OFF` and `KVM_ACT_GET_
 (no change, just the reply: the deck and the host daemons send it at start-up) are
 implemented.
 
-Screens off (`KVM_ACT_MON` with `KVM_IN_OFF`, or `KVM_ACT_ALL_OFF`): a Dell only takes
-standby (VCP 0xD6 = 4) from the port it is showing, and the core's DDC is on HDMI. So
-the core switches the monitor to HDMI first (an HDMI guest shows for a moment), sends
-standby once the switch has settled, and re-sends it up to three times until a poll
-reads it back. It is latched per monitor: `STATE` shows `KVM_IN_OFF` and sets the
-monitor's bit in `STATE.off` until a real input is requested for that monitor, which
-wakes it (D6 = 1, accepted because HDMI is still the active port) and switches it. The
-host daemons (`host/`) also sleep their own displays for it.
+The core never sleeps the monitors: they follow their hosts' signal. It reads each host
+daemon's `STATUS` (displays on or asleep) and relays it in `STATE.hosts`, so in split
+mode the host without the keyboard can follow the one with it (`host/README.md`).
+Screens off (`KVM_ACT_ALL_OFF`) bumps the HID hub's host's nibble in `STATE.sleep` and
+that host sleeps its displays; it is refused when the keyboard is on a guest.
+`KVM_ACT_MON` with `KVM_IN_OFF` still sends VCP 0xD6 = 4, which a Dell only takes from
+the port it is showing (so only for an HDMI guest).
 
 Wake: each accepted `KVM_ACT_MON` for DP or USB-C, and each `KVM_ACT_USB` moving the
 HID hub to the PC or Mac, bumps that host's nibble in `STATE.wake` (low = PC, high =

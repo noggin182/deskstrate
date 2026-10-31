@@ -8,10 +8,11 @@ A small program on each host that follows the core's `STATE` broadcasts
 | Both monitors on my input | Extend |
 | One monitor on my input | Mirror onto it (Windows: Duplicate) |
 | No monitor on my input | Leave the layout alone |
-| Screens off holds every monitor I was on | Sleep my displays |
+| Split mode, keyboard on the other host, its displays on | Keep my displays awake |
+| ...and its displays go to sleep / wake | Sleep / wake mine |
 | A monitor comes (back) to my input | Wake my displays |
 | A deck key asks for me (`STATE.wake`), even if I already have the monitors or keyboard | Wake my displays |
-| My displays wake locally (mouse, keyboard) during Screens off | Ask the core for those monitors back on my input |
+| The deck's Screens off while I have the keyboard (`STATE.sleep`) | Sleep my displays |
 
 The rules live in one place, `common/host_policy.h` (plain C, used by both
 daemons), with tests in `common/test_host_policy.c`:
@@ -25,15 +26,26 @@ topology applied), and sends `KVM_F_GOING_DOWN` before the host sleeps. It finds
 the core by broadcasting `KVM_ACT_GET_STATE` until a `STATE` comes back, then
 talks to that address; `--core <ipv4>` skips the broadcast.
 
-## Screens off
+## Display power
 
-A Dell only takes DDC standby (VCP 0xD6 = 4) from the port it is showing, and
-the core's DDC goes in through HDMI. So the core switches the monitor to HDMI
-and then sends standby (see `firmware/core/README.md`). It latches Screens off
-per monitor and flags it in `STATE.off` (with `mon[]` = `KVM_IN_OFF`, as
-before), until a real input is requested for that monitor. The hosts that were
-on those monitors also sleep their own displays, so a mouse or key press there
-can ask for the monitors back.
+The core never sleeps the monitors: a Dell goes to standby when the host it
+shows stops sending a signal, and wakes when it starts again. The host with the
+keyboard (the HID hub) leads, and its displays sleep the usual way: idle
+timeout, locking, or a key bound to:
+
+- PC: `deskstrate-host.exe --displays-off` (e.g. a PowerToys Keyboard Manager
+  shortcut, or the keyboard's own software)
+- Mac: Ctrl+Shift+Power, or `pmset displaysleepnow`
+
+Each daemon reports its display state in its `STATUS`; the core relays them in
+`STATE.hosts`. In split mode the host without the keyboard follows: it holds a
+"display required" request (Windows) / `PreventUserIdleDisplaySleep` assertion
+(Mac) while the leader's displays are on, and sleeps and wakes its displays with
+the leader's. If the keyboard is on an HDMI guest, or the leader's daemon isn't
+running, the other host just uses its own idle timer.
+
+The deck's Screens off (`KVM_ACT_ALL_OFF`) bumps the keyboard host's nibble in
+`STATE.sleep`, so that host sleeps its displays and the other follows.
 
 ## Windows (PC)
 

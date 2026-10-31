@@ -2,9 +2,11 @@
 // (it changes the display layout and sleeps/wakes the displays, which need the GUI session).
 //
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
-// extend or mirror the two Dells, sleep the displays for Screens off, wake them when a
-// monitor comes back to the Mac, and if they wake locally during Screens off, ask the core
-// to put those monitors back on USB-C. Replies to each STATE with a STATUS.
+// extend or mirror the two Dells; in split mode without the keyboard, keep the displays
+// awake, sleep them and wake them with the keyboard's host; sleep them for the deck's
+// Screens off; wake them when a deck key asks for the Mac. Replies to each STATE with a
+// STATUS, which carries the Mac's display state to the core (and so to the other host).
+// To sleep the displays from a key: Ctrl+Shift+Power, or bind `pmset displaysleepnow`.
 //
 // Mirroring as in the VERIFIED test (PROJECT_KNOWLEDGE.md §3): CGConfigureDisplayMirrorOfDisplay
 // mirrors the hidden Dell onto the visible one; it fails (CGError 1014) while the displays
@@ -66,12 +68,26 @@ do {
 
 // ---- displays ------------------------------------------------------------------
 
-var slept = Date.distantPast
-let localWakeGuard: TimeInterval = 3
+var keepAwake: IOPMAssertionID = 0  // 0 = not held
+
+/// While following the keyboard's host in split mode: no idle display sleep here.
+func setKeepAwake(_ on: Bool) {
+    if on == (keepAwake != 0) { return }
+    if on {
+        let r = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString,
+                                            IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                            "Deskstrate: following the host with the keyboard" as CFString, &keepAwake)
+        if r != kIOReturnSuccess { keepAwake = 0 }
+        log("displays: keep awake on\(r == kIOReturnSuccess ? "" : " (failed)")")
+    } else {
+        IOPMAssertionRelease(keepAwake)
+        keepAwake = 0
+        log("displays: keep awake off")
+    }
+}
 
 func sleepDisplays() {
-    log("displays: sleep (Screens off)")
-    slept = Date()
+    log("displays: sleep")
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
     p.arguments = ["displaysleepnow"]
@@ -233,13 +249,14 @@ func onState(_ st: kvm_state_t, from: in_addr_t) {
     state = st
     if changed {
         log("STATE seq \(st.seq) from \(String(cString: inet_ntoa(in_addr(s_addr: from)))): " +
-            "left \(inputName(st.mon.0)), right \(inputName(st.mon.1)), off 0x\(String(st.off, radix: 16))")
+            "left \(inputName(st.mon.0)), right \(inputName(st.mon.1)), keyboard \(st.usb.0), hosts 0x\(String(st.hosts, radix: 16))")
     }
     var s = st
     let act = host_policy_on_state(&policy, &s)
     if act.set_topology != 0 && topologyEnabled {
         applyTopology(act.topology, onto: act.mirror_mon, hiding: act.hidden_mon)
     }
+    setKeepAwake(act.keep_awake != 0)  // first: released before sleeping
     if act.sleep_displays != 0 { sleepDisplays() }
     if act.wake_displays != 0 { wakeDisplays() }
     sendStatus()
@@ -267,14 +284,7 @@ func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
 func onDisplaysChanged(on: Bool) {
     displaysOn = on
     log("displays: \(on ? "on" : "off")")
-    if on && Date().timeIntervalSince(slept) > localWakeGuard {
-        // Woken here (mouse, keyboard) while Screens off holds our monitors: take them back.
-        let reclaim = host_policy_reclaim(&policy)
-        for m: UInt8 in 0..<2 where reclaim & (1 << m) != 0 {
-            log("woken locally: asking for monitor \(m) back")
-            sendRequest(KVM_ACT_MON, m, policy.my_input)
-        }
-    }
+    // The core relays it in STATE.hosts: in split mode the other host follows.
     if lastState != nil { sendStatus() }
 }
 
@@ -333,6 +343,13 @@ timer.setEventHandler {
 timer.resume()
 
 let ws = NSWorkspace.shared.notificationCenter
+// Display sleep/wake straight away (the 1 s timer is the fallback).
+for name in [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification] {
+    ws.addObserver(forName: name, object: nil, queue: .main) { n in
+        let on = n.name == NSWorkspace.screensDidWakeNotification
+        if on != displaysOn { onDisplaysChanged(on: on) }
+    }
+}
 ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
     log("system: going to sleep")
     if lastState != nil { sendStatus(goingDown: true) }
