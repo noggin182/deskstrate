@@ -74,3 +74,6 @@ Testing/
 sdkconfig.*
 !sdkconfig.defaults
 managed_components/
+
+# The Mac daemon is built with make
+!host/mac/Makefile

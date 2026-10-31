@@ -31,8 +31,24 @@ The core binds `KVM_PORT` (18200) and broadcasts a `STATE` on every change and
 every 2 s (`KVM_HEARTBEAT_MS`), with the monitors' inputs (left/right by EDID
 serial, `KVM_IN_OFF` for standby) and both hubs' ports (0-3). It answers
 `REQUEST`s with a `RESULT` followed by the current `STATE`, sent straight back to
-the requester; `KVM_ACT_MON`, `KVM_ACT_USB` and `KVM_ACT_GET_STATE` (no change, just
-the reply: the deck sends it at start-up) are implemented.
+the requester; `KVM_ACT_MON`, `KVM_ACT_USB`, `KVM_ACT_ALL_OFF` and `KVM_ACT_GET_STATE`
+(no change, just the reply: the deck and the host daemons send it at start-up) are
+implemented.
+
+Screens off (`KVM_ACT_MON` with `KVM_IN_OFF`, or `KVM_ACT_ALL_OFF`): a Dell only takes
+standby (VCP 0xD6 = 4) from the port it is showing, and the core's DDC is on HDMI. So
+the core switches the monitor to HDMI first (an HDMI guest shows for a moment), sends
+standby once the switch has settled, and re-sends it up to three times until a poll
+reads it back. It is latched per monitor: `STATE` shows `KVM_IN_OFF` and sets the
+monitor's bit in `STATE.off` until a real input is requested for that monitor, which
+wakes it (D6 = 1, accepted because HDMI is still the active port) and switches it. The
+host daemons (`host/`) also sleep their own displays for it.
+
+Wake: each accepted `KVM_ACT_MON` for DP or USB-C, and each `KVM_ACT_USB` moving the
+HID hub to the PC or Mac, bumps that host's nibble in `STATE.wake` (low = PC, high =
+Mac), and the host's daemon wakes its displays. A request for what a monitor or hub
+already has switches nothing but still bumps it; the deck always sends its keys'
+requests, so pressing a host's key wakes it.
 Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
 connected or the write failed), `BUSY` (hub mid-switch).
 
