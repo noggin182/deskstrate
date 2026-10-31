@@ -26,12 +26,13 @@ talks to that address; `--core <ipv4>` skips the broadcast.
 
 ## Screens off
 
-The Dells ignore DDC standby (VCP 0xD6 = 4) while a host is sending them a
-signal. So the core latches Screens off per monitor and flags it in
-`STATE.off` (with `mon[]` = `KVM_IN_OFF`, as before). The hosts on those
-monitors sleep their displays, the monitors lose signal and go to standby by
-themselves. Any real input for a monitor clears its latch. An HDMI guest has
-no daemon, so a monitor showing a guest stays on.
+A Dell only takes DDC standby (VCP 0xD6 = 4) from the port it is showing, and
+the core's DDC goes in through HDMI. So the core switches the monitor to HDMI
+and then sends standby (see `firmware/core/README.md`). It latches Screens off
+per monitor and flags it in `STATE.off` (with `mon[]` = `KVM_IN_OFF`, as
+before), until a real input is requested for that monitor. The hosts that were
+on those monitors also sleep their own displays, so a mouse or key press there
+can ask for the monitors back.
 
 ## Windows (PC)
 

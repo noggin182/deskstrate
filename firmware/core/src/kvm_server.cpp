@@ -25,10 +25,15 @@ uint32_t packet_n = 0;
 uint32_t seq = 0;
 kvm_state_t last = {};        // last STATE sent, for change detection
 // Screens off, by enum kvm_mon_id: set by KVM_IN_OFF, cleared by any real input for that
-// monitor. The Dells ignore VCP 0xD6 = 4 while a host sends a signal, so this latch (sent
-// as STATE.off) is what tells the hosts to sleep their displays; the monitor then goes to
-// standby by itself.
+// monitor, and sent as STATE.off (the hosts also sleep their displays for it).
+// A Dell only takes VCP 0xD6 = 4 from the port it is showing, and the core is on HDMI. So
+// unless HDMI is already the input, Screens off switches the monitor to HDMI first and
+// sends standby once the switch has settled (standby_at), checking it took.
 uint8_t screens_off = 0;
+TickType_t standby_at[2] = {};       // 0 = nothing pending
+uint8_t standby_tries[2] = {};
+constexpr int kStandbyTries = 3;
+constexpr uint32_t kStandbyCheckMs = 5000;  // > one poll, so the power read is fresh
 TickType_t last_sent = 0;
 
 // KVM_COUNTER: (boot_epoch << 32) | n, boot_epoch bumped in NVS once per boot.
@@ -142,14 +147,20 @@ uint8_t apply_mon(uint8_t mon_id, uint8_t input) {
     if (i < 0 || !monitors::get(i).online) return KVM_RES_REJECTED;  // not connected
     esp_err_t err;
     if (input == KVM_IN_OFF) {
-        // Latched even if the monitor refuses standby: the hosts' daemons do the real work.
         screens_off |= 1u << mon_id;
-        if (monitors::set_power(i, ddc::kPowerStandby) != ESP_OK) {
-            ESP_LOGW(TAG, "monitor %u: standby not accepted, hosts will sleep it", mon_id);
+        standby_tries[mon_id] = 0;
+        uint32_t wait_ms = 0;
+        if (monitors::get(i).input != ddc::kInputHdmi) {
+            if (monitors::set_input(i, ddc::kInputHdmi) != ESP_OK) {
+                ESP_LOGW(TAG, "monitor %u: couldn't switch to HDMI for standby", mon_id);
+            }
+            wait_ms = ddc::kInputSettleMs + 500;
         }
+        standby_at[mon_id] = (xTaskGetTickCount() + pdMS_TO_TICKS(wait_ms)) | 1;  // never 0
         return KVM_RES_OK;
     } else if (input == KVM_IN_DP || input == KVM_IN_HDMI || input == KVM_IN_USBC) {
         screens_off &= ~(1u << mon_id);
+        standby_at[mon_id] = 0;
         err = ESP_OK;
         if (monitors::get(i).power == ddc::kPowerStandby) err = monitors::set_power(i, ddc::kPowerOn);
         if (err == ESP_OK) err = monitors::set_input(i, input);
@@ -157,6 +168,34 @@ uint8_t apply_mon(uint8_t mon_id, uint8_t input) {
         return KVM_RES_UNKNOWN;
     }
     return result_code(err);
+}
+
+// Sends the standby that Screens off scheduled, then checks a later poll read it back;
+// retries up to kStandbyTries times. Called from the server loop.
+void standby_tick() {
+    const TickType_t now = xTaskGetTickCount();
+    for (uint8_t id = 0; id < 2; id++) {
+        if (!standby_at[id] || (int32_t)(now - standby_at[id]) < 0) continue;
+        const int i = monitor_index(id);
+        if (!(screens_off & (1u << id)) || i < 0 || !monitors::get(i).online) {
+            standby_at[id] = 0;
+            continue;
+        }
+        if (standby_tries[id] > 0 && monitors::get(i).power == ddc::kPowerStandby) {
+            ESP_LOGI(TAG, "monitor %u: in standby", id);
+            standby_at[id] = 0;
+            continue;
+        }
+        if (standby_tries[id] >= kStandbyTries) {
+            ESP_LOGW(TAG, "monitor %u: standby not taken after %d tries", id, kStandbyTries);
+            standby_at[id] = 0;
+            continue;
+        }
+        standby_tries[id]++;
+        const esp_err_t err = monitors::set_power(i, ddc::kPowerStandby);
+        ESP_LOGI(TAG, "monitor %u: standby (try %u): %s", id, standby_tries[id], esp_err_to_name(err));
+        standby_at[id] = (now + pdMS_TO_TICKS(kStandbyCheckMs)) | 1;
+    }
 }
 
 uint8_t apply_usb(uint8_t hub, uint8_t port) {
@@ -214,6 +253,7 @@ void server_task(void *) {
             }
         }
         // Other sizes are our own STATE broadcasts echoed back, or not for us.
+        standby_tick();
         publish_state(false);
     }
 }

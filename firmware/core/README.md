@@ -35,11 +35,14 @@ the requester; `KVM_ACT_MON`, `KVM_ACT_USB`, `KVM_ACT_ALL_OFF` and `KVM_ACT_GET_
 (no change, just the reply: the deck and the host daemons send it at start-up) are
 implemented.
 
-Screens off (`KVM_ACT_MON` with `KVM_IN_OFF`, or `KVM_ACT_ALL_OFF`) still sends VCP
-0xD6 = 4, but the Dells ignore it while a host sends a signal. So the core latches it
-per monitor: `STATE` shows `KVM_IN_OFF` and sets the monitor's bit in `STATE.off`
-until a real input is requested for that monitor. The host daemons (`host/`) sleep
-their displays for it, and the monitor then goes to standby by itself.
+Screens off (`KVM_ACT_MON` with `KVM_IN_OFF`, or `KVM_ACT_ALL_OFF`): a Dell only takes
+standby (VCP 0xD6 = 4) from the port it is showing, and the core's DDC is on HDMI. So
+the core switches the monitor to HDMI first (an HDMI guest shows for a moment), sends
+standby once the switch has settled, and re-sends it up to three times until a poll
+reads it back. It is latched per monitor: `STATE` shows `KVM_IN_OFF` and sets the
+monitor's bit in `STATE.off` until a real input is requested for that monitor, which
+wakes it (D6 = 1, accepted because HDMI is still the active port) and switches it. The
+host daemons (`host/`) also sleep their own displays for it.
 Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
 connected or the write failed), `BUSY` (hub mid-switch).
 

@@ -128,8 +128,8 @@ typedef struct {
     uint8_t   usb[KVM_HUB_COUNT];   /* enum kvm_usb_port, indexed by enum kvm_usb_hub */
     uint8_t   mon[KVM_MAX_MON];     /* enum kvm_input, desired, indexed by enum kvm_mon_id */
     uint8_t   off;                  /* bit per enum kvm_mon_id: Screens off asked for (mon[] is
-                                     * KVM_IN_OFF). Hosts sleep their own displays for it, since
-                                     * the Dells ignore VCP 0xD6 = 4 with a signal present */
+                                     * KVM_IN_OFF). The core puts the monitor in standby; the
+                                     * hosts that were on it also sleep their own displays */
     uint8_t   reserved[2];          /* zero; keeps the size a multiple of 8 */
     uint8_t   tag[KVM_TAG_LEN];
 } kvm_state_t;
