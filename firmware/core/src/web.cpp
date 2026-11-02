@@ -8,6 +8,7 @@
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "hubs.h"
+#include "log_ring.h"
 #include "mdns.h"
 #include "monitors.h"
 #include "ota.h"
@@ -212,6 +213,15 @@ esp_err_t hub_post(httpd_req_t *req) {
     return send_state(req, err == ESP_OK ? nullptr : error_text(err));
 }
 
+// Recent log lines, oldest first, as plain text.
+esp_err_t log_get(httpd_req_t *req) {
+    static char buf[8 * 1024];  // only the httpd task uses it
+    const size_t n = log_ring::read(buf, sizeof buf);
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, buf, n);
+}
+
 void start_mdns(const char *hostname) {
     esp_err_t err = mdns_init();
     if (err == ESP_OK) err = mdns_hostname_set(hostname);
@@ -233,6 +243,7 @@ esp_err_t web_start(const char *hostname) {
         {.uri = "/api/state", .method = HTTP_GET, .handler = state_get, .user_ctx = nullptr},
         {.uri = "/api/mon", .method = HTTP_POST, .handler = mon_post, .user_ctx = nullptr},
         {.uri = "/api/hub", .method = HTTP_POST, .handler = hub_post, .user_ctx = nullptr},
+        {.uri = "/api/log", .method = HTTP_GET, .handler = log_get, .user_ctx = nullptr},
     };
     for (const httpd_uri_t &u : uris) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &u), TAG, "register %s", u.uri);

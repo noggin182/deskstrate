@@ -13,6 +13,7 @@
 #include "hubs.h"
 #include "kvm_proto.h"
 #include "kvm_server.h"
+#include "log_ring.h"
 #include "monitors.h"
 #include "ota.h"
 #include "ota_pull.h"
@@ -53,6 +54,7 @@ static void swd_bringup_one(const char *role, hub_swd::Pins pins) {
 #endif
 
 extern "C" void app_main(void) {
+    log_ring::start();  // keep the log for /api/log
     status_led::start(board::kStatusLed);  // green until start-up is done
     ESP_LOGI(TAG, "Deskstrate core on %s (kvm_proto v%u, port %u)", board::kName,
              (unsigned)KVM_VERSION, (unsigned)KVM_PORT);
