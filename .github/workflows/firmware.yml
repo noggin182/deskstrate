@@ -113,6 +113,15 @@ jobs:
           key: build-deck-${{ hashFiles('firmware/deck/platformio.ini', 'firmware/deck/sdkconfig.defaults') }}-${{ github.sha }}
           restore-keys: build-deck-${{ hashFiles('firmware/deck/platformio.ini', 'firmware/deck/sdkconfig.defaults') }}-
 
+      - name: Name the build after its release
+        # The app version is git describe at build time, but the release tag only exists
+        # once the build is done, so a main build used to describe itself relative to the
+        # previous tag ("build-58.1-2-gf367e8d" for release build-59.1). Tag HEAD locally
+        # first so the firmware version is the release name. Branches and PRs keep the
+        # describe form.
+        if: env.DEPLOY == 'true'
+        run: git tag -f "$TAG"
+
       - name: Build
         run: |
           set -euo pipefail

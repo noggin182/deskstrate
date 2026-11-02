@@ -30,6 +30,11 @@ starting with `DSUP` that only means "check now", and the boards only ever fetch
 from this repo's releases. They also poll hourly, so a missed ring only delays
 an update. A version that rolls back is never retried.
 
+A rebuilt board's firmware version is the release name (`build-59.1`, as shown at
+`/api/ota`). A board whose sources didn't change keeps the image, and so the version,
+of the release it already runs. Local and branch builds carry `git describe` instead
+(e.g. `build-58.1-2-gf367e8d`, with `-dirty` for uncommitted changes).
+
 | Board | Doorbell (UDP) |
 | --- | --- |
 | core | 18210 |
