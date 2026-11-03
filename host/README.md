@@ -8,10 +8,11 @@ A small program on each host that follows the core's `STATE` broadcasts
 | Both monitors on my input | Extend |
 | One monitor on my input | Mirror onto it (Windows: Duplicate) |
 | No monitor on my input | Leave the layout alone |
-| Screens off holds every monitor I was on | Sleep my displays |
-| A monitor comes (back) to my input | Wake my displays |
-| A deck key asks for me (`STATE.wake`), even if I already have the monitors or keyboard | Wake my displays |
-| My displays wake locally (mouse, keyboard) during Screens off | Ask the core for those monitors back on my input |
+| A monitor comes (back) to my input, awake | Wake my displays |
+| The keyboard (HID hub) moves to me | Wake my displays |
+
+A monitor in standby on my input keeps its place in the layout. The core reports
+standby but never asks for it, so display sleep is left to each host.
 
 The rules live in one place, `common/host_policy.h` (plain C, used by both
 daemons), with tests in `common/test_host_policy.c`:
@@ -20,20 +21,10 @@ daemons), with tests in `common/test_host_policy.c`:
 cc -I components/kvm_proto/include -I host/common host/common/test_host_policy.c && ./a.out
 ```
 
-Each daemon answers every `STATE` with a `STATUS` (awake, displays on/asleep,
-topology applied), and sends `KVM_F_GOING_DOWN` before the host sleeps. It finds
-the core by broadcasting `KVM_ACT_GET_STATE` until a `STATE` comes back, then
-talks to that address; `--core <ipv4>` skips the broadcast.
-
-## Screens off
-
-A Dell only takes DDC standby (VCP 0xD6 = 4) from the port it is showing, and
-the core's DDC goes in through HDMI. So the core switches the monitor to HDMI
-and then sends standby (see `firmware/core/README.md`). It latches Screens off
-per monitor and flags it in `STATE.off` (with `mon[]` = `KVM_IN_OFF`, as
-before), until a real input is requested for that monitor. The hosts that were
-on those monitors also sleep their own displays, so a mouse or key press there
-can ask for the monitors back.
+The daemons only listen. The one thing they send is an empty `REQUEST`
+(`KR FF FF FF FF`), broadcast until a `STATE` comes back so they find the core
+without waiting for its heartbeat; `--core <ipv4>` sends it to that address
+instead.
 
 ## Windows (PC)
 

@@ -5,7 +5,7 @@
 
 #include <vector>
 
-#include "kvm_proto.h"
+#include "host_policy.h"
 #include "log.h"
 
 namespace displays {
@@ -71,7 +71,7 @@ void wake() {
 bool set_topology(uint8_t topo) {
     bool ok = false;
     on_input_desktop([&] {
-        const char *name = topo == KVM_TOPO_MIRROR ? "duplicate" : "extend";
+        const char *name = topo == HOST_TOPO_MIRROR ? "duplicate" : "extend";
         UINT32 paths = 0, modes = 0;
         DISPLAYCONFIG_TOPOLOGY_ID current = {};
         if (GetDisplayConfigBufferSizes(QDC_DATABASE_CURRENT, &paths, &modes) == ERROR_SUCCESS) {
@@ -81,13 +81,13 @@ bool set_topology(uint8_t topo) {
                 current = {};
             }
         }
-        const DISPLAYCONFIG_TOPOLOGY_ID want = topo == KVM_TOPO_MIRROR ? DISPLAYCONFIG_TOPOLOGY_CLONE : DISPLAYCONFIG_TOPOLOGY_EXTEND;
+        const DISPLAYCONFIG_TOPOLOGY_ID want = topo == HOST_TOPO_MIRROR ? DISPLAYCONFIG_TOPOLOGY_CLONE : DISPLAYCONFIG_TOPOLOGY_EXTEND;
         if (current == want) {
             trace("topology: already %s", name);
             ok = true;
             return;
         }
-        const UINT32 flags = SDC_APPLY | (topo == KVM_TOPO_MIRROR ? SDC_TOPOLOGY_CLONE : SDC_TOPOLOGY_EXTEND);
+        const UINT32 flags = SDC_APPLY | (topo == HOST_TOPO_MIRROR ? SDC_TOPOLOGY_CLONE : SDC_TOPOLOGY_EXTEND);
         const LONG err = SetDisplayConfig(0, nullptr, 0, nullptr, flags);
         trace("topology: %s -> %ld", name, err);
         ok = err == ERROR_SUCCESS;

@@ -84,7 +84,7 @@ Copy-Item $Exe $target -Force
 
 if (-not (Get-Service $service -ErrorAction SilentlyContinue)) {
     New-Service -Name $service -DisplayName "Deskstrate host" `
-        -Description "Follows the Deskstrate core: display layout and Screens off for this PC." `
+        -Description "Follows the Deskstrate core: display layout and wake for this PC." `
         -BinaryPathName "`"$target`" --service" -StartupType Automatic | Out-Null
     sc.exe failure $service reset= 86400 actions= restart/5000/restart/5000/restart/30000 | Out-Null
 }

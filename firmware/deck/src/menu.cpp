@@ -15,7 +15,6 @@ enum Item : uint8_t {
     kKeyboard,
     kMedia,
     kSwap,
-    kScreensOff,
     kLights,
     kDebugCode,
     kExit,
@@ -23,7 +22,7 @@ enum Item : uint8_t {
 };
 
 const char *const kItemNames[kItemCount] = {
-    "Left", "Right", "Keyboard", "Media", "Swap screens", "Screens off", "Key lights", "Debug code", "Exit",
+    "Left", "Right", "Keyboard", "Media", "Swap screens", "Key lights", "Debug code", "Exit",
 };
 
 constexpr lv_coord_t kRowY = 30;
@@ -34,22 +33,22 @@ lv_obj_t *rows[kItemCount] = {};
 lv_obj_t *values[kItemCount] = {};
 uint8_t selected = 0;
 
-const char *input_name(uint8_t input) {
-    switch (input) {
-        case KVM_IN_DP: return "DP";
-        case KVM_IN_USBC: return "USB-C";
-        case KVM_IN_HDMI: return "HDMI";
-        case KVM_IN_OFF: return "Standby";
+const char *input_name(uint8_t mon) {
+    if (kvm_mon_standby(mon)) return "Standby";
+    switch (kvm_mon_host(mon)) {
+        case KVM_HOST_PC: return "DP";
+        case KVM_HOST_MAC: return "USB-C";
+        case KVM_HOST_GUEST: return "HDMI";
     }
     return "n/c";  // not connected (or unreadable)
 }
 
 const char *host_name(uint8_t host) {
     switch (host) {
-        case KVM_USB_PC: return "PC";
-        case KVM_USB_MAC: return "Mac";
-        case KVM_USB_GUEST1: return "Guest 3";
-        case KVM_USB_GUEST2: return "Guest 4";
+        case controls::kPc: return "PC";
+        case controls::kMac: return "Mac";
+        case controls::kGuest1: return "Guest 3";
+        case controls::kGuest2: return "Guest 4";
     }
     return "n/c";  // hub not connected
 }
@@ -62,16 +61,16 @@ const char *light_name(uint8_t level) {
     return "Off";
 }
 
-uint8_t next_input(uint8_t input) {
-    switch (input) {
-        case KVM_IN_DP: return KVM_IN_USBC;
-        case KVM_IN_USBC: return KVM_IN_HDMI;
+uint8_t next_input(uint8_t mon) {
+    switch (kvm_mon_host(mon)) {
+        case KVM_HOST_PC: return KVM_HOST_MAC;
+        case KVM_HOST_MAC: return KVM_HOST_GUEST;
     }
-    return KVM_IN_DP;  // from HDMI, off or unknown
+    return KVM_HOST_PC;  // from HDMI or unknown
 }
 
 uint8_t next_host(uint8_t host) {
-    return host < KVM_USB_GUEST2 ? host + 1 : KVM_USB_PC;
+    return host < controls::kGuest2 ? host + 1 : controls::kPc;
 }
 
 void highlight() {
@@ -165,10 +164,10 @@ void close() {
 
 void refresh(const controls::View &view, const Settings &settings) {
     if (panel == nullptr) return;
-    lv_label_set_text(values[kLeft], input_name(view.mon[KVM_MON_LEFT]));
-    lv_label_set_text(values[kRight], input_name(view.mon[KVM_MON_RIGHT]));
-    lv_label_set_text(values[kKeyboard], host_name(view.usb[KVM_HUB_HID]));
-    lv_label_set_text(values[kMedia], host_name(view.usb[KVM_HUB_MEDIA]));
+    lv_label_set_text(values[kLeft], input_name(view.b[KVM_MON_LEFT]));
+    lv_label_set_text(values[kRight], input_name(view.b[KVM_MON_RIGHT]));
+    lv_label_set_text(values[kKeyboard], host_name(view.b[KVM_HUB_HID]));
+    lv_label_set_text(values[kMedia], host_name(view.b[KVM_HUB_MEDIA]));
     lv_label_set_text(values[kLights], light_name(settings.light_level));
     lv_label_set_text(values[kDebugCode], settings.debug_code ? "On" : "Off");
 }
@@ -195,19 +194,18 @@ Result key(controls::Key key, const controls::View &view, const Settings &settin
         case kLeft:
         case kRight: {
             const uint8_t mon = selected == kLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
-            if (view.mon[mon] == KVM_IN_KEEP) break;  // not connected
-            r = {Command::Monitor, mon, next_input(view.mon[mon])};
+            if (view.b[mon] == KVM_UNKNOWN) break;  // not connected
+            r = {Command::Monitor, mon, next_input(view.b[mon])};
             break;
         }
         case kKeyboard:
         case kMedia: {
             const uint8_t hub = selected == kKeyboard ? KVM_HUB_HID : KVM_HUB_MEDIA;
-            if (view.usb[hub] == KVM_USB_UNKNOWN) break;  // not connected
-            r = {Command::Usb, hub, next_host(view.usb[hub])};
+            if (view.b[hub] == KVM_UNKNOWN) break;  // not connected
+            r = {Command::Usb, hub, next_host(view.b[hub])};
             break;
         }
         case kSwap: r.command = Command::Swap; break;
-        case kScreensOff: r.command = Command::ScreensOff; break;
         case kLights: r = {Command::Lights, static_cast<uint8_t>((settings.light_level + 1) % kLightLevels), 0}; break;
         case kDebugCode: r = {Command::DebugCode, static_cast<uint8_t>(!settings.debug_code), 0}; break;
         case kExit: r.command = Command::Close; break;

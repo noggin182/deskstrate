@@ -194,28 +194,28 @@ static bool same_host(HostId a, HostId b) {
     return a == b && a != HostId::None;
 }
 
-// kvm_proto <-> deck view. HostId is already in kvm_usb_port order (PC, Mac, Guest1, Guest2).
-static MonitorInput from_kvm_input(uint8_t input) {
-    switch (input) {
-        case KVM_IN_DP: return MonitorInput::DisplayPort;
-        case KVM_IN_USBC: return MonitorInput::UsbC;
-        case KVM_IN_HDMI: return MonitorInput::Hdmi;
-        case KVM_IN_OFF: return MonitorInput::Standby;
+// kvm_proto <-> deck view. HostId is already in hub port order (PC, Mac, Guest1, Guest2).
+static MonitorInput from_kvm_mon(uint8_t mon) {
+    if (kvm_mon_standby(mon)) return MonitorInput::Standby;
+    switch (kvm_mon_host(mon)) {
+        case KVM_HOST_PC: return MonitorInput::DisplayPort;
+        case KVM_HOST_MAC: return MonitorInput::UsbC;
+        case KVM_HOST_GUEST: return MonitorInput::Hdmi;
     }
-    return MonitorInput::Disconnected;  // KEEP: the core can't see it
+    return MonitorInput::Disconnected;  // the core can't see it
 }
 
 static HostId from_kvm_port(uint8_t port) {
-    return port <= KVM_USB_GUEST2 ? static_cast<HostId>(port) : HostId::None;
+    return port <= controls::kGuest2 ? static_cast<HostId>(port) : HostId::None;
 }
 
 // Copies the core's STATE into the view. Returns true if anything visible changed.
-static bool apply_core_state(const kvm_state_t &core, KvmState &view) {
+static bool apply_core_state(const controls::View &core, KvmState &view) {
     KvmState next;
-    next.monitor1_input = from_kvm_input(core.mon_count > KVM_MON_LEFT ? core.mon[KVM_MON_LEFT] : KVM_IN_KEEP);
-    next.monitor2_input = from_kvm_input(core.mon_count > KVM_MON_RIGHT ? core.mon[KVM_MON_RIGHT] : KVM_IN_KEEP);
-    next.hub1_host = from_kvm_port(core.usb[KVM_HUB_HID]);
-    next.hub2_host = from_kvm_port(core.usb[KVM_HUB_MEDIA]);
+    next.monitor1_input = from_kvm_mon(core.b[KVM_MON_LEFT]);
+    next.monitor2_input = from_kvm_mon(core.b[KVM_MON_RIGHT]);
+    next.hub1_host = from_kvm_port(core.b[KVM_HUB_HID]);
+    next.hub2_host = from_kvm_port(core.b[KVM_HUB_MEDIA]);
 
     const bool changed = next.monitor1_input != view.monitor1_input
         || next.monitor2_input != view.monitor2_input
@@ -225,36 +225,27 @@ static bool apply_core_state(const kvm_state_t &core, KvmState &view) {
     return changed;
 }
 
-// Keys ask the core; the screen only changes when the core's STATE comes back.
-static void request_change(uint8_t action, uint8_t a, uint8_t b) {
-    const esp_err_t err = network_send_kvm_request(action, a, b);
+// Keys ask the core for a state; the screen only changes when the core's STATE comes
+// back. Monitors and hubs that aren't connected are left out (the core would ignore them).
+static void request_target(const controls::Target &target, const controls::View &view) {
+    controls::Target want = target;
+    bool any = false;
+    for (uint8_t i = 0; i < KVM_SLOTS; ++i) {
+        if (view.b[i] == KVM_UNKNOWN) want.b[i] = KVM_UNKNOWN;
+        any |= want.b[i] != KVM_UNKNOWN;
+    }
+    if (!any) return;
+    const esp_err_t err = network_send_kvm_request(want.b);
     if (err != ESP_OK) {
         printf("Request not sent: %s\n", esp_err_to_name(err));
     }
 }
 
-// Asks for every part of target, even parts the core already reports: the core skips
-// those switches but still wakes the host asked for (STATE.wake).
-static void request_target(const controls::Target &target, const controls::View &view) {
-    for (uint8_t mon = 0; mon < 2; ++mon) {
-        // A monitor or hub that isn't connected is skipped: the core would refuse it.
-        if (view.mon[mon] == KVM_IN_KEEP) continue;
-        if (target.mon[mon] != KVM_IN_KEEP) request_change(KVM_ACT_MON, mon, target.mon[mon]);
-    }
-    for (uint8_t hub = 0; hub < KVM_HUB_COUNT; ++hub) {
-        if (view.usb[hub] == KVM_USB_UNKNOWN) continue;
-        if (target.usb[hub] != KVM_USB_UNKNOWN) request_change(KVM_ACT_USB, hub, target.usb[hub]);
-    }
-}
-
-// The core's STATE as controls/neokeys/menu see it (keeps standby and unknown).
-static void update_view(const kvm_state_t &core, controls::View &view) {
-    for (uint8_t mon = 0; mon < 2; ++mon) {
-        view.mon[mon] = core.mon_count > mon ? core.mon[mon] : KVM_IN_KEEP;
-    }
-    for (uint8_t hub = 0; hub < KVM_HUB_COUNT; ++hub) {
-        view.usb[hub] = core.usb[hub];
-    }
+// One slot (a menu change).
+static void request_slot(uint8_t slot, uint8_t value, const controls::View &view) {
+    controls::Target target;
+    target.b[slot] = value;
+    request_target(target, view);
 }
 
 // Menu settings (menu.h) are kept in NVS so they survive updates.
@@ -1157,17 +1148,9 @@ extern "C" void app_main(void) {
                 switch (r.command) {
                     case menu::Command::None: break;
                     case menu::Command::Close: menu::close(); break;
-                    case menu::Command::Monitor: request_change(KVM_ACT_MON, r.a, r.b); break;
-                    case menu::Command::Usb: request_change(KVM_ACT_USB, r.a, r.b); break;
+                    case menu::Command::Monitor:
+                    case menu::Command::Usb: request_slot(r.a, r.b, view); break;
                     case menu::Command::Swap: request_target(controls::plan_swap(view), view); break;
-                    case menu::Command::ScreensOff: {
-                        controls::Target off;
-                        off.mon[KVM_MON_LEFT] = KVM_IN_OFF;
-                        off.mon[KVM_MON_RIGHT] = KVM_IN_OFF;
-                        request_target(off, view);
-                        menu::close();
-                        break;
-                    }
                     case menu::Command::Lights:
                         settings.light_level = r.a;
                         save_settings(settings);
@@ -1191,11 +1174,11 @@ extern "C" void app_main(void) {
             menu::close();
         }
 
-        kvm_state_t core_state;
-        if (network_take_kvm_state(core_state)) {
+        controls::View core_state;
+        if (network_take_kvm_state(core_state.b)) {
             last_core_state = xTaskGetTickCount();
             core_seen = true;
-            update_view(core_state, view);
+            view = core_state;
             menu::refresh(view, settings);
             if (apply_core_state(core_state, current_kvm_state)) {
                 update_state_code(current_kvm_state);
@@ -1209,7 +1192,7 @@ extern "C" void app_main(void) {
         // has an IP are expected, so they aren't logged.
         if ((!core_seen || core_silent) && xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(STATE_PING_MS)) {
             last_ping = xTaskGetTickCount();
-            network_send_kvm_request(KVM_ACT_GET_STATE, 0, 0);
+            network_send_kvm_request(controls::View{}.b);  // all 0xFF: just a STATE
         }
         show_waiting(!core_seen ? Waiting::ForCore : (core_silent ? Waiting::LostCore : Waiting::Hidden));
         update_ota_panel();

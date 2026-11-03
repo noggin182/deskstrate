@@ -108,7 +108,7 @@ Rgb palette_pattern(const Palette &palette, uint32_t now_ms, uint32_t phase_ms) 
 }
 
 Rgb host_pattern(uint8_t host, uint32_t now_ms, uint32_t phase_ms) {
-    if (host > KVM_USB_GUEST2) return scale(hex(0xFFFFFF), 0.1f);
+    if (host > controls::kGuest2) return scale(hex(0xFFFFFF), 0.1f);
     return palette_pattern(kPalettes[host], now_ms, phase_ms);
 }
 
@@ -138,10 +138,10 @@ uint16_t key_subject(Key key, const Scene &scene) {
         || (key == controls::kBottomRight && (scene.held & (1u << controls::kTopLeft)));
     if (chord_hint) return 0x300;
     switch (key) {
-        case controls::kTopLeft: return 0x400 | scene.view.mon[KVM_MON_LEFT];
-        case controls::kTopRight: return 0x400 | scene.view.mon[KVM_MON_RIGHT];
-        case controls::kBottomLeft: return 0x500 | scene.view.usb[KVM_HUB_HID];
-        default: return 0x500 | scene.view.usb[KVM_HUB_MEDIA];
+        case controls::kTopLeft: return 0x400 | scene.view.b[KVM_MON_LEFT];
+        case controls::kTopRight: return 0x400 | scene.view.b[KVM_MON_RIGHT];
+        case controls::kBottomLeft: return 0x500 | scene.view.b[KVM_HUB_HID];
+        default: return 0x500 | scene.view.b[KVM_HUB_MEDIA];
     }
 }
 
@@ -167,20 +167,20 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         case controls::kTopLeft:
         case controls::kTopRight: {
             const uint8_t mon = key == controls::kTopLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
-            if (scene.view.mon[mon] == KVM_IN_OFF) return standby_pattern(now_ms, mon * 1200);
+            if (kvm_mon_standby(scene.view.b[mon])) return standby_pattern(now_ms, mon * 1200);
             const uint8_t host = controls::monitor_host(scene.view, mon);
             // Monitor not connected (or its input unreadable): breathing red.
-            if (host == KVM_USB_UNKNOWN) return missing_pattern(now_ms, mon * 900);
+            if (host == controls::kNoHost) return missing_pattern(now_ms, mon * 900);
             return scale(host_pattern(host, now_ms, mon * 400), 0.6f);
         }
         case controls::kBottomLeft:
         case controls::kBottomRight: {
             // Bottom left = the HID hub's host, bottom right = the media hub's.
             const uint8_t hub = key == controls::kBottomLeft ? KVM_HUB_HID : KVM_HUB_MEDIA;
-            const uint8_t host = scene.view.usb[hub];
+            const uint8_t host = scene.view.b[hub];
             // Hub not connected: breathing red, like a missing monitor.
-            if (host > KVM_USB_GUEST2) return missing_pattern(now_ms, 1800 + hub * 900);
-            return scale(host_pattern(host, now_ms, 200 + hub * 400), 0.6f);
+            if (host > controls::kGuest2) return missing_pattern(now_ms, 1800 + (hub - KVM_HUB_HID) * 900);
+            return scale(host_pattern(host, now_ms, 200 + (hub - KVM_HUB_HID) * 400), 0.6f);
         }
         default:
             return hex(0x000000);
