@@ -14,7 +14,6 @@
 #include "esp_wifi.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
-#include "nvs.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "wifi_sta.h"
@@ -37,60 +36,93 @@ SemaphoreHandle_t kvm_mutex;
 int kvm_socket = -1;
 sockaddr_in core_addr = {};
 bool core_known = false;
-kvm_state_t latest_state = {};
+uint8_t latest_state[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
 bool state_fresh = false;
-uint32_t boot_epoch = 0;
-uint32_t packet_n = 0;
-uint32_t next_req_id = 0;
 
-// KVM_COUNTER: (boot_epoch << 32) | n, boot_epoch bumped in NVS once per boot.
-void load_boot_epoch() {
-    nvs_handle_t nvs;
-    if (nvs_open("kvm", NVS_READWRITE, &nvs) != ESP_OK) return;
-    nvs_get_u32(nvs, "epoch", &boot_epoch);
-    boot_epoch++;
-    nvs_set_u32(nvs, "epoch", boot_epoch);
-    nvs_commit(nvs);
-    nvs_close(nvs);
+// The state asked for and not yet seen in a STATE (0xFF = nothing asked). UDP can drop
+// a request, so it's sent again every kResendMs until a STATE shows it, for kGiveUpMs.
+// A REQUEST is the state wanted, so a repeat that arrives after all changes nothing.
+constexpr uint32_t kResendMs = 300;
+constexpr uint32_t kGiveUpMs = 3000;
+uint8_t wanted[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
+bool pending = false;
+TickType_t asked_at = 0;
+TickType_t sent_at = 0;
+uint8_t sends = 0;
+
+// Call with kvm_mutex held.
+bool send_request_locked(const uint8_t b[KVM_SLOTS]) {
+    sockaddr_in destination = core_addr;
+    if (!core_known) {
+        destination = {};
+        destination.sin_family = AF_INET;
+        destination.sin_port = htons(KVM_PORT);
+        destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    }
+    const kvm_msg_t msg = kvm_msg(KVM_REQUEST, b);
+    const ssize_t sent = sendto(kvm_socket, &msg, sizeof(msg), 0, reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
+    return sent == static_cast<ssize_t>(sizeof(msg));
+}
+
+// True once every byte asked for shows in state. Monitors compare only the host:
+// standby isn't asked for (the core doesn't change power).
+bool shows(const uint8_t state[KVM_SLOTS], const uint8_t want[KVM_SLOTS]) {
+    for (uint8_t i = 0; i < KVM_SLOTS; ++i) {
+        if (want[i] == KVM_UNKNOWN) continue;
+        const bool mon = i == KVM_MON_LEFT || i == KVM_MON_RIGHT;
+        if (mon ? kvm_mon_host(state[i]) != kvm_mon_host(want[i]) : state[i] != want[i]) return false;
+    }
+    return true;
+}
+
+// Call with kvm_mutex held: drops the request once a STATE shows it, else resends it.
+void check_pending_locked() {
+    if (!pending) return;
+    if (shows(latest_state, wanted)) {
+        if (sends > 1) ESP_LOGI(TAG, "Request took %u sends", sends);
+        pending = false;
+        return;
+    }
+    const TickType_t now = xTaskGetTickCount();
+    if (now - asked_at >= pdMS_TO_TICKS(kGiveUpMs)) {
+        ESP_LOGW(TAG, "Request %02X %02X %02X %02X not shown after %u sends; state %02X %02X %02X %02X",
+                 wanted[0], wanted[1], wanted[2], wanted[3], sends,
+                 latest_state[0], latest_state[1], latest_state[2], latest_state[3]);
+        pending = false;
+        return;
+    }
+    if (now - sent_at >= pdMS_TO_TICKS(kResendMs)) {
+        send_request_locked(wanted);
+        sent_at = now;
+        ++sends;
+    }
 }
 
 void kvm_task(void *) {
-    uint8_t buf[128];
+    uint8_t buf[64];
     for (;;) {
         sockaddr_in from = {};
         socklen_t from_len = sizeof(from);
         const int n = recvfrom(kvm_socket, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&from), &from_len);
-        if (n < static_cast<int>(sizeof(kvm_hdr_t))) {
-            continue;
-        }
-        kvm_hdr_t hdr;
-        memcpy(&hdr, buf, sizeof(hdr));  // decode by copy, never by casting the buffer
-        if (hdr.magic != KVM_MAGIC || hdr.version != KVM_VERSION || hdr.sender != KVM_NODE_CORE) {
-            continue;
-        }
+        kvm_msg_t msg;
+        const bool state = n > 0 && kvm_decode(buf, n, KVM_STATE, &msg);
 
-        if (hdr.type == KVM_STATE && n == static_cast<int>(sizeof(kvm_state_t))) {
-            xSemaphoreTake(kvm_mutex, portMAX_DELAY);
-            memcpy(&latest_state, buf, sizeof(latest_state));
+        xSemaphoreTake(kvm_mutex, portMAX_DELAY);
+        if (state) {
+            memcpy(latest_state, msg.b, sizeof(latest_state));
             state_fresh = true;
             if (!core_known || core_addr.sin_addr.s_addr != from.sin_addr.s_addr) {
                 ESP_LOGI(TAG, "Core found at " IPSTR, IP2STR(reinterpret_cast<esp_ip4_addr_t *>(&from.sin_addr)));
             }
             core_addr = from;
             core_known = true;
-            xSemaphoreGive(kvm_mutex);
-        } else if (hdr.type == KVM_RESULT && n == static_cast<int>(sizeof(kvm_result_t))) {
-            kvm_result_t result;
-            memcpy(&result, buf, sizeof(result));
-            if (result.code != KVM_RES_OK) {
-                ESP_LOGW(TAG, "Request %u refused by core: code %u", static_cast<unsigned>(result.req_id), result.code);
-            }
         }
+        check_pending_locked();
+        xSemaphoreGive(kvm_mutex);
     }
 }
 
 esp_err_t start_kvm_client() {
-    load_boot_epoch();
     kvm_mutex = xSemaphoreCreateMutex();
     if (kvm_mutex == nullptr) {
         return ESP_ERR_NO_MEM;
@@ -103,6 +135,8 @@ esp_err_t start_kvm_client() {
     }
     const int enable_broadcast = 1;
     setsockopt(kvm_socket, SOL_SOCKET, SO_BROADCAST, &enable_broadcast, sizeof(enable_broadcast));
+    timeval tv = {.tv_sec = 0, .tv_usec = 50 * 1000};  // wake up for resends
+    setsockopt(kvm_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     sockaddr_in addr = {};
     addr.sin_family = AF_INET;
@@ -236,21 +270,21 @@ esp_err_t network_start(void) {
     return ESP_OK;
 }
 
-bool network_take_kvm_state(kvm_state_t &out) {
+bool network_take_kvm_state(uint8_t out[KVM_SLOTS]) {
     if (kvm_mutex == nullptr) {
         return false;
     }
     xSemaphoreTake(kvm_mutex, portMAX_DELAY);
     const bool fresh = state_fresh;
     if (fresh) {
-        out = latest_state;
+        memcpy(out, latest_state, KVM_SLOTS);
         state_fresh = false;
     }
     xSemaphoreGive(kvm_mutex);
     return fresh;
 }
 
-esp_err_t network_send_kvm_request(uint8_t action, uint8_t a, uint8_t b) {
+esp_err_t network_send_kvm_request(const uint8_t want[KVM_SLOTS]) {
     if (kvm_mutex == nullptr || kvm_socket < 0) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -258,37 +292,29 @@ esp_err_t network_send_kvm_request(uint8_t action, uint8_t a, uint8_t b) {
         return ESP_ERR_INVALID_STATE;
     }
 
-    kvm_request_t request = {};
-    request.hdr.magic = KVM_MAGIC;
-    request.hdr.version = KVM_VERSION;
-    request.hdr.type = KVM_REQUEST;
-    request.hdr.sender = KVM_NODE_DECK;
-    request.action = action;
-    request.a = a;
-    request.b = b;
-
+    bool asks = false;
+    for (uint8_t i = 0; i < KVM_SLOTS; ++i) asks |= want[i] != KVM_UNKNOWN;
     xSemaphoreTake(kvm_mutex, portMAX_DELAY);
-    request.hdr.counter = (static_cast<uint64_t>(boot_epoch) << 32) | ++packet_n;
-    request.req_id = ++next_req_id;
-    sockaddr_in destination = core_addr;
-    if (!core_known) {
-        destination = {};
-        destination.sin_family = AF_INET;
-        destination.sin_port = htons(KVM_PORT);
-        destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    if (asks) {
+        if (!pending) {
+            memset(wanted, KVM_UNKNOWN, sizeof(wanted));
+            sends = 0;
+        }
+        // On top of a request still in flight: the latest wins for each byte.
+        for (uint8_t i = 0; i < KVM_SLOTS; ++i) {
+            if (want[i] != KVM_UNKNOWN) wanted[i] = want[i];
+        }
+        pending = true;
+        asked_at = xTaskGetTickCount();
+        sent_at = asked_at;
+        ++sends;
     }
-    const ssize_t sent = sendto(
-        kvm_socket,
-        &request,
-        sizeof(request),
-        0,
-        reinterpret_cast<sockaddr *>(&destination),
-        sizeof(destination)
-    );
+    // A request of all 0xFF changes nothing: it just asks the core for a STATE.
+    const bool sent = send_request_locked(asks ? wanted : want);
     const int send_errno = errno;
     xSemaphoreGive(kvm_mutex);
 
-    if (sent != static_cast<ssize_t>(sizeof(request))) {
+    if (!sent) {
         ESP_LOGE(TAG, "kvm_proto request failed: errno %d", send_errno);
         return ESP_FAIL;
     }

@@ -1,9 +1,8 @@
 // deskstrate-host for Windows: the PC's daemon.
 //
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
-// extend or duplicate the displays, sleep them for Screens off, wake them when a monitor
-// comes back to the PC, and if they wake locally during Screens off, ask the core to put
-// those monitors back on DisplayPort. Replies to each STATE with a STATUS.
+// extend or duplicate the displays, and wake them when a monitor comes back to the PC or
+// the keyboard moves to it. It only ever sends the core an empty REQUEST, to get a STATE.
 //
 // One exe, three ways to run:
 //   --service    the normal install: a LocalSystem service started at boot, so it works
@@ -53,7 +52,6 @@ constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kTimerMs = 1000;
 constexpr UINT kMenuOpenLog = 1;
 constexpr UINT kMenuExit = 2;
-constexpr ULONGLONG kLocalWakeGuardMs = 3000;  // ignore a display wake this soon after sleeping it
 const wchar_t kServiceName[] = L"deskstrate-host";
 
 enum class Mode { Standalone, Service, Agent };
@@ -66,16 +64,11 @@ NOTIFYICONDATAW g_tray = {};
 bool g_topology_enabled = true;
 in_addr g_core_fixed = {};        // --core, 0 = broadcast until the core answers
 in_addr g_core = {};              // where the last STATE came from
-uint64_t g_core_counter = 0;      // last accepted counter from the core
 ULONGLONG g_last_state_ms = 0;    // GetTickCount64() of the last STATE, 0 = never
-uint32_t g_req_id = 0;
-uint64_t g_last_counter = 0;
 
 host_policy_t g_policy;
-kvm_state_t g_state = {};
+uint8_t g_state[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
 bool g_displays_on = true;
-uint8_t g_topology = KVM_TOPO_NONE;
-ULONGLONG g_slept_ms = 0;
 
 SERVICE_STATUS_HANDLE g_svc = nullptr;
 SERVICE_STATUS g_svc_status = {};
@@ -130,43 +123,18 @@ void show_menu() {
 
 // ---- display actions: here (standalone) or through the agent (service) -----
 
-void sleep_displays() {
-    trace("displays: sleep (Screens off)");
-    g_slept_ms = GetTickCount64();
-    if (g_mode == Mode::Service) agent::sleep_displays(); else displays::sleep();
-}
-
 void wake_displays() {
     trace("displays: wake");
     if (g_mode == Mode::Service) agent::wake_displays(); else displays::wake();
 }
 
 void set_topology(uint8_t topo) {
-    const bool ok = g_mode == Mode::Service ? agent::set_topology(topo) : displays::set_topology(topo);
-    if (ok) g_topology = topo;
+    if (!(g_mode == Mode::Service ? agent::set_topology(topo) : displays::set_topology(topo))) {
+        trace("topology: not applied");
+    }
 }
 
 // ---- protocol --------------------------------------------------------------
-
-uint64_t next_counter() {
-    // KVM_COUNTER for hosts: Unix time in ms, kept strictly increasing.
-    FILETIME ft;
-    GetSystemTimeAsFileTime(&ft);
-    const uint64_t t100ns = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
-    uint64_t ms = t100ns / 10000 - 11644473600000ull;
-    if (ms <= g_last_counter) ms = g_last_counter + 1;
-    g_last_counter = ms;
-    return ms;
-}
-
-void fill_hdr(kvm_hdr_t &hdr, uint8_t type, uint8_t flags) {
-    hdr.magic = KVM_MAGIC;
-    hdr.version = KVM_VERSION;
-    hdr.type = type;
-    hdr.sender = KVM_NODE_PC;
-    hdr.flags = flags;
-    hdr.counter = next_counter();
-}
 
 void send_to_core(const void *buf, int len) {
     sockaddr_in to = {};
@@ -182,78 +150,48 @@ void send_to_core(const void *buf, int len) {
     sendto(g_sock, static_cast<const char *>(buf), len, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
 }
 
-void send_request(uint8_t action, uint8_t a, uint8_t b) {
-    kvm_request_t req = {};
-    fill_hdr(req.hdr, KVM_REQUEST, 0);
-    req.req_id = ++g_req_id;
-    req.action = action;
-    req.a = a;
-    req.b = b;
+// An empty REQUEST (all 0xFF) changes nothing: the core just answers with its STATE.
+void ask_for_state() {
+    const uint8_t none[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
+    const kvm_msg_t req = kvm_msg(KVM_REQUEST, none);
     send_to_core(&req, sizeof req);
 }
 
-void send_status(bool going_down) {
-    kvm_status_t st = {};
-    fill_hdr(st.hdr, KVM_STATUS, going_down ? KVM_F_GOING_DOWN : 0);
-    st.ack_seq = g_state.seq;
-    st.awake = going_down ? 0 : 1;
-    st.displays = g_displays_on ? KVM_DISP_ON : KVM_DISP_ASLEEP;
-    st.topology = g_topology;
-    st.mon_count = 0;  // the core reads the monitors itself
-    send_to_core(&st, sizeof st);
-}
-
-const char *input_name(uint8_t in) {
-    switch (in) {
-        case KVM_IN_KEEP: return "--";
-        case KVM_IN_DP: return "PC";
-        case KVM_IN_HDMI: return "HDMI";
-        case KVM_IN_USBC: return "Mac";
-        case KVM_IN_OFF: return "off";
+const char *mon_name(uint8_t b) {
+    if (b == KVM_UNKNOWN) return "--";
+    if (kvm_mon_standby(b)) return "standby";
+    switch (kvm_mon_host(b)) {
+        case KVM_HOST_PC: return "PC";
+        case KVM_HOST_MAC: return "Mac";
+        case KVM_HOST_GUEST: return "HDMI";
         default: return "?";
     }
 }
 
-void on_state(const kvm_state_t &st, const sockaddr_in &from) {
+void on_state(const uint8_t b[KVM_SLOTS], const sockaddr_in &from) {
     const bool first = !g_last_state_ms;
     g_core = from.sin_addr;
     g_last_state_ms = GetTickCount64();
-    const bool changed = first || st.seq != g_state.seq || !(st.hdr.flags & KVM_F_HEARTBEAT);
-    g_state = st;
-    if (changed) {
+    if (first || memcmp(b, g_state, KVM_SLOTS) != 0) {
         char ip[INET_ADDRSTRLEN] = "";
         inet_ntop(AF_INET, &from.sin_addr, ip, sizeof ip);
-        trace("STATE seq %u from %s: left %s, right %s, off 0x%x", st.seq, ip, input_name(st.mon[0]),
-              input_name(st.mon[1]), st.off);
+        trace("STATE %02X %02X %02X %02X from %s: left %s, right %s", b[0], b[1], b[2], b[3], ip,
+              mon_name(b[KVM_MON_LEFT]), mon_name(b[KVM_MON_RIGHT]));
     }
+    memcpy(g_state, b, KVM_SLOTS);
 
-    const host_actions_t act = host_policy_on_state(&g_policy, &st);
+    const host_actions_t act = host_policy_on_state(&g_policy, b);
     if (act.set_topology && g_topology_enabled) set_topology(act.topology);
-    if (act.sleep_displays) sleep_displays();
     if (act.wake_displays) wake_displays();
 
     wchar_t tip[64];
-    swprintf(tip, 64, L"left %hs, right %hs", input_name(st.mon[0]), input_name(st.mon[1]));
+    swprintf(tip, 64, L"left %hs, right %hs", mon_name(b[KVM_MON_LEFT]), mon_name(b[KVM_MON_RIGHT]));
     set_tip(tip);
-    send_status(false);
 }
 
 void on_datagram(const uint8_t *buf, int n, const sockaddr_in &from) {
-    if (n < (int)sizeof(kvm_hdr_t)) return;
-    kvm_hdr_t hdr;
-    memcpy(&hdr, buf, sizeof hdr);
-    if (hdr.magic != KVM_MAGIC || hdr.version != KVM_VERSION || hdr.sender != KVM_NODE_CORE) return;
-    if (hdr.counter <= g_core_counter) return;  // replayed or reordered
-    g_core_counter = hdr.counter;
-    if (hdr.type == KVM_STATE && n == (int)sizeof(kvm_state_t)) {
-        kvm_state_t st;
-        memcpy(&st, buf, sizeof st);  // decode by copy, never by casting the buffer
-        on_state(st, from);
-    } else if (hdr.type == KVM_RESULT && n == (int)sizeof(kvm_result_t)) {
-        kvm_result_t res;
-        memcpy(&res, buf, sizeof res);
-        if (res.code != KVM_RES_OK) trace("RESULT %u: code %u", res.req_id, res.code);
-    }
+    kvm_msg_t msg;
+    if (kvm_decode(buf, n, KVM_STATE, &msg)) on_state(msg.b, from);
 }
 
 void on_socket() {
@@ -270,13 +208,12 @@ void on_socket() {
 
 void on_timer() {
     const ULONGLONG now = GetTickCount64();
-    if (g_last_state_ms && now - g_last_state_ms > KVM_HOST_TIMEOUT_MS) {
-        trace("core silent for %u ms: looking for it again", KVM_HOST_TIMEOUT_MS);
+    if (g_last_state_ms && now - g_last_state_ms > KVM_TIMEOUT_MS) {
+        trace("core silent for %u ms: looking for it again", KVM_TIMEOUT_MS);
         g_last_state_ms = 0;
-        g_core_counter = 0;  // the core may have rebooted with a fresh NVS
         set_tip(L"looking for the core");
     }
-    if (!g_last_state_ms) send_request(KVM_ACT_GET_STATE, 0, 0);
+    if (!g_last_state_ms) ask_for_state();
 }
 
 void on_display_state(DWORD value) {  // GUID_CONSOLE_DISPLAY_STATE: 0 off, 1 on, 2 dimmed
@@ -284,27 +221,15 @@ void on_display_state(DWORD value) {  // GUID_CONSOLE_DISPLAY_STATE: 0 off, 1 on
     if (on == g_displays_on) return;
     g_displays_on = on;
     trace("displays: %s", on ? "on" : "off");
-    if (on && GetTickCount64() - g_slept_ms > kLocalWakeGuardMs) {
-        // Woken here (mouse, keyboard) while Screens off holds our monitors: take them back.
-        const uint8_t reclaim = host_policy_reclaim(&g_policy);
-        for (uint8_t m = 0; m < 2; m++) {
-            if (reclaim & (1u << m)) {
-                trace("woken locally: asking for monitor %u back", m);
-                send_request(KVM_ACT_MON, m, g_policy.my_input);
-            }
-        }
-    }
-    if (g_last_state_ms) send_status(false);
 }
 
 void on_power(WPARAM event) {
     if (event == PBT_APMSUSPEND) {
         trace("system: suspending");
-        if (g_last_state_ms) send_status(true);
     } else if (event == PBT_APMRESUMEAUTOMATIC) {
         trace("system: resumed");
         g_last_state_ms = 0;
-        send_request(KVM_ACT_GET_STATE, 0, 0);
+        ask_for_state();
     }
 }
 
@@ -334,7 +259,6 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         case WM_APP_STOP:
-            if (wp && g_last_state_ms) send_status(true);
             DestroyWindow(hwnd);
             return 0;
         case WM_POWERBROADCAST:  // standalone; the service gets these from the SCM
@@ -350,7 +274,6 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             }
             return TRUE;
         case WM_QUERYENDSESSION:
-            if (g_last_state_ms) send_status(true);
             return TRUE;
         case WM_DESTROY:
             if (g_tray.cbSize) Shell_NotifyIconW(NIM_DELETE, &g_tray);
@@ -388,7 +311,7 @@ bool open_socket() {
 
 // Window, socket, timer, then the message loop until the window goes. 0 on a clean exit.
 int run_protocol(HINSTANCE inst) {
-    host_policy_init(&g_policy, KVM_IN_DP);
+    host_policy_init(&g_policy, KVM_HOST_PC);
     trace("deskstrate-host starting (%s, topology %s)", g_mode == Mode::Service ? "service" : "standalone",
           g_topology_enabled ? "on" : "off");
 
@@ -407,7 +330,7 @@ int run_protocol(HINSTANCE inst) {
         RegisterPowerSettingNotification(g_hwnd, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
     }
     SetTimer(g_hwnd, kTimerId, kTimerMs, nullptr);
-    send_request(KVM_ACT_GET_STATE, 0, 0);
+    ask_for_state();
     // Only now: the SCM's handler posts controls to g_hwnd.
     if (g_mode == Mode::Service) report(SERVICE_RUNNING);
 

@@ -12,10 +12,9 @@ namespace menu {
 enum class Command : uint8_t {
     None,
     Close,
-    Monitor,     // a = kvm_mon_id, b = kvm_input
-    Usb,         // a = kvm_usb_hub, b = kvm_usb_port
+    Monitor,     // a = kvm_slot (monitor), b = monitor byte (enum kvm_host)
+    Usb,         // a = kvm_slot (hub), b = port (controls::Host)
     Swap,        // swap the two monitors' inputs
-    ScreensOff,  // both monitors to standby
     Lights,      // a = new key light level (0 high, 1 low, 2 off)
     DebugCode,   // a = 1 to show the state code over the volume panel
 };

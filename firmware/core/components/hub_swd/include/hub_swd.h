@@ -8,7 +8,7 @@
 // exactly as a front-panel key press would (no key simulation, no UART needed). Access is
 // through the MEM-AP with the core left running: no halt, no reset.
 //
-// Ports are 0..3 throughout, matching enum kvm_usb_port and the low nibble of KVM_NODE
+// Ports are 0..3 throughout, matching the kvm_proto hub bytes
 // (0 = PC, 1 = MAC, 2/3 = guests). 0xFF = none/unknown. The 1..4 panel labels are a UI
 // concern only (port + 1); nothing here reverses or offsets the index.
 //
@@ -26,7 +26,7 @@
 
 namespace hub_swd {
 
-inline constexpr uint8_t kNoPort = 0xFF;      // == KVM_USB_UNKNOWN, == firmware NO_REQUEST
+inline constexpr uint8_t kNoPort = 0xFF;      // == KVM_UNKNOWN, == firmware NO_REQUEST
 inline constexpr uint32_t kStatusAddr = 0x200001FC;
 
 struct Pins {

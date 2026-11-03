@@ -13,10 +13,9 @@ follow.
 ## Missing hardware
 
 Any of the two monitors and two hubs can be absent (not cabled, powered off, or
-not wired yet). It shows as "not connected" in the web UI, as `KVM_IN_KEEP` /
-`KVM_USB_UNKNOWN` in `STATE`, and is retried every 15 s, so it is picked up
-when it appears without a reboot. Switching an absent device fails: HTTP 409
-from the web API, `KVM_RES_REJECTED` over UDP.
+not wired yet). It shows as "not connected" in the web UI, as 0xFF in `STATE`, and is retried
+every 15 s, so it is picked up when it appears without a reboot. Switching an
+absent device fails with HTTP 409 from the web API, and is skipped over UDP.
 
 Monitors are matched to left/right by EDID serial, re-read whenever a monitor
 reappears. Until a serial has been read, bus order is assumed (DDC1 = left), but
@@ -31,33 +30,20 @@ is marked offline.
 
 ## UDP (kvm_proto)
 
-The core binds `KVM_PORT` (18200) and broadcasts a `STATE` on every change and
-every 2 s (`KVM_HEARTBEAT_MS`), with the monitors' inputs (left/right by EDID
-serial, `KVM_IN_OFF` for standby) and both hubs' ports (0-3). It answers
-`REQUEST`s with a `RESULT` followed by the current `STATE`, sent straight back to
-the requester; `KVM_ACT_MON`, `KVM_ACT_USB`, `KVM_ACT_ALL_OFF` and `KVM_ACT_GET_STATE`
-(no change, just the reply: the deck and the host daemons send it at start-up) are
-implemented.
+The core binds `KVM_PORT` (18200) and broadcasts a 6-byte `STATE` ("KS" + 4 bytes:
+left monitor, right monitor, HID hub, media hub) on every change and every 2 s
+(`KVM_HEARTBEAT_MS`). A monitor byte is the host on it (0 PC/DP, 1 Mac/USB-C,
+3 guest/HDMI, 0xF unreadable) with bit 7 set in standby; a hub byte is its port (0-3);
+0xFF is not connected. Monitors are left/right by EDID serial.
 
-Screens off (`KVM_ACT_MON` with `KVM_IN_OFF`, or `KVM_ACT_ALL_OFF`): a Dell only takes
-standby (VCP 0xD6 = 4) from the port it is showing, and the core's DDC is on HDMI. So
-the core switches the monitor to HDMI first (an HDMI guest shows for a moment), sends
-standby once the switch has settled, and re-sends it up to three times until a poll
-reads it back. It is latched per monitor: `STATE` shows `KVM_IN_OFF` and sets the
-monitor's bit in `STATE.off` until a real input is requested for that monitor, which
-wakes it (D6 = 1, accepted because HDMI is still the active port) and switches it. The
-host daemons (`host/`) also sleep their own displays for it.
+A `REQUEST` ("KR" + 4 bytes) is the state wanted; 0xFF bytes, and a monitor nibble of
+0xF, are left alone. The core switches whatever differs, skips what's already there or
+not connected, and sends its current `STATE` straight back to the requester (as well as
+broadcasting any change). So `KR FF FF FF FF` just asks for a `STATE`, and a repeated
+request is harmless. A monitor in standby is woken to switch it; otherwise the core
+doesn't change monitor power (standby is reported, not requested).
 
-Wake: each accepted `KVM_ACT_MON` for DP or USB-C, and each `KVM_ACT_USB` moving the
-HID hub to the PC or Mac, bumps that host's nibble in `STATE.wake` (low = PC, high =
-Mac), and the host's daemon wakes its displays. A request for what a monitor or hub
-already has switches nothing but still bumps it; the deck always sends its keys'
-requests, so pressing a host's key wakes it.
-Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
-connected or the write failed), `BUSY` (not used for hubs any more).
-
-Not yet implemented: HMAC tags (sent as zeros, not checked) and per-sender
-counter checks, so treat it as bench-only on a trusted LAN.
+Unauthenticated: treat it as bench-only on a trusted LAN.
 
 ## Build
 

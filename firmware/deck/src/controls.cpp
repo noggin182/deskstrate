@@ -6,23 +6,23 @@ namespace {
 
 bool is_top(Key key) { return key == kTopLeft || key == kTopRight; }
 
-bool is_pc_or_mac(uint8_t host) { return host == KVM_USB_PC || host == KVM_USB_MAC; }
+bool is_pc_or_mac(uint8_t host) { return host == kPc || host == kMac; }
 
 Target everything_to(uint8_t host) {
     Target t;
-    t.mon[KVM_MON_LEFT] = host_input(host, KVM_MON_LEFT);
-    t.mon[KVM_MON_RIGHT] = host_input(host, KVM_MON_RIGHT);
-    t.usb[KVM_HUB_HID] = host;
-    t.usb[KVM_HUB_MEDIA] = host;
+    t.b[KVM_MON_LEFT] = host_input(host, KVM_MON_LEFT);
+    t.b[KVM_MON_RIGHT] = host_input(host, KVM_MON_RIGHT);
+    t.b[KVM_HUB_HID] = host;
+    t.b[KVM_HUB_MEDIA] = host;
     return t;
 }
 
 Target split(uint8_t left, uint8_t right, uint8_t hubs) {
     Target t;
-    t.mon[KVM_MON_LEFT] = host_input(left, KVM_MON_LEFT);
-    t.mon[KVM_MON_RIGHT] = host_input(right, KVM_MON_RIGHT);
-    t.usb[KVM_HUB_HID] = hubs;
-    t.usb[KVM_HUB_MEDIA] = hubs;
+    t.b[KVM_MON_LEFT] = host_input(left, KVM_MON_LEFT);
+    t.b[KVM_MON_RIGHT] = host_input(right, KVM_MON_RIGHT);
+    t.b[KVM_HUB_HID] = hubs;
+    t.b[KVM_HUB_MEDIA] = hubs;
     return t;
 }
 
@@ -67,38 +67,40 @@ uint8_t Gestures::update(uint8_t pressed, uint32_t now_ms, bool menu, Event out[
 }
 
 uint8_t monitor_host(const View &view, uint8_t mon_id) {
-    switch (view.mon[mon_id]) {
-        case KVM_IN_DP: return KVM_USB_PC;
-        case KVM_IN_USBC: return KVM_USB_MAC;
-        case KVM_IN_HDMI: return mon_id == KVM_MON_LEFT ? KVM_USB_GUEST1 : KVM_USB_GUEST2;
+    const uint8_t b = view.b[mon_id];
+    if (kvm_mon_standby(b)) return kNoHost;
+    switch (kvm_mon_host(b)) {
+        case KVM_HOST_PC: return kPc;
+        case KVM_HOST_MAC: return kMac;
+        case KVM_HOST_GUEST: return mon_id == KVM_MON_LEFT ? kGuest1 : kGuest2;
     }
-    return KVM_USB_UNKNOWN;
+    return kNoHost;
 }
 
 uint8_t host_input(uint8_t host, uint8_t mon_id) {
     switch (host) {
-        case KVM_USB_PC: return KVM_IN_DP;
-        case KVM_USB_MAC: return KVM_IN_USBC;
-        case KVM_USB_GUEST1: return mon_id == KVM_MON_LEFT ? KVM_IN_HDMI : KVM_IN_KEEP;
-        case KVM_USB_GUEST2: return mon_id == KVM_MON_RIGHT ? KVM_IN_HDMI : KVM_IN_KEEP;
+        case kPc: return KVM_HOST_PC;
+        case kMac: return KVM_HOST_MAC;
+        case kGuest1: return mon_id == KVM_MON_LEFT ? static_cast<uint8_t>(KVM_HOST_GUEST) : KVM_UNKNOWN;
+        case kGuest2: return mon_id == KVM_MON_RIGHT ? static_cast<uint8_t>(KVM_HOST_GUEST) : KVM_UNKNOWN;
     }
-    return KVM_IN_KEEP;
+    return KVM_UNKNOWN;
 }
 
 bool is_split(const View &view) {
     const uint8_t left = monitor_host(view, KVM_MON_LEFT);
     const uint8_t right = monitor_host(view, KVM_MON_RIGHT);
-    return left != KVM_USB_UNKNOWN && right != KVM_USB_UNKNOWN && left != right;
+    return left != kNoHost && right != kNoHost && left != right;
 }
 
 bool plan(const Event &event, const View &view, Target &out) {
     if (event.type == EventType::Chord) {
         if (event.modifier == kTopRight && event.key == kBottomLeft) {
-            out = split(KVM_USB_PC, KVM_USB_MAC, KVM_USB_PC);
+            out = split(kPc, kMac, kPc);
             return true;
         }
         if (event.modifier == kTopLeft && event.key == kBottomRight) {
-            out = split(KVM_USB_MAC, KVM_USB_PC, KVM_USB_MAC);
+            out = split(kMac, kPc, kMac);
             return true;
         }
         return false;
@@ -111,18 +113,18 @@ bool plan(const Event &event, const View &view, Target &out) {
             const bool left = event.key == kBottomLeft;
             if (is_split(view)) {
                 out = Target{};
-                out.usb[KVM_HUB_HID] = monitor_host(view, left ? KVM_MON_LEFT : KVM_MON_RIGHT);
+                out.b[KVM_HUB_HID] = monitor_host(view, left ? KVM_MON_LEFT : KVM_MON_RIGHT);
             } else {
-                out = everything_to(left ? KVM_USB_PC : KVM_USB_MAC);
+                out = everything_to(left ? kPc : kMac);
             }
             return true;
         }
         case kTopRight: {
             if (!is_split(view)) return false;
             // Everything follows the keyboard; a guest can't fill both screens.
-            uint8_t host = view.usb[KVM_HUB_HID];
-            if (!is_pc_or_mac(host)) host = view.usb[KVM_HUB_MEDIA];
-            if (!is_pc_or_mac(host)) host = KVM_USB_PC;
+            uint8_t host = view.b[KVM_HUB_HID];
+            if (!is_pc_or_mac(host)) host = view.b[KVM_HUB_MEDIA];
+            if (!is_pc_or_mac(host)) host = kPc;
             out = everything_to(host);
             return true;
         }
@@ -135,11 +137,11 @@ Target plan_swap(const View &view) {
     // Each monitor takes the other's input. HDMI stays HDMI, so a guest swaps for the
     // other monitor's guest (each guest is cabled to one monitor).
     Target t;
-    if (monitor_host(view, KVM_MON_LEFT) == KVM_USB_UNKNOWN || monitor_host(view, KVM_MON_RIGHT) == KVM_USB_UNKNOWN) {
+    if (monitor_host(view, KVM_MON_LEFT) == kNoHost || monitor_host(view, KVM_MON_RIGHT) == kNoHost) {
         return t;
     }
-    t.mon[KVM_MON_LEFT] = view.mon[KVM_MON_RIGHT];
-    t.mon[KVM_MON_RIGHT] = view.mon[KVM_MON_LEFT];
+    t.b[KVM_MON_LEFT] = kvm_mon_host(view.b[KVM_MON_RIGHT]);
+    t.b[KVM_MON_RIGHT] = kvm_mon_host(view.b[KVM_MON_LEFT]);
     return t;
 }
 

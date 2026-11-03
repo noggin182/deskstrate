@@ -1,6 +1,6 @@
 // Both USB hubs over SWD: owns one hub_swd::Hub each, polls the selected port in the
 // background and caches it so readers (web UI, UDP) never touch SWD.
-// Index = enum kvm_usb_hub (0 = HID, 1 = MEDIA); ports are enum kvm_usb_port (0..3).
+// Index 0 = HID hub, 1 = media hub (kvm_proto slots KVM_HUB_HID + index); ports 0..3.
 #pragma once
 
 #include <cstdint>
@@ -9,7 +9,7 @@
 namespace hubs {
 
 inline constexpr int kCount = 2;
-inline constexpr uint8_t kUnknown = 0xFF;  // == KVM_USB_UNKNOWN
+inline constexpr uint8_t kUnknown = 0xFF;  // == KVM_UNKNOWN
 
 struct State {
     bool online = false;       // SWD connected and the status word read back

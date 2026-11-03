@@ -54,21 +54,22 @@ private:
     uint32_t down_at_[kKeyCount] = {};
 };
 
-// The core's state as the deck sees it: kvm_input per monitor, kvm_usb_port per hub.
+// Hosts as the deck names them: the hub port numbers (a kvm_proto hub byte). Each guest
+// is cabled to one monitor's HDMI: guest 1 (port 2) to the left, guest 2 (port 3) to
+// the right.
+enum Host : uint8_t { kPc = 0, kMac = 1, kGuest1 = 2, kGuest2 = 3, kNoHost = KVM_UNKNOWN };
+
+// The core's 4 STATE bytes, by enum kvm_slot (0xFF = not connected).
 struct View {
-    uint8_t mon[2] = {KVM_IN_KEEP, KVM_IN_KEEP};
-    uint8_t usb[KVM_HUB_COUNT] = {KVM_USB_UNKNOWN, KVM_USB_UNKNOWN};
+    uint8_t b[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
 };
 
-// What to ask the core for. KVM_IN_KEEP / KVM_USB_UNKNOWN = leave alone.
-struct Target {
-    uint8_t mon[2] = {KVM_IN_KEEP, KVM_IN_KEEP};
-    uint8_t usb[KVM_HUB_COUNT] = {KVM_USB_UNKNOWN, KVM_USB_UNKNOWN};
-};
+// What to ask the core for: REQUEST bytes, 0xFF = leave alone.
+using Target = View;
 
-// Host (kvm_usb_port) shown by monitor mon_id, or KVM_USB_UNKNOWN (off, unknown).
+// Host (enum Host) shown by monitor mon_id, or kNoHost (standby, unknown).
 uint8_t monitor_host(const View &view, uint8_t mon_id);
-// The monitor input that shows host on monitor mon_id, or KVM_IN_KEEP if it can't
+// The monitor byte that shows host on monitor mon_id, or KVM_UNKNOWN if it can't
 // (a guest only exists on one monitor's HDMI).
 uint8_t host_input(uint8_t host, uint8_t mon_id);
 // Split mode = the two monitors show different hosts.

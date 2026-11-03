@@ -38,12 +38,15 @@ datagram:
 ```
 
 The deck is also a `kvm_proto` client of the core on UDP port 18200
-(`KVM_PORT`). It renders every `STATE` the core broadcasts and sends its key
-presses to the core as `REQUEST`s (to the sender of the last `STATE`, or
-broadcast until one has been seen). Packets are unauthenticated for now. Until a
-`STATE` arrives (at boot, or after 10 s of silence) it sends `KVM_ACT_GET_STATE`
-once a second; the core answers every request with its current `STATE`, so the
-screen fills in as soon as Wi-Fi is up.
+(`KVM_PORT`). It renders every `STATE` the core broadcasts and sends each key
+press to the core as one `REQUEST` carrying the whole state it wants (to the
+sender of the last `STATE`, or broadcast until one has been seen). UDP can drop
+a packet, so the deck resends the request every 300 ms until a `STATE` shows it,
+for up to 3 s; a repeat is harmless because a request is the state wanted, not a
+step. Packets are unauthenticated. Until a `STATE` arrives (at boot, or after
+10 s of silence) it sends an empty request (`KR FF FF FF FF`) once a second; the
+core answers every request with its current `STATE`, so the screen fills in as
+soon as Wi-Fi is up.
 
 This JSON broadcast is temporary and will be dropped in favour of `kvm_proto`.
 Receivers should listen on UDP port `3333` on all local interfaces. Other

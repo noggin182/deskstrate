@@ -7,7 +7,7 @@
 #include <string>
 
 #include "displays.h"
-#include "kvm_proto.h"
+#include "host_policy.h"
 #include "log.h"
 
 namespace agent {
@@ -36,9 +36,9 @@ int run() {
             } else if (cmd == "wake") {
                 displays::wake();
             } else if (cmd == "extend") {
-                displays::set_topology(KVM_TOPO_EXTEND);
+                displays::set_topology(HOST_TOPO_EXTEND);
             } else if (cmd == "mirror") {
-                displays::set_topology(KVM_TOPO_MIRROR);
+                displays::set_topology(HOST_TOPO_MIRROR);
             }
         }
     }
@@ -138,7 +138,7 @@ bool send(const char *cmd) {
 
 void sleep_displays() { send("sleep"); }
 void wake_displays() { send("wake"); }
-bool set_topology(uint8_t topo) { return send(topo == KVM_TOPO_MIRROR ? "mirror" : "extend"); }
+bool set_topology(uint8_t topo) { return send(topo == HOST_TOPO_MIRROR ? "mirror" : "extend"); }
 
 void stop() {
     if (g_pipe) CloseHandle(g_pipe);  // the agent sees EOF and exits
