@@ -20,8 +20,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test host_policy.h
         run: |
-          cc -std=c11 -Wall -Wextra -Werror -I components/kvm_proto/include -I host/common \
-            host/common/test_host_policy.c -o test_host_policy
+          c++ -std=c++17 -Wall -Wextra -Werror -I components/kvm_proto/include -I host/common \
+            host/common/test_host_policy.cpp -o test_host_policy
           ./test_host_policy
 
   windows:

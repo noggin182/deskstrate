@@ -11,7 +11,7 @@ LABEL := gui/$(shell id -u)/com.deskstrate.host
 
 $(BIN): main.swift Bridging.h ../common/host_policy.h $(ROOT)/components/kvm_proto/include/kvm_proto.h
 	mkdir -p build
-	swiftc -O -import-objc-header Bridging.h \
+	swiftc -O -cxx-interoperability-mode=default -import-objc-header Bridging.h \
 		-Xcc -I../common -Xcc -I$(ROOT)/components/kvm_proto/include \
 		main.swift -o $@
 
