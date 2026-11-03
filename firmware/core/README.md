@@ -53,6 +53,9 @@ HID hub to the PC or Mac, bumps that host's nibble in `STATE.wake` (low = PC, hi
 Mac), and the host's daemon wakes its displays. A request for what a monitor or hub
 already has switches nothing but still bumps it; the deck always sends its keys'
 requests, so pressing a host's key wakes it.
+A client may resend a REQUEST until its RESULT arrives (the deck does, every 250 ms,
+up to 4 sends). A repeat of the same sender and `req_id` within 3 s is answered again
+with the original result, not carried out twice.
 Results: `OK`, `UNKNOWN` (bad action or argument), `REJECTED` (device not
 connected or the write failed), `BUSY` (not used for hubs any more).
 

@@ -43,6 +43,19 @@ uint32_t boot_epoch = 0;
 uint32_t packet_n = 0;
 uint32_t next_req_id = 0;
 
+// REQUESTs the core hasn't answered yet. A burst (a key sends up to four) sometimes lost
+// one on the way, leaving e.g. the media hub behind, so each request is resent until its
+// RESULT arrives. The core ignores a repeat of a req_id it has already carried out.
+constexpr TickType_t kResendTicks = pdMS_TO_TICKS(250);
+constexpr int kMaxSends = 4;
+struct Pending {
+    bool used;
+    int sends;
+    TickType_t sent_at;
+    kvm_request_t request;
+};
+Pending pending[8] = {};
+
 // KVM_COUNTER: (boot_epoch << 32) | n, boot_epoch bumped in NVS once per boot.
 void load_boot_epoch() {
     nvs_handle_t nvs;
@@ -54,14 +67,53 @@ void load_boot_epoch() {
     nvs_close(nvs);
 }
 
+// Sends (or resends) p. Caller holds kvm_mutex. A failed send (e.g. no buffers in a
+// burst) counts as a send, so the retry timer picks it up.
+void send_pending(Pending &p) {
+    p.request.hdr.counter = (static_cast<uint64_t>(boot_epoch) << 32) | ++packet_n;
+    sockaddr_in destination = core_addr;
+    if (!core_known) {
+        destination = {};
+        destination.sin_family = AF_INET;
+        destination.sin_port = htons(KVM_PORT);
+        destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    }
+    const ssize_t sent = sendto(kvm_socket, &p.request, sizeof(p.request), 0,
+                                reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
+    if (sent != static_cast<ssize_t>(sizeof(p.request))) {
+        ESP_LOGW(TAG, "Request %u: send failed (errno %d)", static_cast<unsigned>(p.request.req_id), errno);
+    }
+    p.sends++;
+    p.sent_at = xTaskGetTickCount();
+}
+
+// Resends whatever the core hasn't answered in kResendTicks; gives up after kMaxSends.
+void resend_unanswered() {
+    xSemaphoreTake(kvm_mutex, portMAX_DELAY);
+    const TickType_t now = xTaskGetTickCount();
+    for (Pending &p : pending) {
+        if (!p.used || now - p.sent_at < kResendTicks) continue;
+        if (p.sends >= kMaxSends) {
+            ESP_LOGW(TAG, "Request %u: no answer from the core after %d sends",
+                     static_cast<unsigned>(p.request.req_id), p.sends);
+            p.used = false;
+            continue;
+        }
+        ESP_LOGI(TAG, "Request %u: no answer yet, resending", static_cast<unsigned>(p.request.req_id));
+        send_pending(p);
+    }
+    xSemaphoreGive(kvm_mutex);
+}
+
 void kvm_task(void *) {
     uint8_t buf[128];
     for (;;) {
+        resend_unanswered();
         sockaddr_in from = {};
         socklen_t from_len = sizeof(from);
         const int n = recvfrom(kvm_socket, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&from), &from_len);
         if (n < static_cast<int>(sizeof(kvm_hdr_t))) {
-            continue;
+            continue;  // includes the receive timeout, which runs the resends
         }
         kvm_hdr_t hdr;
         memcpy(&hdr, buf, sizeof(hdr));  // decode by copy, never by casting the buffer
@@ -82,6 +134,11 @@ void kvm_task(void *) {
         } else if (hdr.type == KVM_RESULT && n == static_cast<int>(sizeof(kvm_result_t))) {
             kvm_result_t result;
             memcpy(&result, buf, sizeof(result));
+            xSemaphoreTake(kvm_mutex, portMAX_DELAY);
+            for (Pending &p : pending) {
+                if (p.used && p.request.req_id == result.req_id) p.used = false;
+            }
+            xSemaphoreGive(kvm_mutex);
             if (result.code != KVM_RES_OK) {
                 ESP_LOGW(TAG, "Request %u refused by core: code %u", static_cast<unsigned>(result.req_id), result.code);
             }
@@ -103,6 +160,8 @@ esp_err_t start_kvm_client() {
     }
     const int enable_broadcast = 1;
     setsockopt(kvm_socket, SOL_SOCKET, SO_BROADCAST, &enable_broadcast, sizeof(enable_broadcast));
+    timeval tv = {.tv_sec = 0, .tv_usec = 50 * 1000};  // wake up to resend unanswered requests
+    setsockopt(kvm_socket, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
     sockaddr_in addr = {};
     addr.sin_family = AF_INET;
@@ -268,30 +327,19 @@ esp_err_t network_send_kvm_request(uint8_t action, uint8_t a, uint8_t b) {
     request.b = b;
 
     xSemaphoreTake(kvm_mutex, portMAX_DELAY);
-    request.hdr.counter = (static_cast<uint64_t>(boot_epoch) << 32) | ++packet_n;
     request.req_id = ++next_req_id;
-    sockaddr_in destination = core_addr;
-    if (!core_known) {
-        destination = {};
-        destination.sin_family = AF_INET;
-        destination.sin_port = htons(KVM_PORT);
-        destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    // A free slot, or else the oldest request (the queue only fills if the core is gone).
+    Pending *slot = &pending[0];
+    for (Pending &p : pending) {
+        if (!p.used) {
+            slot = &p;
+            break;
+        }
+        if (p.sent_at - slot->sent_at > portMAX_DELAY / 2) slot = &p;  // older (wrap-safe)
     }
-    const ssize_t sent = sendto(
-        kvm_socket,
-        &request,
-        sizeof(request),
-        0,
-        reinterpret_cast<sockaddr *>(&destination),
-        sizeof(destination)
-    );
-    const int send_errno = errno;
+    *slot = {.used = true, .sends = 0, .sent_at = 0, .request = request};
+    send_pending(*slot);
     xSemaphoreGive(kvm_mutex);
-
-    if (sent != static_cast<ssize_t>(sizeof(request))) {
-        ESP_LOGE(TAG, "kvm_proto request failed: errno %d", send_errno);
-        return ESP_FAIL;
-    }
     return ESP_OK;
 }
 

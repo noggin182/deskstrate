@@ -37,6 +37,20 @@ constexpr int kStandbyTries = 3;
 constexpr uint32_t kStandbyCheckMs = 5000;  // > one poll, so the power read is fresh
 TickType_t last_sent = 0;
 
+// Recently carried-out requests, so a resent one (the deck resends until it hears the
+// RESULT, and the RESULT can be the packet that got lost) is answered again, not re-run.
+// Matched by sender and req_id within kRepeatWindowMs: req_ids restart when a client
+// reboots, so an old entry must not swallow a new request.
+struct Done {
+    uint8_t sender;
+    uint32_t req_id;
+    uint8_t code;
+    TickType_t at;
+};
+Done done[8] = {};
+int done_next = 0;
+constexpr uint32_t kRepeatWindowMs = 3000;
+
 // KVM_COUNTER: (boot_epoch << 32) | n, boot_epoch bumped in NVS once per boot.
 void load_boot_epoch() {
     nvs_handle_t nvs;
@@ -221,22 +235,44 @@ uint8_t apply_usb(uint8_t hub, uint8_t port) {
     return result_code(err);
 }
 
-void handle_request(const kvm_request_t &req, const sockaddr_in &from) {
-    uint8_t code;
+const Done *find_done(const kvm_request_t &req) {
+    const TickType_t now = xTaskGetTickCount();
+    for (const Done &d : done) {
+        if (d.at && d.sender == req.hdr.sender && d.req_id == req.req_id &&
+            now - d.at < pdMS_TO_TICKS(kRepeatWindowMs)) {
+            return &d;
+        }
+    }
+    return nullptr;
+}
+
+uint8_t carry_out(const kvm_request_t &req) {
     switch (req.action) {
-        case KVM_ACT_MON: code = apply_mon(req.a, req.b); break;
-        case KVM_ACT_USB: code = apply_usb(req.a, req.b); break;
+        case KVM_ACT_MON: return apply_mon(req.a, req.b);
+        case KVM_ACT_USB: return apply_usb(req.a, req.b);
         case KVM_ACT_ALL_OFF: {
             const uint8_t left = apply_mon(KVM_MON_LEFT, KVM_IN_OFF);
             const uint8_t right = apply_mon(KVM_MON_RIGHT, KVM_IN_OFF);
-            code = left == KVM_RES_OK || right == KVM_RES_OK ? KVM_RES_OK : left;
-            break;
+            return left == KVM_RES_OK || right == KVM_RES_OK ? KVM_RES_OK : left;
         }
-        case KVM_ACT_GET_STATE: code = KVM_RES_OK; break;
-        default: code = KVM_RES_UNKNOWN; break;
+        case KVM_ACT_GET_STATE: return KVM_RES_OK;
+        default: return KVM_RES_UNKNOWN;
     }
-    ESP_LOGI(TAG, "REQUEST %u from node 0x%02X (action %u a=%u b=%u): result %u",
-             (unsigned)req.req_id, req.hdr.sender, req.action, req.a, req.b, code);
+}
+
+void handle_request(const kvm_request_t &req, const sockaddr_in &from) {
+    uint8_t code;
+    if (const Done *d = find_done(req)) {
+        code = d->code;
+        ESP_LOGI(TAG, "REQUEST %u from node 0x%02X repeated: answering again (result %u)",
+                 (unsigned)req.req_id, req.hdr.sender, code);
+    } else {
+        code = carry_out(req);
+        ESP_LOGI(TAG, "REQUEST %u from node 0x%02X (action %u a=%u b=%u): result %u",
+                 (unsigned)req.req_id, req.hdr.sender, req.action, req.a, req.b, code);
+        done[done_next] = {req.hdr.sender, req.req_id, code, xTaskGetTickCount() | 1};  // at != 0
+        done_next = (done_next + 1) % (int)(sizeof done / sizeof done[0]);
+    }
 
     if (code == KVM_RES_OK) publish_state(false);  // carry the change before the RESULT
 
