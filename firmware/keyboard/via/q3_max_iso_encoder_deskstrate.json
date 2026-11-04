@@ -245,62 +245,72 @@
     {
       "name": "KVM: everything to PC",
       "title": "KVM: everything to PC",
-      "shortName": "KVM PC"
+      "shortName": "⇄PC"
     },
     {
       "name": "KVM: everything to Mac",
       "title": "KVM: everything to Mac",
-      "shortName": "KVM Mac"
+      "shortName": "⇄Mac"
+    },
+    {
+      "name": "KVM: split, PC left + Mac right, keyboard on PC",
+      "title": "KVM: split, PC left + Mac right, keyboard on PC",
+      "shortName": "PC+Mac"
+    },
+    {
+      "name": "KVM: split, Mac left + PC right, keyboard on Mac",
+      "title": "KVM: split, Mac left + PC right, keyboard on Mac",
+      "shortName": "Mac+PC"
     },
     {
       "name": "KVM: left monitor to PC",
       "title": "KVM: left monitor to PC",
-      "shortName": "L PC"
+      "shortName": "L⇄PC"
     },
     {
       "name": "KVM: left monitor to Mac",
       "title": "KVM: left monitor to Mac",
-      "shortName": "L Mac"
+      "shortName": "L⇄Mac"
     },
     {
       "name": "KVM: left monitor to guest",
       "title": "KVM: left monitor to guest",
-      "shortName": "L Gst"
+      "shortName": "L⇄Gst"
     },
     {
       "name": "KVM: right monitor to PC",
       "title": "KVM: right monitor to PC",
-      "shortName": "R PC"
+      "shortName": "R⇄PC"
     },
     {
       "name": "KVM: right monitor to Mac",
       "title": "KVM: right monitor to Mac",
-      "shortName": "R Mac"
+      "shortName": "R⇄Mac"
     },
     {
       "name": "KVM: right monitor to guest",
       "title": "KVM: right monitor to guest",
-      "shortName": "R Gst"
+      "shortName": "R⇄Gst"
     },
     {
-      "name": "KVM: keyboard/mouse to PC",
-      "title": "KVM: keyboard/mouse to PC",
-      "shortName": "HID PC"
+      "name": "KVM: keyboard/mouse hub to PC",
+      "title": "KVM: keyboard/mouse hub to PC",
+      "shortName": "KB⇄PC"
     },
     {
-      "name": "KVM: keyboard/mouse to Mac",
-      "title": "KVM: keyboard/mouse to Mac",
-      "shortName": "HID Mac"
+      "name": "KVM: keyboard/mouse hub to Mac",
+      "title": "KVM: keyboard/mouse hub to Mac",
+      "shortName": "KB⇄Mac"
     },
     {
       "name": "KVM: media hub to PC",
       "title": "KVM: media hub to PC",
-      "shortName": "Med PC"
+      "shortName": "Med⇄PC"
     },
     {
       "name": "KVM: media hub to Mac",
       "title": "KVM: media hub to Mac",
-      "shortName": "Med Mac"
+      "shortName": "Med⇄Mac"
     }
   ],
   "layouts": {

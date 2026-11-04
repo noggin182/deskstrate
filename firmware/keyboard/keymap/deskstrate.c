@@ -16,6 +16,9 @@
 static const uint8_t kvm_requests[DESKSTRATE_KEYS_END - KVM_ALL_PC][4] = {
     [KVM_ALL_PC - KVM_ALL_PC]    = {0x00, 0x00, 0x00, 0x00},
     [KVM_ALL_MAC - KVM_ALL_PC]   = {0x01, 0x01, 0x01, 0x01},
+    // Split, as on the deck: the right monitor goes to the second host, the rest to the first.
+    [KVM_SPLIT_PC_MAC - KVM_ALL_PC] = {0x00, 0x01, 0x00, 0x00},
+    [KVM_SPLIT_MAC_PC - KVM_ALL_PC] = {0x01, 0x00, 0x01, 0x01},
     [KVM_L_PC - KVM_ALL_PC]      = {0x00, 0xFF, 0xFF, 0xFF},
     [KVM_L_MAC - KVM_ALL_PC]     = {0x01, 0xFF, 0xFF, 0xFF},
     [KVM_L_GUEST - KVM_ALL_PC]   = {0x03, 0xFF, 0xFF, 0xFF},

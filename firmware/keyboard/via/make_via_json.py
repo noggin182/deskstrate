@@ -188,18 +188,20 @@ LIGHTING_MENU = [
 ]
 
 DESKSTRATE_KEYS = [
-    ("KVM: everything to PC", "KVM PC"),
-    ("KVM: everything to Mac", "KVM Mac"),
-    ("KVM: left monitor to PC", "L PC"),
-    ("KVM: left monitor to Mac", "L Mac"),
-    ("KVM: left monitor to guest", "L Gst"),
-    ("KVM: right monitor to PC", "R PC"),
-    ("KVM: right monitor to Mac", "R Mac"),
-    ("KVM: right monitor to guest", "R Gst"),
-    ("KVM: keyboard/mouse to PC", "HID PC"),
-    ("KVM: keyboard/mouse to Mac", "HID Mac"),
-    ("KVM: media hub to PC", "Med PC"),
-    ("KVM: media hub to Mac", "Med Mac"),
+    ("KVM: everything to PC", "⇄PC"),
+    ("KVM: everything to Mac", "⇄Mac"),
+    ("KVM: split, PC left + Mac right, keyboard on PC", "PC+Mac"),
+    ("KVM: split, Mac left + PC right, keyboard on Mac", "Mac+PC"),
+    ("KVM: left monitor to PC", "L⇄PC"),
+    ("KVM: left monitor to Mac", "L⇄Mac"),
+    ("KVM: left monitor to guest", "L⇄Gst"),
+    ("KVM: right monitor to PC", "R⇄PC"),
+    ("KVM: right monitor to Mac", "R⇄Mac"),
+    ("KVM: right monitor to guest", "R⇄Gst"),
+    ("KVM: keyboard/mouse hub to PC", "KB⇄PC"),
+    ("KVM: keyboard/mouse hub to Mac", "KB⇄Mac"),
+    ("KVM: media hub to PC", "Med⇄PC"),
+    ("KVM: media hub to Mac", "Med⇄Mac"),
 ]
 
 
@@ -243,7 +245,7 @@ def kle_rows(layout):
 
 def main():
     for variant, name in VARIANTS.items():
-        board = json.loads((QMK_BOARD / variant / "keyboard.json").read_text())
+        board = json.loads((QMK_BOARD / variant / "keyboard.json").read_text(encoding="utf-8"))
         info = json.loads((QMK_BOARD / "info.json").read_text())
         (layout_name, layout), = board["layouts"].items()
         rows = 1 + max(k["matrix"][0] for k in layout["layout"])
@@ -262,7 +264,7 @@ def main():
             "layouts": {"keymap": kle_rows(layout["layout"])},
         }
         path = HERE / f"q3_max_{variant}_deskstrate.json"
-        path.write_text(json.dumps(definition, indent=2) + "\n")
+        path.write_text(json.dumps(definition, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(f"{path.name}: {layout_name}, {len(layout['layout'])} keys")
 
 

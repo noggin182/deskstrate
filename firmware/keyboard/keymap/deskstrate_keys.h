@@ -8,6 +8,8 @@
 enum deskstrate_keycodes {
     KVM_ALL_PC = NEW_SAFE_RANGE,
     KVM_ALL_MAC,
+    KVM_SPLIT_PC_MAC,
+    KVM_SPLIT_MAC_PC,
     KVM_L_PC,
     KVM_L_MAC,
     KVM_L_GUEST,

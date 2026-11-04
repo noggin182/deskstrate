@@ -32,7 +32,7 @@ back the same way.
 
 ## KVM keys and VIA
 
-`keymap/deskstrate_keys.h` adds KVM keys (everything to PC/Mac, each monitor to
+`keymap/deskstrate_keys.h` adds KVM keys (everything to PC/Mac, the two split layouts, each monitor to
 PC/Mac/guest, each hub to PC/Mac) in the custom keycode slots after Keychron's own.
 Each builds a `kvm_proto` REQUEST; sending it needs the ESP32 link, which isn't built
 yet, so for now pressing one does nothing.
