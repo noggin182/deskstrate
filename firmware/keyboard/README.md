@@ -44,3 +44,10 @@ Settings > Show Design tab, load `via/q3_max_iso_encoder_deskstrate.json` (UK) o
 ANSI one under Design, and the keys appear under Custom. The definitions are generated
 by `via/make_via_json.py` from Keychron's `keyboard.json`, with the lighting menu
 copied from the Launcher's own definition; rerun it if the keys change.
+
+## Mac/Windows layout follows the host
+
+On the cable, QMK's OS detection picks Keychron's Mac or Windows base layer each time
+the keyboard enumerates, so it follows the hub when it switches hosts. On Bluetooth
+and 2.4 GHz the switch on the back still decides. Flipping the switch while on the
+cable takes effect until the next enumeration.

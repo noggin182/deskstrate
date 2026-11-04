@@ -10,6 +10,11 @@
 // types as normal. See README.md for where the pins are.
 #include QMK_KEYBOARD_H
 #include "deskstrate_keys.h"
+#include "transport.h"
+
+// Keychron's base layers (keymap.c's enum layers): the back switch picks one.
+#define LAYER_MAC_BASE 0
+#define LAYER_WIN_BASE 2
 
 // kvm_proto (components/kvm_proto): monitor byte = host (0 PC, 1 Mac, 3 guest),
 // hub byte = port (0 PC, 1 Mac).
@@ -59,4 +64,39 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         write_test_pins();
     }
     return true;
+}
+
+// Mac/Windows layout follows the host. On the cable, QMK's OS detection picks the base
+// layer each time the keyboard enumerates (so after every hub switch); the back switch
+// still decides on Bluetooth and 2.4 GHz, where there's no enumeration to go on.
+static void apply_host_layout(void) {
+    switch (detected_host_os()) {
+        case OS_MACOS:
+        case OS_IOS:
+            default_layer_set(1UL << LAYER_MAC_BASE);
+            break;
+        case OS_WINDOWS:
+        case OS_LINUX:
+            default_layer_set(1UL << LAYER_WIN_BASE);
+            break;
+        default:  // not sure: leave the switch's choice
+            break;
+    }
+}
+
+bool process_detected_host_os_user(os_variant_t os) {
+    if (get_transport() == TRANSPORT_USB) apply_host_layout();
+    return true;
+}
+
+void matrix_scan_user(void) {
+    static transport_t last = TRANSPORT_NONE;
+    transport_t        now  = get_transport();
+    if (now == last) return;
+    last = now;
+    if (now == TRANSPORT_USB) {
+        apply_host_layout();
+    } else {
+        dip_switch_read(true);  // back to the switch's layout
+    }
 }
