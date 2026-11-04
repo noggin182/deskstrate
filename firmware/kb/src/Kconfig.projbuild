@@ -3,9 +3,11 @@ menu "Deskstrate keyboard"
     config DESKSTRATE_KB_LED_GPIO
         int "Status LED (WS2812) GPIO, -1 for none"
         range -1 48
-        default 21
+        default 48
         help
-            The S3 Mini / S3-Zero has its WS2812 on GPIO21.
+            The keyboard's board (S3 Super Mini layout: red power LED, BAT LED, 3V3
+            on the 5V/GND side) has its WS2812 on GPIO48. An S3-Zero layout board,
+            like the core's, has it on GPIO21.
 
     config DESKSTRATE_KB_RX_GPIO
         int "UART RX GPIO (from the keyboard's PB12)"

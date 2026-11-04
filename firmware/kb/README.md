@@ -1,6 +1,7 @@
 # kb: the ESP32 in the keyboard
 
-An ESP32-S3 Mini (S3-Zero layout) inside the Keychron Q3 Max, wired to the keyboard's
+An ESP32-S3 Super Mini (red power LED, a BAT LED that blinks with no battery, WS2812
+marked 48) inside the Keychron Q3 Max, wired to the keyboard's
 STM32 (which runs `firmware/keyboard`). Hostname `deskstrate-kb`.
 
 - **Wi-Fi** as `deskstrate-kb`, same network and credentials mechanism as the core and
@@ -16,7 +17,7 @@ STM32 (which runs `firmware/keyboard`). Hostname `deskstrate-kb`.
 - **Updates** from GitHub releases like the core and deck (`components/ota_pull`):
   2 minutes after each boot, hourly while awake, or on a doorbell (UDP 18212).
   Asleep it hears nothing, so it catches up on the next wake.
-- **Status LED**: the WS2812 on GPIO21, same colours as the other boards
+- **Status LED**: the WS2812 on GPIO48, same colours as the other boards
   (README.md, Status LED). Off while asleep.
 
 ## Wiring
@@ -38,7 +39,8 @@ two outputs fight. With the pin test, RX simply reads high (awake) or low (aslee
 30 s) as Esc flips PB12.
 
 Pins, baud (115200), and sleep are in menuconfig, Deskstrate keyboard. Turn sleep off
-for bench work with nothing on RX.
+for bench work with nothing on RX. To wake it on the bench, jumper RX (GPIO1, on the
+TX/RX side) to 3V3 (on the 5V/GND side).
 
 ## First flash
 

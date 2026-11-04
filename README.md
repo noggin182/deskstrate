@@ -56,7 +56,7 @@ branch.
 ### Status LED
 
 Each board's built-in WS2812 is its status LED (`components/status_led`): GPIO21
-on the core's and keyboard's S3 Minis, the NeoPixel on the deck's Feather.
+on the core's S3 Mini, GPIO48 on the keyboard's S3 Super Mini, the NeoPixel on the deck's Feather.
 
 | Colour | Meaning |
 | --- | --- |

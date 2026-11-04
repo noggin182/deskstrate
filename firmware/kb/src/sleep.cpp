@@ -48,6 +48,9 @@ bool busy() {
         gpio_set_direction(kLed, GPIO_MODE_OUTPUT);
         gpio_set_level(kLed, 0);
         gpio_hold_en(kLed);
+        // GPIO48 is a digital pad: the S3 only holds those through deep sleep with this
+        // too (an RTC pad like GPIO21 holds without it).
+        gpio_deep_sleep_hold_en();
     }
     // Wake when the keyboard raises the line. The pull-down keeps a disconnected line low.
     rtc_gpio_init(kRx);
