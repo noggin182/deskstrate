@@ -1,0 +1,41 @@
+menu "Deskstrate keyboard"
+
+    config DESKSTRATE_KB_LED_GPIO
+        int "Status LED (WS2812) GPIO, -1 for none"
+        range -1 48
+        default 21
+        help
+            The S3 Mini / S3-Zero has its WS2812 on GPIO21.
+
+    config DESKSTRATE_KB_RX_GPIO
+        int "UART RX GPIO (from the keyboard's PB12)"
+        range 0 21
+        default 1
+        help
+            Must be an RTC GPIO (0-21): it also wakes the board from deep sleep.
+            The keyboard holds this line high (UART idle) while it has USB power
+            and low without it.
+
+    config DESKSTRATE_KB_TX_GPIO
+        int "UART TX GPIO (to the keyboard's PA3, USART2 RX)"
+        range 0 48
+        default 2
+
+    config DESKSTRATE_KB_BAUD
+        int "UART baud rate"
+        default 115200
+
+    config DESKSTRATE_KB_SLEEP
+        bool "Deep sleep while the keyboard has no USB power"
+        default y
+        help
+            Sleeps once the RX line has been low for DESKSTRATE_KB_SLEEP_HOLDOFF_S
+            and wakes when it goes high again. Turn off for bench work without
+            the keyboard attached.
+
+    config DESKSTRATE_KB_SLEEP_HOLDOFF_S
+        int "Seconds the RX line must stay low before sleeping"
+        depends on DESKSTRATE_KB_SLEEP
+        default 30
+
+endmenu

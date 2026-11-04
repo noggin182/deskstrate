@@ -32,6 +32,9 @@ std::atomic<bool> ready{false};
 std::atomic<uint32_t> faults{0};
 std::atomic<uint32_t> activity{0};
 std::atomic<bool> core_silent{false};
+std::atomic<bool> started{false};
+std::atomic<bool> going_dark{false};
+std::atomic<bool> dark{false};
 
 bool has_ip() {
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -46,6 +49,12 @@ void task(void *arg) {
     bool shown = false;
     Rgb last = kOff;
     for (;;) {
+        if (going_dark) {
+            // Black, then stop for good: nothing changes it again before the board sleeps.
+            led_strip_clear(strip);
+            dark = true;
+            vTaskSuspend(nullptr);
+        }
         const TickType_t now = xTaskGetTickCount();
         Rgb c = kBlueDim;
         // Netif is only looked at once ready without faults, i.e. after Wi-Fi started.
@@ -99,6 +108,7 @@ esp_err_t start(gpio_num_t gpio) {
         led_strip_del(strip);
         return ESP_ERR_NO_MEM;
     }
+    started = true;
     return ESP_OK;
 }
 
@@ -119,5 +129,14 @@ void set_fault(uint32_t f, bool on) { set_bits(faults, f, on); }
 void set_activity(uint32_t a, bool on) { set_bits(activity, a, on); }
 
 void set_core_silent(bool silent) { core_silent = silent; }
+
+bool turn_off(uint32_t timeout_ms) {
+    if (!started) return true;
+    going_dark = true;
+    for (uint32_t waited = 0; !dark && waited < timeout_ms; waited += 10) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    return dark;
+}
 
 }  // namespace status_led
