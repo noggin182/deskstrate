@@ -84,6 +84,21 @@ static void apply_host_layout(void) {
     }
 }
 
+// QMK only clears its detection data when the keyboard boots. With 5V kept up across a
+// hub switch the keyboard never reboots, so the second host's enumeration was mixed with
+// the first's and the result never changed. Clear it when a host that had configured us
+// resets the bus (a new host), but not on the resets inside one enumeration, which the
+// detection needs to see.
+void notify_usb_device_state_change_user(struct usb_device_state state) {
+    static bool was_configured = false;
+    if (state.configure_state == USB_DEVICE_STATE_CONFIGURED) {
+        was_configured = true;
+    } else if (state.configure_state == USB_DEVICE_STATE_INIT && was_configured) {
+        was_configured = false;
+        erase_wlength_data();
+    }
+}
+
 bool process_detected_host_os_user(os_variant_t os) {
     if (get_transport() == TRANSPORT_USB) apply_host_layout();
     return true;
