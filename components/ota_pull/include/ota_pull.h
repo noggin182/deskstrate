@@ -70,6 +70,11 @@ struct Progress {
 inline constexpr uint32_t kRebootDelayMs = 1500;  // time to show Restarting before it happens
 Progress progress();
 
+// GETs a small text file (NUL-terminated, at most len - 1 bytes) over certificate-checked
+// HTTPS, following GitHub's redirects to its asset host. ESP_ERR_NOT_FOUND on a 404.
+// Also used by web_tls to fetch its certificate.
+esp_err_t get_text(const char *url, char *buf, size_t len);
+
 // The last check as a JSON object: {"result":"...","release":"build-42","ago_s":N}
 // (ago_s -1 before the first check). Returns the length written.
 int status_json(char *buf, size_t len);

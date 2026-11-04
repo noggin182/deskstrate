@@ -1,0 +1,119 @@
+# Renews the boards' HTTPS certificates (components/web_tls/include/web_tls.h).
+#
+# Each board makes its own key and never shares it. Its CSR (public) is committed as
+# tls/<board>.csr. This workflow gets a Let's Encrypt certificate for each CSR with a DNS-01
+# challenge and publishes it as tls/<board>.pem on the "tls" release, where the board
+# fetches it (on boot and every 12 hours). A certificate is renewed once it has less than
+# 30 days left, or when it no longer matches the committed CSR (the board's key changed).
+#
+# DNS: _acme-challenge.deskstrate.nogsnet.com is a CNAME (at Squarespace, which has no API)
+# to a deSEC name; lego follows it and writes the challenge record there.
+# Needs the repo secret DESEC_TOKEN (a deSEC API token). Optional repo variable ACME_EMAIL.
+name: tls
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"  # weekly
+  push:
+    branches: [main]
+    paths: [tls/*.csr, .github/workflows/tls.yml]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Renew every certificate now, however long it has left
+        type: boolean
+        default: false
+      staging:
+        description: Use Let's Encrypt staging and publish nothing (to test the DNS setup)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write  # create and update the tls release
+
+concurrency:
+  group: tls
+  cancel-in-progress: false
+
+env:
+  LEGO_VERSION: v4.25.2
+  RELEASE: tls
+
+jobs:
+  renew:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lego
+        run: |
+          curl -fsSL "https://github.com/go-acme/lego/releases/download/${LEGO_VERSION}/lego_${LEGO_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz -C /usr/local/bin lego
+          lego --version
+
+      - name: Make sure the release exists
+        if: ${{ !inputs.staging }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A prerelease never becomes "latest", so ota_pull's latest/download links and
+          # firmware.yml's "gh release view" never see it.
+          gh release view "$RELEASE" >/dev/null 2>&1 || \
+            gh release create "$RELEASE" --prerelease --latest=false --title "HTTPS certificates" \
+              --notes "Board certificates published by .github/workflows/tls.yml. Public: the keys stay on the boards."
+
+      - name: Renew
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESEC_TOKEN: ${{ secrets.DESEC_TOKEN }}
+          ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+          FORCE: ${{ inputs.force && 'true' || 'false' }}
+          STAGING: ${{ inputs.staging && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          if [ -z "$DESEC_TOKEN" ]; then echo "::error::repo secret DESEC_TOKEN is not set"; exit 1; fi
+          server=https://acme-v02.api.letsencrypt.org/directory
+          [ "$STAGING" = true ] && server=https://acme-staging-v02.api.letsencrypt.org/directory
+          csrs=(tls/*.csr)
+          [ ${#csrs[@]} -gt 0 ] || { echo "no tls/*.csr yet: nothing to do"; exit 0; }
+          mkdir -p out
+          failed=0
+          for csr in "${csrs[@]}"; do
+            board=$(basename "$csr" .csr)
+            openssl req -in "$csr" -noout -verify >/dev/null
+            want=$(openssl req -in "$csr" -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum)
+
+            reason=""
+            if [ "$FORCE" = true ] || [ "$STAGING" = true ]; then
+              reason="asked to"
+            elif ! gh release download "$RELEASE" -p "$board.pem" -O "out/$board.current.pem" 2>/dev/null; then
+              reason="none published yet"
+            elif [ "$(openssl x509 -in "out/$board.current.pem" -noout -pubkey | openssl pkey -pubin -outform DER | sha256sum)" != "$want" ]; then
+              reason="CSR has a new key"
+            elif ! openssl x509 -in "out/$board.current.pem" -noout -checkend $((30 * 86400)) >/dev/null; then
+              reason="expires within 30 days"
+            fi
+            if [ -z "$reason" ]; then
+              echo "$board: current certificate is fine ($(openssl x509 -in "out/$board.current.pem" -noout -enddate))"
+              continue
+            fi
+
+            echo "::group::$board: renewing ($reason)"
+            if lego --accept-tos ${ACME_EMAIL:+--email "$ACME_EMAIL"} --server "$server" \
+                 --dns desec --csr "$csr" --path "lego-$board" run; then
+              crt=$(ls lego-"$board"/certificates/*.crt | grep -v '\.issuer\.crt$' | head -n1)
+              cp "$crt" "out/$board.pem"  # leaf + intermediate
+              openssl x509 -in "out/$board.pem" -noout -subject -issuer -enddate
+              if [ "$STAGING" = true ]; then
+                echo "staging certificate issued; not published"
+              else
+                gh release upload "$RELEASE" "out/$board.pem" --clobber
+              fi
+            else
+              echo "::error::$board: lego failed"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
