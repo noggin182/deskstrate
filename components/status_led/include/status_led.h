@@ -1,4 +1,4 @@
-// Status LED shared by core and deck: one WS2812 whose colour says what the board is
+// Status LED shared by core, deck and kb: one WS2812 whose colour says what the board is
 // doing. The first of these that applies wins:
 //   green                restarting into a new image
 //   purple, flashing     writing an update to the spare slot (pulled or pushed)
@@ -41,5 +41,10 @@ void set_ready();
 void set_fault(uint32_t faults, bool on);
 void set_activity(uint32_t activity, bool on);
 void set_core_silent(bool silent);
+
+// Turns the LED off and leaves it off until reboot, e.g. before deep sleep: a WS2812
+// keeps showing its last colour for as long as it has power. True once it is dark (or
+// there is no LED); waits at most timeout_ms.
+bool turn_off(uint32_t timeout_ms = 200);
 
 }  // namespace status_led

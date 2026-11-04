@@ -4,9 +4,10 @@ magic bytes "DSUP". A board that hears it checks GitHub Releases for a new image
 most once a minute). The datagram carries nothing else; see
 components/ota_pull/include/ota_pull.h.
 
-    doorbell.py <host> <port>...     e.g. doorbell.py deskstrate.nogsnet.com 18210 18211
+    doorbell.py <host> <port>...     e.g. doorbell.py deskstrate.nogsnet.com 18210 18211 18212
 
-Ports: 18210 = core, 18211 = deck. On the LAN, use each board's own address instead.
+Ports: 18210 = core, 18211 = deck, 18212 = kb (keyboard). On the LAN, use each board's
+own address instead.
 """
 import socket
 import sys

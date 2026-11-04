@@ -2,6 +2,7 @@
     "folders": [
         { "name": "core", "path": "firmware/core" },
         { "name": "deck", "path": "firmware/deck" },
+        { "name": "kb", "path": "firmware/kb" },
         { "name": "deskstrate", "path": "." }
     ]
 }
