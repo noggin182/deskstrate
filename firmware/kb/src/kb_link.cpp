@@ -91,16 +91,13 @@ esp_err_t start() {
     // After a deep-sleep wake the RX pin is still routed to the RTC block (wake source).
     if (rtc_gpio_is_valid_gpio(kRx)) rtc_gpio_deinit(kRx);
 
-    const uart_config_t cfg = {
-        .baud_rate = CONFIG_DESKSTRATE_KB_BAUD,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .rx_flow_ctrl_thresh = 0,
-        .source_clk = UART_SCLK_DEFAULT,
-        .flags = {},
-    };
+    uart_config_t cfg = {};  // fields vary between IDF versions; zero the rest
+    cfg.baud_rate = CONFIG_DESKSTRATE_KB_BAUD;
+    cfg.data_bits = UART_DATA_8_BITS;
+    cfg.parity = UART_PARITY_DISABLE;
+    cfg.stop_bits = UART_STOP_BITS_1;
+    cfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
+    cfg.source_clk = UART_SCLK_DEFAULT;
     esp_err_t err = uart_driver_install(kUart, 1024, 0, 0, nullptr, 0);
     if (err == ESP_OK) err = uart_param_config(kUart, &cfg);
     if (err == ESP_OK) err = uart_set_pin(kUart, kTx, kRx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
