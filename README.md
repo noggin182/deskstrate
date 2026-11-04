@@ -14,6 +14,7 @@ USB hubs switch over SWD.
 | `components/wifi_sta` | Shared Wi-Fi station join (menuconfig: Deskstrate Wi-Fi) |
 | `components/ota_pull` | Shared self-update from GitHub Releases: hourly poll or UDP doorbell, with rollback |
 | `tools` | `release_manifest.py` (CI) and `doorbell.py` (ring the boards' update doorbells) |
+| `firmware/bench` | Signs of life for the bench ESP32-S3 Mini: rainbow LED and a hello-world page. No OTA, no sleep. `esp-bench` |
 | `firmware/test` | Arduino DDC/CI probe for a 5 V ATmega32u4 |
 
 Each firmware is its own PlatformIO project: build with
