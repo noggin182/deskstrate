@@ -1,0 +1,54 @@
+# Builds the bench tools under firmware/ that aren't deployed by firmware.yml (radio_test and
+# the keyboard), so they're known to compile. Separate from firmware.yml so that changing
+# them never rebuilds or releases the core and deck.
+name: bench-firmware
+
+on:
+  push:
+    paths: [firmware/radio_test/**, firmware/keyboard/**, .github/workflows/bench-firmware.yml]
+  pull_request:
+    paths: [firmware/radio_test/**, firmware/keyboard/**, .github/workflows/bench-firmware.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  radio_test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/requirements-ci.txt
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/*/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+      - run: pip install -r tools/requirements-ci.txt
+      - run: pio run -d firmware/radio_test -e sender -e receiver -e sender_lr -e receiver_lr
+
+  keyboard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util
+          pip install qmk
+      - uses: actions/cache@v4
+        with:
+          path: firmware/keyboard/.qmk
+          key: keychron-qmk-${{ hashFiles('firmware/keyboard/build.sh') }}
+      - run: firmware/keyboard/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-${{ github.sha }}
+          path: firmware/keyboard/out/
+          if-no-files-found: error
