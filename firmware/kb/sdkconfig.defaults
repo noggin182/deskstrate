@@ -11,3 +11,6 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 # HTTPS for the web UI (components/web_tls).
 CONFIG_ESP_HTTPS_SERVER_ENABLE=y
+# web_tls makes the board's CSR (off by default in ESP-IDF).
+CONFIG_MBEDTLS_X509_CREATE_C=y
+CONFIG_MBEDTLS_X509_CSR_WRITE_C=y

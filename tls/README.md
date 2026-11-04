@@ -27,6 +27,11 @@ the `tls` release (a prerelease, so it never counts as "latest"). The board fetc
 
 ## Adding a board (or after its key changes)
 
+A local build in an existing checkout keeps its old `sdkconfig.s3_mini`, which doesn't pick
+up the new HTTPS settings from `sdkconfig.defaults`. If it fails to compile `web_tls.cpp`,
+delete `firmware/<board>/sdkconfig.s3_mini` and build again. The Wi-Fi credentials and OTA
+token are already stored in the board's NVS, so they don't need re-entering.
+
 Flash firmware with `web_tls`, then save its CSR here and push to `main`:
 
 ```
