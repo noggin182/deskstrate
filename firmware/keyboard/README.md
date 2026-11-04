@@ -29,3 +29,19 @@ space bar) while plugging in, then flash the `.bin` with QMK Toolbox or
 `dfu-util -a 0 -d 0483:df11 -s 0x08000000:leave -D <file>.bin`. The STM32 bootloader
 is in ROM, so a bad flash can always be redone, and Keychron's own firmware can be put
 back the same way.
+
+## KVM keys and VIA
+
+`keymap/deskstrate_keys.h` adds KVM keys (everything to PC/Mac, each monitor to
+PC/Mac/guest, each hub to PC/Mac) in the custom keycode slots after Keychron's own.
+Each builds a `kvm_proto` REQUEST; sending it needs the ESP32 link, which isn't built
+yet, so for now pressing one does nothing.
+
+They are bound like any other key, so rebinding doesn't need a reflash. To see them by
+name, use VIA rather than the Keychron Launcher (which only loads Keychron's own
+definitions): open usevia.app in Chrome or Edge with the keyboard on a cable, turn on
+Settings > Show Design tab, load `via/q3_max_iso_encoder_deskstrate.json` (UK) or the
+ANSI one under Design, and the keys appear under Custom. The definitions are generated
+by `via/make_via_json.py` from Keychron's `keyboard.json`; rerun it if the keys change.
+The definition has no lighting menu, so change lighting in the Launcher or with the
+Fn shortcuts.
