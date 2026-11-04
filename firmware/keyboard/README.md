@@ -42,6 +42,5 @@ name, use VIA rather than the Keychron Launcher (which only loads Keychron's own
 definitions): open usevia.app in Chrome or Edge with the keyboard on a cable, turn on
 Settings > Show Design tab, load `via/q3_max_iso_encoder_deskstrate.json` (UK) or the
 ANSI one under Design, and the keys appear under Custom. The definitions are generated
-by `via/make_via_json.py` from Keychron's `keyboard.json`; rerun it if the keys change.
-The definition has no lighting menu, so change lighting in the Launcher or with the
-Fn shortcuts.
+by `via/make_via_json.py` from Keychron's `keyboard.json`, with the lighting menu
+copied from the Launcher's own definition; rerun it if the keys change.

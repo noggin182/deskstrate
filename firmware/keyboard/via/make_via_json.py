@@ -3,8 +3,10 @@
 
 Keychron doesn't publish its Q3 Max (wireless) definitions where we can fetch them,
 so the layout is generated from QMK's keyboard.json and the custom keys are listed
-here: Keychron's own first (QK_KB_0..15, in keychron_common.h order), then ours in
-keymap/deskstrate_keys.h order. Run after build.sh has fetched Keychron's QMK:
+here: Keychron's own first (QK_KB_0..15, in keychron_common.h order, matching the
+Launcher's own Q3 Max definition), then ours in keymap/deskstrate_keys.h order. The
+lighting menu is copied from the Launcher's definition
+(launcher.keychron.com/static/device/875825201/json/v3.json). Run after build.sh has fetched Keychron's QMK:
 
     python3 firmware/keyboard/via/make_via_json.py
 
@@ -26,6 +28,163 @@ KEYCHRON_KEYS = [
     ("Cortana", "Cortana"), ("Siri", "Siri"), ("Bluetooth host 1", "BT1"),
     ("Bluetooth host 2", "BT2"), ("Bluetooth host 3", "BT3"), ("2.4 GHz", "2.4G"),
     ("Battery level", "Bat"),
+]
+
+# Keychron's Launcher definition draws ISO/ANSI right shift 2.75u; QMK's keyboard.json
+# says 2.25u. Keychron's matches the board.
+RIGHT_SHIFT = [4, 13]
+
+LIGHTING_MENU = [
+    {
+        "label": "Lighting",
+        "content": [
+            {
+                "label": "Backlight",
+                "content": [
+                    {
+                        "label": "Brightness",
+                        "type": "range",
+                        "options": [
+                            0,
+                            255
+                        ],
+                        "content": [
+                            "id_qmk_rgb_matrix_brightness",
+                            3,
+                            1
+                        ]
+                    },
+                    {
+                        "label": "Effect",
+                        "type": "dropdown",
+                        "content": [
+                            "id_qmk_rgb_matrix_effect",
+                            3,
+                            2
+                        ],
+                        "options": [
+                            [
+                                "None",
+                                0
+                            ],
+                            [
+                                "Solid Color",
+                                1
+                            ],
+                            [
+                                "Breathing",
+                                2
+                            ],
+                            [
+                                "Band Spiral Val",
+                                3
+                            ],
+                            [
+                                "Cycle All",
+                                4
+                            ],
+                            [
+                                "Cycle Left Right",
+                                5
+                            ],
+                            [
+                                "Cycle Up Down",
+                                6
+                            ],
+                            [
+                                "Rainbow Moving Chevron",
+                                7
+                            ],
+                            [
+                                "Cycle Out In",
+                                8
+                            ],
+                            [
+                                "Cycle Out In Dual",
+                                9
+                            ],
+                            [
+                                "Cycle Pinwheel",
+                                10
+                            ],
+                            [
+                                "Cycle Spiral",
+                                11
+                            ],
+                            [
+                                "Dual Beacon",
+                                12
+                            ],
+                            [
+                                "Rainbow Beacon",
+                                13
+                            ],
+                            [
+                                "Jellybean Raindrops",
+                                14
+                            ],
+                            [
+                                "Pixel Rain",
+                                15
+                            ],
+                            [
+                                "Typing Heatmap",
+                                16
+                            ],
+                            [
+                                "Digital Rain",
+                                17
+                            ],
+                            [
+                                "Reactive Simple",
+                                18
+                            ],
+                            [
+                                "Reactive Multiwide",
+                                19
+                            ],
+                            [
+                                "Reactive Multinexus",
+                                20
+                            ],
+                            [
+                                "Splash",
+                                21
+                            ],
+                            [
+                                "Solid Splash",
+                                22
+                            ]
+                        ]
+                    },
+                    {
+                        "showIf": "{id_qmk_rgb_matrix_effect} > 1",
+                        "label": "Effect Speed",
+                        "type": "range",
+                        "options": [
+                            0,
+                            255
+                        ],
+                        "content": [
+                            "id_qmk_rgb_matrix_effect_speed",
+                            3,
+                            3
+                        ]
+                    },
+                    {
+                        "showIf": "{id_qmk_rgb_matrix_effect} != 0 && ( {id_qmk_rgb_matrix_effect} < 4 || {id_qmk_rgb_matrix_effect} == 18 || ({id_qmk_rgb_matrix_effect} > 17 && {id_qmk_rgb_matrix_effect} != 21) ) ",
+                        "label": "Color",
+                        "type": "color",
+                        "content": [
+                            "id_qmk_rgb_matrix_color",
+                            3,
+                            4
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
 ]
 
 DESKSTRATE_KEYS = [
@@ -59,6 +218,8 @@ def kle_rows(layout):
             props["y"] = round(y - prev_y - 1, 4)
         for key in sorted(rows[y], key=lambda k: k["x"]):
             w, h = key.get("w", 1), key.get("h", 1)
+            if key["matrix"] == RIGHT_SHIFT:
+                w = 2.75
             if key["x"] - x > 1e-6:
                 props["x"] = round(key["x"] - x, 4)
             if w != 1:
@@ -92,7 +253,8 @@ def main():
             "vendorId": info["usb"]["vid"],
             "productId": board["usb"]["pid"],
             "matrix": {"rows": rows, "cols": cols},
-            "keycodes": ["qmk_rgb_matrix_keycodes"],
+            "keycodes": ["qmk_lighting"],
+            "menus": LIGHTING_MENU,
             "customKeycodes": [
                 {"name": n, "title": n, "shortName": s}
                 for n, s in KEYCHRON_KEYS + DESKSTRATE_KEYS
