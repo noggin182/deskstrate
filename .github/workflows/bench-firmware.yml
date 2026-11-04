@@ -1,0 +1,32 @@
+# Builds the bench tools under firmware/ that aren't deployed to a board (so far
+# radio_test), so they're known to compile. Separate from firmware.yml so that changing
+# them never rebuilds or releases the core and deck.
+name: bench-firmware
+
+on:
+  push:
+    paths: [firmware/radio_test/**, .github/workflows/bench-firmware.yml]
+  pull_request:
+    paths: [firmware/radio_test/**, .github/workflows/bench-firmware.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  radio_test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tools/requirements-ci.txt
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/*/platformio.ini') }}
+          restore-keys: pio-${{ runner.os }}-
+      - run: pip install -r tools/requirements-ci.txt
+      - run: pio run -d firmware/radio_test -e sender -e receiver -e sender_lr -e receiver_lr
