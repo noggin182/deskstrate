@@ -11,6 +11,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "kb_link.h"
+#include "kb_link_proto.h"
 #include "mdns.h"
 #include "ota_pull.h"
 #include "sleep.h"
@@ -33,21 +34,24 @@ input{width:70%;background:#1b1b1b;color:#ddd;border:1px solid #444;padding:4px}
 <h1>Hello from the keyboard</h1>
 <table id="t"></table>
 <h2>From the keyboard</h2><pre id="rx">...</pre>
-<form id="f"><input id="line" placeholder="line to send to the keyboard"> <button>Send</button></form>
+<form id="f"><input id="line" maxlength="32" placeholder="text for the keyboard (it echoes it back)"> <button>Send</button></form>
 <script>
 const row=(k,v)=>`<tr><td>${k}</td><td>${v}</td></tr>`;
+const OS=['unsure','Linux','Windows','macOS','iOS'],TR={1:'USB',2:'Bluetooth',4:'2.4 GHz'};
 async function poll(){
   try{
     const s=await (await fetch('/api/status')).json();
-    const k=s.kb;
+    const k=s.kb,st=k.status;
     t.innerHTML=row('version',s.version)+row('uptime',s.uptime_s+' s')+row('Wi-Fi',s.rssi+' dBm')+
-      row('keyboard',k.usb?'on USB':'not on USB'+(s.sleep_in_s>=0?`, sleeping in ${s.sleep_in_s} s`:''))+
-      row('link',`${k.rx_lines} lines in (${k.rx_bytes} bytes), ${k.tx_lines} out`)+
+      row('keyboard',(k.usb?'on USB':'not on USB'+(s.sleep_in_s>=0?`, sleeping in ${s.sleep_in_s} s`:''))+(k.hello?' &middot; '+k.hello:''))+
+      (st?row('keyboard status',`${TR[st.transport]||st.transport}, host ${OS[st.host_os]||st.host_os}, layer ${st.base_layer}, battery ${st.battery_pct}%, up ${st.uptime_s} s (${k.status_ago_s} s ago)`)+
+        row('keyboard sees',`${st.rx_good} good / ${st.rx_bad} bad frames from here, ${st.resends} resends`):'')+
+      row('link',`${k.rx_good} good / ${k.rx_bad} bad frames in, ${k.kvm_requests} KVM requests, ${k.acks} acks`)+
       row('update',s.ota.result+(s.ota.release?' ('+s.ota.release+')':''));
     rx.textContent=k.recent.map(l=>`${l.ago_s}s ago  ${l.text}`).join('\n')||'(nothing yet)';
   }catch(e){}
 }
-f.onsubmit=async e=>{e.preventDefault();await fetch('/api/kb',{method:'POST',body:line.value});line.value='';poll()};
+f.onsubmit=async e=>{e.preventDefault();await fetch('/api/kb',{method:'POST',body:line.value});line.value='';setTimeout(poll,300)};
 poll();setInterval(poll,2000);
 </script></body></html>)HTML";
 
@@ -74,9 +78,9 @@ esp_err_t status_get(httpd_req_t *req) {
 }
 
 esp_err_t kb_post(httpd_req_t *req) {
-    char line[96];
+    char line[KB_LINK_MAX_PAYLOAD + 1];
     if (req->content_len >= sizeof line) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "line too long (max 95)");
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "too long (max 32)");
     }
     int got = 0;
     while (got < (int)req->content_len) {
@@ -88,7 +92,7 @@ esp_err_t kb_post(httpd_req_t *req) {
     for (char *c = line; *c; c++) {
         if (*c < 0x20 || *c > 0x7E) *c = ' ';  // one line, printable only
     }
-    if (!kb_link::send_line(line)) return httpd_resp_send_500(req);
+    if (!kb_link::send_text(line)) return httpd_resp_send_500(req);
     return httpd_resp_sendstr(req, "sent\n");
 }
 

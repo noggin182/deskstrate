@@ -1,15 +1,13 @@
 // Deskstrate additions to Keychron's stock Q3 Max keymap (build.sh copies the stock
 // keymap.c next to this file).
 //
-// KVM keys (deskstrate_keys.h): each builds the kvm_proto request (KR + the wanted
-// [left, right, HID hub, media hub], 0xFF = leave alone). Sending it needs the ESP32
-// link, which isn't built yet, so for now they only exist to be bound in VIA.
-//
-// Pin test: PB12 starts high and PA3 low, and each Esc press swaps them, so the two
-// spare MCU pins the keyboard's ESP32 will use can be checked with a meter. Esc still
-// types as normal. See README.md for where the pins are.
+// KVM keys (deskstrate_keys.h): each sends a kvm_proto request ([left, right, HID hub,
+// media hub], 0xFF = leave alone) to the ESP32 inside the keyboard over the PB12/PA3
+// link (kb_link.h), which passes it to the core. Only in cable mode with USB power: on
+// Bluetooth or 2.4 GHz the ESP32 is asleep and the keys do nothing.
 #include QMK_KEYBOARD_H
 #include "deskstrate_keys.h"
+#include "kb_link.h"
 #include "transport.h"
 
 // Keychron's base layers (keymap.c's enum layers): the back switch picks one.
@@ -36,32 +34,10 @@ static const uint8_t kvm_requests[DESKSTRATE_KEYS_END - KVM_ALL_PC][4] = {
     [KVM_MEDIA_MAC - KVM_ALL_PC] = {0xFF, 0xFF, 0xFF, 0x01},
 };
 
-static void send_kvm_request(const uint8_t state[4]) {
-    uint8_t frame[6] = {'K', 'R', state[0], state[1], state[2], state[3]};
-    (void)frame;  // TODO: send to the ESP32 once the PB12 link exists.
-}
-
-static bool pins_flipped = false;
-
-static void write_test_pins(void) {
-    gpio_write_pin(B12, !pins_flipped);
-    gpio_write_pin(A3, pins_flipped);
-}
-
-void keyboard_post_init_user(void) {
-    gpio_set_pin_output_push_pull(B12);
-    gpio_set_pin_output_push_pull(A3);
-    write_test_pins();
-}
-
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (keycode >= KVM_ALL_PC && keycode < DESKSTRATE_KEYS_END) {
-        if (record->event.pressed) send_kvm_request(kvm_requests[keycode - KVM_ALL_PC]);
+        if (record->event.pressed) kb_link_send_kvm_request(kvm_requests[keycode - KVM_ALL_PC]);
         return false;
-    }
-    if (keycode == KC_ESC && record->event.pressed) {
-        pins_flipped = !pins_flipped;
-        write_test_pins();
     }
     return true;
 }
@@ -105,6 +81,8 @@ bool process_detected_host_os_user(os_variant_t os) {
 }
 
 void matrix_scan_user(void) {
+    kb_link_task();
+
     static transport_t last = TRANSPORT_NONE;
     transport_t        now  = get_transport();
     if (now == last) return;

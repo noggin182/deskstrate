@@ -31,6 +31,7 @@ for v in "${variants[@]}"; do
     mkdir -p "$km"
     cp "$qmk_dir/keyboards/keychron/q3_max/$v/keymaps/keychron/keymap.c" "$km/"
     cp "$here"/keymap/* "$km/"
+    cp "$here/../../components/kb_link_proto/include/kb_link_proto.h" "$km/"
     target=keychron/q3_max/$v:deskstrate
     make -C "$qmk_dir" "$target"
     cp "$qmk_dir/keychron_q3_max_${v}_deskstrate.bin" "$here/out/"
