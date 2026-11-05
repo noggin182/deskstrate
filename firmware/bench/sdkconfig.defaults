@@ -1,0 +1,6 @@
+# Console on the native USB Serial/JTAG port.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# 4MB flash, default single-app table: one 1MB factory app. nvs stays at 0x9000
+# (0x6000), so Wi-Fi credentials stored by an earlier image (core, deck, kb) survive.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
