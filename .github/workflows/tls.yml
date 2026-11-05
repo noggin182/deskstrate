@@ -7,7 +7,8 @@
 # 30 days left, or when it no longer matches the committed CSR (the board's key changed).
 #
 # DNS: _acme-challenge.deskstrate.nogsnet.com is a CNAME (at Squarespace, which has no API)
-# to a deSEC name; lego follows it and writes the challenge record there.
+# to acme.nogsnet.com, which is delegated (NS) to deSEC; lego follows the CNAME and writes
+# the challenge record there.
 # Needs the repo secret DESEC_TOKEN (a deSEC API token). Optional repo variable ACME_EMAIL.
 name: tls
 

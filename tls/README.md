@@ -12,12 +12,15 @@ the `tls` release (a prerelease, so it never counts as "latest"). The board fetc
 
 ## One-time setup
 
-1. **deSEC** (free DNS with an API, because Squarespace has none): sign up at desec.io,
-   create a `dedyn.io` name, e.g. `nogsnet-acme.dedyn.io`, and an API token. Add the token
-   as the repo secret `DESEC_TOKEN`. Optionally, set the repo variable `ACME_EMAIL`.
+1. **deSEC** (free DNS with an API, because Squarespace has none): sign up at desec.io
+   and choose "Configure your own domain" with `acme.nogsnet.com`, a subdomain used only
+   for this. Create an API token, and add it as the repo secret `DESEC_TOKEN`. Optionally,
+   set the repo variable `ACME_EMAIL`.
 2. **Squarespace DNS for nogsnet.com:**
-   - CNAME `_acme-challenge.deskstrate` → `nogsnet-acme.dedyn.io` (lego follows it and
-     writes the challenge TXT record at deSEC).
+   - NS `acme` → `ns1.desec.io` and NS `acme` → `ns2.desec.org`: this hands only
+     `acme.nogsnet.com` over to deSEC.
+   - CNAME `_acme-challenge.deskstrate` → `acme.nogsnet.com` (lego follows it and writes
+     the challenge TXT record at deSEC).
    - An A record for each board's LAN address, e.g. `core.deskstrate` → `192.168.4.44`
      and `kb.deskstrate` → the kb's address. Give both boards DHCP reservations so the
      addresses don't move. Don't touch the existing `deskstrate` A record: the doorbells
