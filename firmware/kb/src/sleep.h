@@ -8,8 +8,19 @@
 #pragma once
 
 #include "esp_err.h"
+#include "sdkconfig.h"
+#include "status_led.h"
 
 namespace kb_sleep {
+
+// The status LED's kind (menuconfig, Deskstrate keyboard): main starts it, and sleep
+// holds its pin at the level that keeps it dark.
+inline constexpr status_led::Kind kLedKind =
+#if CONFIG_DESKSTRATE_KB_LED_WS2812
+    status_led::Kind::kWs2812;
+#else
+    status_led::Kind::kSingleActiveLow;
+#endif
 
 esp_err_t start();
 
