@@ -24,6 +24,12 @@ if [ "$(git -C "$qmk_dir" rev-parse HEAD 2>/dev/null)" != "$KEYCHRON_COMMIT" ]; 
         lib/chibios lib/chibios-contrib lib/printf
 fi
 
+# Keychron's Q3 Max config scans only 9 phases (CB1-CB9) of its SNLED27351 LED drivers,
+# but its LED tables put the Tab row on driver 0's CB10-CB12, so that row stays dark.
+# Scan all 12. (A keymap config.h can't override it: it is read before the keyboard's.)
+sed -i 's/SNLED27351_SCAN_PHASE_9_CHANNEL/SNLED27351_SCAN_PHASE_12_CHANNEL/' \
+    "$qmk_dir/keyboards/keychron/q3_max/config.h"
+
 mkdir -p "$here/out"
 for v in "${variants[@]}"; do
     km=$qmk_dir/keyboards/keychron/q3_max/$v/keymaps/deskstrate
