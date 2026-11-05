@@ -76,6 +76,9 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           if [ -z "$DESEC_TOKEN" ]; then echo "::error::repo secret DESEC_TOKEN is not set"; exit 1; fi
+          # A token pasted with a trailing newline or space makes Go reject the Authorization header.
+          DESEC_TOKEN=$(printf '%s' "$DESEC_TOKEN" | tr -d '[:space:]')
+          export DESEC_TOKEN
           server=https://acme-v02.api.letsencrypt.org/directory
           [ "$STAGING" = true ] && server=https://acme-staging-v02.api.letsencrypt.org/directory
           csrs=(tls/*.csr)
