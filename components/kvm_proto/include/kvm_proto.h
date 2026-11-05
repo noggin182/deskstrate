@@ -1,5 +1,6 @@
 /*
  * kvm_proto.h - wire format shared by the core, the deck and the PC/Mac daemons.
+ * C++ only (the Mac daemon imports it through Swift's C++ interop).
  *
  * The core is the source of truth; everyone else asks. UDP, KVM_PORT on every node,
  * and every datagram is 6 bytes: a 2-byte magic then the 4 state bytes.
@@ -68,12 +69,7 @@ typedef struct {
     uint8_t b[KVM_SLOTS];       /* enum kvm_slot */
 } kvm_msg_t;
 
-#ifdef __cplusplus
-#define KVM_ASSERT static_assert
-#else
-#define KVM_ASSERT _Static_assert
-#endif
-KVM_ASSERT(sizeof(kvm_msg_t) == KVM_MSG_LEN, "kvm_msg_t layout");
+static_assert(sizeof(kvm_msg_t) == KVM_MSG_LEN, "kvm_msg_t layout");
 
 static inline kvm_msg_t kvm_msg(uint8_t type, const uint8_t b[KVM_SLOTS]) {
     kvm_msg_t m;

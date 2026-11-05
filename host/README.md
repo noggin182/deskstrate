@@ -14,11 +14,11 @@ A small program on each host that follows the core's `STATE` broadcasts
 A monitor in standby on my input keeps its place in the layout. The core reports
 standby but never asks for it, so display sleep is left to each host.
 
-The rules live in one place, `common/host_policy.h` (plain C, used by both
-daemons), with tests in `common/test_host_policy.c`:
+The rules live in one place, `common/host_policy.h` (C++, used by both
+daemons), with tests in `common/test_host_policy.cpp`:
 
 ```
-cc -I components/kvm_proto/include -I host/common host/common/test_host_policy.c && ./a.out
+c++ -std=c++17 -I components/kvm_proto/include -I host/common host/common/test_host_policy.cpp && ./a.out
 ```
 
 The daemons only listen. The one thing they send is an empty `REQUEST`

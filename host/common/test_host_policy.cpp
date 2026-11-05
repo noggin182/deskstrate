@@ -1,4 +1,4 @@
-/* Tests for host_policy.h. Run: cc -I components/kvm_proto/include -I host/common host/common/test_host_policy.c && ./a.out */
+/* Tests for host_policy.h. Run: c++ -std=c++17 -I components/kvm_proto/include -I host/common host/common/test_host_policy.cpp && ./a.out */
 #include <stdio.h>
 #include <stdlib.h>
 

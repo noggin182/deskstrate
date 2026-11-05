@@ -1,7 +1,7 @@
 /*
  * host_policy.h - what a host daemon does with each STATE from the core. Shared by the
- * Windows daemon (C++) and the Mac daemon (Swift, via a bridging header), so both hosts
- * follow the same rules. Pure C, no I/O: test with host/common/test_host_policy.c.
+ * Windows daemon and the Mac daemon (Swift, via C++ interop and a bridging header), so both
+ * hosts follow the same rules. No I/O: test with host/common/test_host_policy.cpp.
  *
  * Rules:
  *   - Topology: 2 monitors on my input = extend, 1 = mirror onto it, 0 = leave alone.
