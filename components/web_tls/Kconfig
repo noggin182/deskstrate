@@ -1,0 +1,12 @@
+menu "Deskstrate HTTPS"
+
+    config DESKSTRATE_TLS_DOMAIN
+        string "Domain the boards' certificate covers (as *.<domain>)"
+        default "deskstrate.nogsnet.com"
+        help
+            Each board's CSR asks for *.<domain>, so the board is reachable as
+            <anything>.<domain> once a DNS record points that name at it (e.g.
+            core.deskstrate.nogsnet.com). Changing it needs new CSRs in the repo
+            (tls/<name>.csr, from GET /api/tls/csr); the key stays the same.
+
+endmenu

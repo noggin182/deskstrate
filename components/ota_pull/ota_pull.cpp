@@ -81,50 +81,6 @@ esp_http_client_config_t http_config(const char *url) {
     return cfg;
 }
 
-// GETs a small text file into buf, following GitHub's redirects to its asset host.
-// ESP_ERR_NOT_FOUND on a 404 (no release published yet).
-esp_err_t get_text(const char *url, char *buf, size_t len) {
-    esp_http_client_config_t cfg = http_config(url);
-    cfg.disable_auto_redirect = true;  // handled below, as esp_https_ota does
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client) return ESP_ERR_NO_MEM;
-
-    esp_err_t err = ESP_ERR_INVALID_RESPONSE;
-    for (int hop = 0; hop < kMaxRedirects; hop++) {
-        err = esp_http_client_open(client, 0);
-        if (err != ESP_OK) break;
-        if (esp_http_client_fetch_headers(client) < 0) {
-            err = ESP_FAIL;
-            break;
-        }
-        const int status = esp_http_client_get_status_code(client);
-        if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-            err = esp_http_client_set_redirection(client);
-            if (err != ESP_OK) break;
-            char drain[128];
-            while (esp_http_client_read(client, drain, sizeof drain) > 0) {
-            }
-            err = ESP_ERR_INVALID_RESPONSE;  // too many redirects if the loop runs out
-            continue;
-        }
-        if (status != 200) {
-            err = status == 404 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_RESPONSE;
-            break;
-        }
-        size_t total = 0;
-        int n;
-        while (total < len - 1 && (n = esp_http_client_read(client, buf + total, len - 1 - total)) > 0) {
-            total += n;
-        }
-        buf[total] = 0;
-        err = ESP_OK;
-        break;
-    }
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    return err;
-}
-
 // Copies the value of "key=value" from the manifest into out. False if absent.
 bool manifest_value(const char *manifest, const char *key, char *out, size_t len) {
     const size_t key_len = strlen(key);
@@ -333,6 +289,48 @@ void confirm_task(void *arg) {
 }
 
 }  // namespace
+
+esp_err_t get_text(const char *url, char *buf, size_t len) {
+    esp_http_client_config_t cfg = http_config(url);
+    cfg.disable_auto_redirect = true;  // handled below, as esp_https_ota does
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client) return ESP_ERR_NO_MEM;
+
+    esp_err_t err = ESP_ERR_INVALID_RESPONSE;
+    for (int hop = 0; hop < kMaxRedirects; hop++) {
+        err = esp_http_client_open(client, 0);
+        if (err != ESP_OK) break;
+        if (esp_http_client_fetch_headers(client) < 0) {
+            err = ESP_FAIL;
+            break;
+        }
+        const int status = esp_http_client_get_status_code(client);
+        if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+            err = esp_http_client_set_redirection(client);
+            if (err != ESP_OK) break;
+            char drain[128];
+            while (esp_http_client_read(client, drain, sizeof drain) > 0) {
+            }
+            err = ESP_ERR_INVALID_RESPONSE;  // too many redirects if the loop runs out
+            continue;
+        }
+        if (status != 200) {
+            err = status == 404 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_RESPONSE;
+            break;
+        }
+        size_t total = 0;
+        int n;
+        while (total < len - 1 && (n = esp_http_client_read(client, buf + total, len - 1 - total)) > 0) {
+            total += n;
+        }
+        buf[total] = 0;
+        err = ESP_OK;
+        break;
+    }
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    return err;
+}
 
 Progress progress() {
     taskENTER_CRITICAL(&progress_lock);
