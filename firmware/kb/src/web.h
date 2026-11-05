@@ -2,6 +2,8 @@
 //   GET  /            hello page: version, Wi-Fi, keyboard link, last lines from it
 //   GET  /api/status  the same as JSON
 //   POST /api/kb      body is one line of text, sent to the keyboard
+//   GET  /api/tls, /api/tls/csr  HTTPS status / this board's CSR (web_tls.h)
+// The same handlers are served over HTTPS on 443 once a certificate is published.
 // Unauthenticated: trusted LAN only, like the core's bench UI.
 #pragma once
 

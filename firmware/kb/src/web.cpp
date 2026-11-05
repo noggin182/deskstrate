@@ -14,6 +14,7 @@
 #include "mdns.h"
 #include "ota_pull.h"
 #include "sleep.h"
+#include "web_tls.h"
 
 namespace {
 
@@ -99,13 +100,9 @@ void start_mdns(const char *hostname) {
     if (err != ESP_OK) ESP_LOGW(TAG, "mDNS: %s", esp_err_to_name(err));
 }
 
-}  // namespace
-
-esp_err_t web_start(const char *hostname) {
-    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
-    cfg.lru_purge_enable = true;
-    httpd_handle_t server = nullptr;
-    ESP_RETURN_ON_ERROR(httpd_start(&server, &cfg), TAG, "httpd start");
+// Registers the page and API on a server: the plain one, and the HTTPS one each time
+// web_tls (re)starts it.
+esp_err_t register_handlers(httpd_handle_t server) {
     const httpd_uri_t uris[] = {
         {.uri = "/", .method = HTTP_GET, .handler = page_get, .user_ctx = nullptr},
         {.uri = "/api/status", .method = HTTP_GET, .handler = status_get, .user_ctx = nullptr},
@@ -114,7 +111,23 @@ esp_err_t web_start(const char *hostname) {
     for (const httpd_uri_t &u : uris) {
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &u), TAG, "register %s", u.uri);
     }
+    return ESP_OK;
+}
+
+}  // namespace
+
+esp_err_t web_start(const char *hostname) {
+    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.lru_purge_enable = true;
+    cfg.max_uri_handlers = 16;  // ours (3) + web_tls's
+    httpd_handle_t server = nullptr;
+    ESP_RETURN_ON_ERROR(httpd_start(&server, &cfg), TAG, "httpd start");
+    ESP_RETURN_ON_ERROR(register_handlers(server), TAG, "handlers");
     start_mdns(hostname);
     ESP_LOGI(TAG, "listening on http://%s.local/", hostname);
+
+    // HTTPS once a certificate is published. Without one (or if it fails) port 80 still works.
+    const esp_err_t tls = web_tls::start("kb", server, register_handlers);
+    if (tls != ESP_OK) ESP_LOGE(TAG, "HTTPS not available: %s", esp_err_to_name(tls));
     return ESP_OK;
 }

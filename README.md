@@ -13,6 +13,8 @@ USB hubs switch over SWD.
 | `host` | Host daemons for the PC (Windows tray app) and the Mac (LaunchAgent): display layout, wake on switch |
 | `components/wifi_sta` | Shared Wi-Fi station join (menuconfig: Deskstrate Wi-Fi) |
 | `components/ota_pull` | Shared self-update from GitHub Releases: hourly poll or UDP doorbell, with rollback |
+| `components/web_tls` | Shared HTTPS for the core's and kb's web UI: key made on the board, Let's Encrypt certificate pulled from the `tls` release (see `tls/README.md`) |
+| `tls` | The boards' CSRs; `.github/workflows/tls.yml` turns them into certificates |
 | `tools` | `release_manifest.py` (CI) and `doorbell.py` (ring the boards' update doorbells) |
 | `firmware/bench` | Signs of life for the bench ESP32-S3 Mini: rainbow LED and a hello-world page. No OTA, no sleep. `esp-bench` |
 | `firmware/test` | Arduino DDC/CI probe for a 5 V ATmega32u4 |
