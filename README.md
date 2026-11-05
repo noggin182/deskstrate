@@ -17,9 +17,9 @@ USB hubs switch over SWD.
 | `firmware/bench` | Signs of life for the bench ESP32-S3 Mini: rainbow LED and a hello-world page. No OTA, no sleep. `esp-bench` |
 | `firmware/test` | Arduino DDC/CI probe for a 5 V ATmega32u4 |
 
-Each firmware is its own PlatformIO project: build with
-`pio run -d firmware/core` or `pio run -d firmware/deck`, or open
-`deskstrate.code-workspace` in VS Code to get both.
+Each firmware is an ESP-IDF project (sources in `src/`). CI builds them with plain
+ESP-IDF; `platformio.ini` is kept for flashing on the bench: `pio run -d firmware/core`
+or `pio run -d firmware/deck`, or open `deskstrate.code-workspace` in VS Code to get both.
 
 ## Deployment
 
