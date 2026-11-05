@@ -35,9 +35,6 @@ menu "Deskstrate keyboard"
         range 0 48
         default 2
 
-    config DESKSTRATE_KB_BAUD
-        int "UART baud rate"
-        default 115200
 
     config DESKSTRATE_KB_SLEEP
         bool "Deep sleep while the keyboard has no USB power"

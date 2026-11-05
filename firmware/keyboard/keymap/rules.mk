@@ -1,2 +1,3 @@
 VIA_ENABLE = yes
-SRC += deskstrate.c
+SRC += deskstrate.c kb_link.c
+OS_DETECTION_ENABLE = yes

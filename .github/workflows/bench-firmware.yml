@@ -5,9 +5,9 @@ name: bench-firmware
 
 on:
   push:
-    paths: [firmware/bench/**, firmware/radio_test/**, firmware/keyboard/**, components/wifi_sta/**, .github/workflows/bench-firmware.yml]
+    paths: [firmware/bench/**, firmware/radio_test/**, firmware/keyboard/**, components/kb_link_proto/**, components/wifi_sta/**, .github/workflows/bench-firmware.yml]
   pull_request:
-    paths: [firmware/bench/**, firmware/radio_test/**, firmware/keyboard/**, components/wifi_sta/**, .github/workflows/bench-firmware.yml]
+    paths: [firmware/bench/**, firmware/radio_test/**, firmware/keyboard/**, components/kb_link_proto/**, components/wifi_sta/**, .github/workflows/bench-firmware.yml]
   workflow_dispatch:
 
 permissions:

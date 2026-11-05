@@ -5,12 +5,15 @@ Q3 Max, wired to the keyboard's STM32 (which runs `firmware/keyboard`). Hostname
 
 - **Wi-Fi** as `deskstrate-kb`, same network and credentials mechanism as the core and
   deck (`components/wifi_sta`).
-- **Web page** at <http://deskstrate-kb.local/>: version, Wi-Fi signal, the keyboard
-  link and the last lines the keyboard sent. `GET /api/status` is the same as JSON;
-  `POST /api/kb` sends its body to the keyboard as one line.
-- **UART to the keyboard**, newline-terminated text both ways. Lines from the
-  keyboard are logged and shown; nothing is decoded yet. It sends
-  `hello deskstrate-kb <version>` whenever the keyboard comes onto USB.
+- **Web page** at <http://deskstrate-kb.local/>: version, Wi-Fi signal, the keyboard's
+  status (mode, host OS, layer, battery) and link counters, and the last text it sent.
+  `GET /api/status` is the same as JSON; `POST /api/kb` sends its body (up to 32
+  characters) to the keyboard, which echoes it back, so the page tests the link both ways.
+- **Link to the keyboard**: framed UART at 57600 with a CRC and acks
+  (`components/kb_link_proto`, shared with `firmware/keyboard`). A KVM key on the
+  keyboard arrives as a request, is acked, and goes to the core as a `kvm_proto`
+  REQUEST, resent until the core's STATE shows it (`kvm_client`). Each new STATE goes
+  back to the keyboard.
 - **Deep sleep** once the keyboard has been off USB for 30 s, with the status LED off.
   It wakes when the keyboard is back on USB (a wake is a fresh boot).
 - **Updates** from GitHub releases like the core and deck (`components/ota_pull`):
@@ -29,16 +32,16 @@ Q3 Max, wired to the keyboard's STM32 (which runs `firmware/keyboard`). Hostname
 | 5V | TP4056 pin 5 (BAT), or the battery lead | through the XIAO's own regulator |
 | GND | GND | must be shared with the keyboard |
 
-The keyboard holds PB12 high (UART idle) while it has USB power and low without it.
+The keyboard holds PB12 high (UART idle) in cable mode with USB power and low otherwise.
 That level is how this board knows the keyboard is on USB, so RX must be an RTC GPIO
 (0-21) and has a pull-down: a disconnected line reads as "off USB".
 
-Until the keyboard firmware has the UART side, note the pin-test build drives **both**
-PB12 and PA3 as outputs. Don't connect GPIO2 to PA3 without the 1 kΩ resistor, or the
-two outputs fight. With the pin test, RX simply reads high (awake) or low (asleep after
-30 s) as Esc flips PB12.
+The keyboard holds PB12 high only in cable mode with USB power, so the ESP sleeps on
+Bluetooth and 2.4 GHz too. Keep the 1 kΩ resistors: the XIAO runs from the battery but
+the STM32 from the keyboard's 3.3 V rail, which is off with the switch at Off, and the
+resistor limits what the XIAO's TX can push into an unpowered PA3.
 
-Pins, baud (115200), and sleep are in menuconfig, Deskstrate keyboard. Turn sleep off
+Pins and sleep are in menuconfig, Deskstrate keyboard. Turn sleep off
 for bench work with nothing on RX. To wake it on the bench, jumper D0 to 3V3.
 
 ## First flash

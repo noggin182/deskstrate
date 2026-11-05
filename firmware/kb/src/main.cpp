@@ -1,13 +1,14 @@
 // deskstrate-kb: the ESP32-S3 inside the Keychron Q3 Max.
 // Powered from the keyboard's battery. While the keyboard is on USB (at the desk) it
 // stays on Wi-Fi as deskstrate-kb, serves a hello page and talks to the keyboard's
-// STM32 over a UART (kb_link.h). Off USB it deep-sleeps with the status LED off
+// STM32 over a framed UART (kb_link.h). Off USB it deep-sleeps with the status LED off
 // (sleep.h). Updates itself from GitHub releases like the core and deck (ota_pull).
-// Next: decode the keyboard's lines (stats, KVM keys) and send kvm_proto requests.
+// KVM keys on the keyboard become kvm_proto requests to the core (kvm_client.h).
 #include "driver/gpio.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
 #include "kb_link.h"
+#include "kvm_client.h"
 #include "ota_pull.h"
 #include "sdkconfig.h"
 #include "sleep.h"
@@ -39,6 +40,10 @@ extern "C" void app_main(void) {
 
     esp_err_t err = wifi_sta_start(kHostname);
     if (err != ESP_OK) fault("Wi-Fi", err);
+    if (err == ESP_OK) {
+        err = kvm_client::start();
+        if (err != ESP_OK) fault("KVM client", err);
+    }
     if (err == ESP_OK) {
         err = web_start(kHostname);
         if (err != ESP_OK) fault("web page", err);
