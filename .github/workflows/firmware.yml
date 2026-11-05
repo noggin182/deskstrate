@@ -1,18 +1,18 @@
-# Builds the core and deck firmware. Pushes to main are published as a GitHub release and
-# the boards' doorbells are rung, so they pull the new images themselves
+# Builds the core, deck and kb (keyboard) firmware. Pushes to main are published as a
+# GitHub release and the boards' doorbells are rung, so they pull the new images themselves
 # (components/ota_pull/include/ota_pull.h). No secrets: Wi-Fi credentials and the core's
 # OTA push token live in each board's NVS.
 #
 # Kept fast for iterating on one board:
 # - Only boards whose sources changed are built (firmware/<board>/, the shared
-#   components/, or this workflow). The other board's image is reused from the previous
-#   release, so its version doesn't change and it doesn't reboot. Pushes that touch
+#   components/, or this workflow). The other boards' images are reused from the previous
+#   release, so their versions don't change and they don't reboot. Pushes that touch
 #   none of those build nothing.
 # - Each board's build directory is cached, so a build only recompiles what changed.
-# - Plain ESP-IDF (both firmwares are ESP-IDF CMake projects), installed with only the
-#   tools a build needs and cached. platformio.ini is kept for flashing on the bench.
+# - Plain ESP-IDF (every firmware here is an ESP-IDF CMake project), installed with only
+#   the tools a build needs and cached. platformio.ini is kept for flashing on the bench.
 # - The release is published and the doorbells rung before any cache is saved.
-# Run it by hand with "rebuild" to build both boards from scratch.
+# Run it by hand with "rebuild" to build every board from scratch.
 name: firmware
 
 on:
@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       rebuild:
-        description: Build both boards, even if their sources didn't change
+        description: Build every board, even if their sources didn't change
         type: boolean
         default: false
 
@@ -67,7 +67,8 @@ jobs:
             base=$(git merge-base HEAD origin/main 2>/dev/null || true)
           fi
           echo "prev=$prev" >> "$GITHUB_OUTPUT"
-          for board in core deck; do
+          any=false
+          for board in core deck kb; do
             if [ "${{ inputs.rebuild }}" = true ] || [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
               build=true
             elif git diff --quiet "$base" HEAD -- "firmware/$board" components .github/workflows/firmware.yml; then
@@ -76,12 +77,14 @@ jobs:
               build=true
             fi
             echo "$board=$build" >> "$GITHUB_OUTPUT"
+            [ "$build" = true ] && any=true
             echo "$board: build=$build (base ${base:-none})"
           done
+          echo "any=$any" >> "$GITHUB_OUTPUT"
 
       - name: Cache ESP-IDF
         id: idf-cache
-        if: steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true'
+        if: steps.plan.outputs.any == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -93,7 +96,7 @@ jobs:
         # Only what a build needs: the ESP-IDF tree, the Xtensa compiler, CMake, Ninja and
         # the Python env. install.sh would also fetch gdb, OpenOCD, the RISC-V and ULP
         # toolchains and more, none of which CI uses.
-        if: (steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true') && steps.idf-cache.outputs.cache-hit != 'true'
+        if: steps.plan.outputs.any == 'true' && steps.idf-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           git clone --quiet --depth 1 --branch "$IDF_VERSION" --recurse-submodules --shallow-submodules --jobs 8 \
@@ -124,6 +127,17 @@ jobs:
           key: build-deck-${{ env.IDF_VERSION }}-${{ hashFiles('firmware/deck/sdkconfig.defaults') }}-${{ github.sha }}
           restore-keys: build-deck-${{ env.IDF_VERSION }}-${{ hashFiles('firmware/deck/sdkconfig.defaults') }}-
 
+      - name: Cache kb build
+        if: steps.plan.outputs.kb == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            firmware/kb/build
+            firmware/kb/managed_components
+            firmware/kb/sdkconfig
+          key: build-kb-${{ env.IDF_VERSION }}-${{ hashFiles('firmware/kb/sdkconfig.defaults') }}-${{ github.sha }}
+          restore-keys: build-kb-${{ env.IDF_VERSION }}-${{ hashFiles('firmware/kb/sdkconfig.defaults') }}-
+
       - name: Name the build after its release
         # The app version is git describe at build time, but the release tag only exists
         # once the build is done, so a main build used to describe itself relative to the
@@ -152,13 +166,15 @@ jobs:
             # add it as a component the way PlatformIO does.
             python "$IDF_PATH/tools/idf.py" -C "$dir" -DEXTRA_COMPONENT_DIRS="$PWD/$dir/src" build
             cp "$dir/build/deskstrate_$1.bin" "images/$1.bin"
+            touch "images/.rebuilt-$1"
           }
           mkdir -p images
           if [ "${{ steps.plan.outputs.core }}" = true ]; then build core; fi
           if [ "${{ steps.plan.outputs.deck }}" = true ]; then build deck; fi
+          if [ "${{ steps.plan.outputs.kb }}" = true ]; then build kb; fi
 
       - name: Upload images
-        if: steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true'
+        if: steps.plan.outputs.any == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ github.sha }}
@@ -167,25 +183,24 @@ jobs:
 
       - name: Publish release
         id: release
-        if: env.DEPLOY == 'true' && (steps.plan.outputs.core == 'true' || steps.plan.outputs.deck == 'true')
+        if: env.DEPLOY == 'true' && steps.plan.outputs.any == 'true'
         run: |
           set -euo pipefail
           # A board that wasn't rebuilt keeps the image (and so the version) it already runs.
           prev="${{ steps.plan.outputs.prev }}"
-          for board in core deck; do
+          for board in core deck kb; do
             if [ ! -f "images/$board.bin" ]; then
               gh release download "$prev" -p "deskstrate_$board.bin" -O "images/$board.bin"
               echo "$board: reusing image from $prev"
             fi
           done
-          python3 tools/release_manifest.py "$TAG" release images/core.bin images/deck.bin
+          python3 tools/release_manifest.py "$TAG" release images/core.bin images/deck.bin images/kb.bin
           # A rebuilt board whose version didn't change would never install it (the boards
           # compare versions), so don't publish one. (A re-run of the same commit is fine.)
           if [ -n "$prev" ] && [ "$(git rev-list -n1 "$prev" 2>/dev/null)" != "$GITHUB_SHA" ] &&
              gh release download "$prev" -p manifest.txt -O prev-manifest.txt; then
-            for board in core deck; do
-              if [ "$board" = core ]; then rebuilt=${{ steps.plan.outputs.core }}; else rebuilt=${{ steps.plan.outputs.deck }}; fi
-              [ "$rebuilt" = true ] || continue
+            for board in core deck kb; do
+              [ -f "images/.rebuilt-$board" ] || continue
               line=$(grep "^deskstrate_$board=" release/manifest.txt)
               if grep -qxF "$line" prev-manifest.txt; then
                 echo "::error::$board was rebuilt but its version is unchanged from $prev ($line)"
@@ -194,7 +209,7 @@ jobs:
             done
           fi
           gh release create "$TAG" release/* --target "$GITHUB_SHA" --title "$TAG" --latest \
-            --notes "Firmware for ${GITHUB_SHA::7}. Rebuilt: core=${{ steps.plan.outputs.core }}, deck=${{ steps.plan.outputs.deck }}."
+            --notes "Firmware for ${GITHUB_SHA::7}. Rebuilt: core=${{ steps.plan.outputs.core }}, deck=${{ steps.plan.outputs.deck }}, kb=${{ steps.plan.outputs.kb }}."
 
       - name: Ring doorbells
         # The boards also poll hourly, so a missed ring only delays the update.
@@ -209,4 +224,4 @@ jobs:
             if curl -fsSL "$url" | grep -qx "tag=$TAG"; then echo "latest is $TAG after ${i} tries"; break; fi
             sleep 2
           done
-          python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" 18210 18211
+          python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" 18210 18211 18212

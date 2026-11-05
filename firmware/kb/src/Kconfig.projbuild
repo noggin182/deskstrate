@@ -1,0 +1,55 @@
+menu "Deskstrate keyboard"
+
+    choice DESKSTRATE_KB_LED_KIND
+        prompt "Status LED kind"
+        default DESKSTRATE_KB_LED_SINGLE_LOW
+        help
+            The keyboard's board is a Seeed XIAO ESP32S3 Plus: one yellow user LED,
+            lit while GPIO21 is low. S3 Mini boards have a WS2812 (RGB) instead.
+
+        config DESKSTRATE_KB_LED_SINGLE_LOW
+            bool "Single LED, lit when low (XIAO ESP32S3)"
+        config DESKSTRATE_KB_LED_WS2812
+            bool "WS2812 (S3 Mini: GPIO21 on an S3-Zero, GPIO48 on a Super Mini)"
+    endchoice
+
+    config DESKSTRATE_KB_LED_GPIO
+        int "Status LED GPIO, -1 for none"
+        range -1 48
+        default 21
+        help
+            GPIO21 on the XIAO ESP32S3 (and the WS2812 of an S3-Zero layout board);
+            GPIO48 for the WS2812 of an S3 Super Mini.
+
+    config DESKSTRATE_KB_RX_GPIO
+        int "UART RX GPIO (from the keyboard's PB12)"
+        range 0 21
+        default 1
+        help
+            Must be an RTC GPIO (0-21): it also wakes the board from deep sleep.
+            The keyboard holds this line high (UART idle) while it has USB power
+            and low without it.
+
+    config DESKSTRATE_KB_TX_GPIO
+        int "UART TX GPIO (to the keyboard's PA3, USART2 RX)"
+        range 0 48
+        default 2
+
+    config DESKSTRATE_KB_BAUD
+        int "UART baud rate"
+        default 115200
+
+    config DESKSTRATE_KB_SLEEP
+        bool "Deep sleep while the keyboard has no USB power"
+        default y
+        help
+            Sleeps once the RX line has been low for DESKSTRATE_KB_SLEEP_HOLDOFF_S
+            and wakes when it goes high again. Turn off for bench work without
+            the keyboard attached.
+
+    config DESKSTRATE_KB_SLEEP_HOLDOFF_S
+        int "Seconds the RX line must stay low before sleeping"
+        depends on DESKSTRATE_KB_SLEEP
+        default 30
+
+endmenu
