@@ -9,7 +9,9 @@
 # DNS: _acme-challenge.deskstrate.nogsnet.com is a CNAME (at Squarespace, which has no API)
 # to acme.nogsnet.com, which is delegated (NS) to deSEC; lego follows the CNAME and writes
 # the challenge record there.
-# Needs the repo secret DESEC_TOKEN (a deSEC API token). Optional repo variable ACME_EMAIL.
+# Needs the repo secret DESEC_TOKEN (a deSEC API token). The ACME account email is the repo
+# variable ACME_EMAIL, or certs@nogsnet.com: lego requires one, and Let's Encrypt no longer
+# sends mail to it.
 name: tls
 
 on:
@@ -67,7 +69,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DESEC_TOKEN: ${{ secrets.DESEC_TOKEN }}
-          ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+          ACME_EMAIL: ${{ vars.ACME_EMAIL || 'certs@nogsnet.com' }}
           FORCE: ${{ inputs.force && 'true' || 'false' }}
           STAGING: ${{ inputs.staging && 'true' || 'false' }}
         run: |
@@ -101,7 +103,7 @@ jobs:
             fi
 
             echo "::group::$board: renewing ($reason)"
-            if lego --accept-tos ${ACME_EMAIL:+--email "$ACME_EMAIL"} --server "$server" \
+            if lego --accept-tos --email "$ACME_EMAIL" --server "$server" \
                  --dns desec --csr "$csr" --path "lego-$board" run; then
               crt=$(ls lego-"$board"/certificates/*.crt | grep -v '\.issuer\.crt$' | head -n1)
               cp "$crt" "out/$board.pem"  # leaf + intermediate
