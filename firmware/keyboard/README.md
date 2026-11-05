@@ -28,7 +28,9 @@ Text the ESP sends comes straight back as "echo: ...", to test the link both way
 ## Build and flash
 
 `./build.sh` (both layouts) or `./build.sh iso_encoder`. CI (`bench-firmware.yml`)
-builds both and uploads the `.bin` files as an artifact.
+builds both and uploads the `.bin` files as an artifact. `build.sh` also patches one line of
+Keychron's config: it scans only 9 of the RGB drivers' 12 phases, which leaves the Tab row
+dark, so the build scans all 12.
 
 To flash: unplug, set the mode switch to Cable, hold Esc (or the reset button under the
 space bar) while plugging in, then flash the `.bin` with QMK Toolbox or
