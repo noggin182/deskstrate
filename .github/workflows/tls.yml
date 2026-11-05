@@ -69,6 +69,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DESEC_TOKEN: ${{ secrets.DESEC_TOKEN }}
+          # deSEC can take several minutes to publish a new record on its anycast servers;
+          # lego waits only 2 minutes by default.
+          DESEC_PROPAGATION_TIMEOUT: "900"
+          DESEC_POLLING_INTERVAL: "15"
           ACME_EMAIL: ${{ vars.ACME_EMAIL || 'certs@nogsnet.com' }}
           FORCE: ${{ inputs.force && 'true' || 'false' }}
           STAGING: ${{ inputs.staging && 'true' || 'false' }}
