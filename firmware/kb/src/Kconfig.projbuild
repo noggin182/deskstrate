@@ -1,11 +1,25 @@
 menu "Deskstrate keyboard"
 
+    choice DESKSTRATE_KB_LED_KIND
+        prompt "Status LED kind"
+        default DESKSTRATE_KB_LED_SINGLE_LOW
+        help
+            The keyboard's board is a Seeed XIAO ESP32S3 Plus: one yellow user LED,
+            lit while GPIO21 is low. S3 Mini boards have a WS2812 (RGB) instead.
+
+        config DESKSTRATE_KB_LED_SINGLE_LOW
+            bool "Single LED, lit when low (XIAO ESP32S3)"
+        config DESKSTRATE_KB_LED_WS2812
+            bool "WS2812 (S3 Mini: GPIO21 on an S3-Zero, GPIO48 on a Super Mini)"
+    endchoice
+
     config DESKSTRATE_KB_LED_GPIO
-        int "Status LED (WS2812) GPIO, -1 for none"
+        int "Status LED GPIO, -1 for none"
         range -1 48
         default 21
         help
-            The S3 Mini / S3-Zero has its WS2812 on GPIO21.
+            GPIO21 on the XIAO ESP32S3 (and the WS2812 of an S3-Zero layout board);
+            GPIO48 for the WS2812 of an S3 Super Mini.
 
     config DESKSTRATE_KB_RX_GPIO
         int "UART RX GPIO (from the keyboard's PB12)"

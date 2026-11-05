@@ -56,7 +56,10 @@ branch.
 ### Status LED
 
 Each board's built-in WS2812 is its status LED (`components/status_led`): GPIO21
-on the core's and keyboard's S3 Minis, the NeoPixel on the deck's Feather.
+on the core's S3 Mini, the NeoPixel on the deck's Feather. The keyboard's XIAO
+ESP32S3 has a plain LED (GPIO21, lit when low) instead, which shows the same states as
+blink patterns: 5 Hz updating, 1 Hz booting or busy, on for a fault, a blip every 2 s
+when all is well.
 
 | Colour | Meaning |
 | --- | --- |

@@ -42,12 +42,16 @@ bool busy() {
              (unsigned long)(kHoldoffMs / 1000));
     status_led::turn_off();
     esp_wifi_stop();
-    // Keep the LED's data line low while asleep, so noise can't light it.
+    // Hold the LED's pin at its dark level while asleep: low for a WS2812's data line, so
+    // noise can't light it; high for the XIAO's LED, which is lit by a low pin.
     if (kLed >= 0) {
         gpio_reset_pin(kLed);
         gpio_set_direction(kLed, GPIO_MODE_OUTPUT);
-        gpio_set_level(kLed, 0);
+        gpio_set_level(kLed, status_led::off_level(kLedKind));
         gpio_hold_en(kLed);
+        // A digital pad (GPIO48 on a Super Mini) only holds through deep sleep with this
+        // too (an RTC pad like GPIO21 holds without it).
+        gpio_deep_sleep_hold_en();
     }
     // Wake when the keyboard raises the line. The pull-down keeps a disconnected line low.
     rtc_gpio_init(kRx);

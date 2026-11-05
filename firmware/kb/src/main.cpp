@@ -25,8 +25,8 @@ static void fault(const char *what, esp_err_t err) {
 
 extern "C" void app_main(void) {
     const auto led = static_cast<gpio_num_t>(CONFIG_DESKSTRATE_KB_LED_GPIO);
-    if (led >= 0) gpio_hold_dis(led);  // held low through deep sleep
-    status_led::start(led);  // green until start-up is done
+    if (led >= 0) gpio_hold_dis(led);  // held dark through deep sleep
+    status_led::start(led, kb_sleep::kLedKind);  // green (blinking) until start-up is done
     ESP_LOGI(TAG, "Deskstrate keyboard %s", esp_app_get_description()->version);
 
     esp_err_t link = kb_link::start();
