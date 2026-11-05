@@ -69,10 +69,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DESEC_TOKEN: ${{ secrets.DESEC_TOKEN }}
-          # deSEC can take several minutes to publish a new record on its anycast servers;
-          # lego waits only 2 minutes by default.
-          DESEC_PROPAGATION_TIMEOUT: "900"
-          DESEC_POLLING_INTERVAL: "15"
           ACME_EMAIL: ${{ vars.ACME_EMAIL || 'certs@nogsnet.com' }}
           FORCE: ${{ inputs.force && 'true' || 'false' }}
           STAGING: ${{ inputs.staging && 'true' || 'false' }}
@@ -110,8 +106,11 @@ jobs:
             fi
 
             echo "::group::$board: renewing ($reason)"
+            # A fixed wait instead of lego's propagation check: deSEC's anycast servers can
+            # take minutes to all serve a new record, and the check passes as soon as one does,
+            # so Let's Encrypt's other vantage points still saw NXDOMAIN.
             if lego --accept-tos --email "$ACME_EMAIL" --server "$server" \
-                 --dns desec --csr "$csr" --path "lego-$board" run; then
+                 --dns desec --dns.propagation-wait 5m --csr "$csr" --path "lego-$board" run; then
               crt=$(ls lego-"$board"/certificates/*.crt | grep -v '\.issuer\.crt$' | head -n1)
               cp "$crt" "out/$board.pem"  # leaf + intermediate
               openssl x509 -in "out/$board.pem" -noout -subject -issuer -enddate
