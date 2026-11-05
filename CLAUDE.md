@@ -11,7 +11,8 @@ COM number alone.
 | Core (S3 Mini, `deskstrate`, 192.168.4.44) | `firmware/core` | `ac:27:6e:cb:3f:54` | COM15 |
 | Deck (Feather ESP32-S3 TFT) | `firmware/deck` | `f4:12:fa:59:79:bc` | COM8 |
 | Bench S3 Mini (`esp-bench`) | `firmware/bench` (was `swd_dump`, hub SWD on GPIO1/GPIO2) | `ac:27:6e:cb:2c:d8` | COM16 |
-| Keyboard S3 Mini (`deskstrate-kb`; red power LED and blue LED, not the S3-Zero layout) | `firmware/kb` | `d4:05:92:4b:67:d0` | COM17 |
+| Keyboard: XIAO ESP32S3 Plus (`deskstrate-kb`, external antenna, 16MB flash) | `firmware/kb` | `44:b1:76:ae:9c:28` | COM18 |
+| Spare S3 Super Mini (HW-747; WS2812 on GPIO48, BAT LED blinks with no battery) | `firmware/kb` (was the keyboard's) | `d4:05:92:4b:67:d0` | COM17 |
 
 - Find the ports: `Get-CimInstance Win32_PnPEntity | ? Name -match 'COM\d+'`.
 - Read a MAC: `esptool.py --port COMx --after watchdog_reset read_mac`. A board on
