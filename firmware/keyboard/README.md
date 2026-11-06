@@ -59,7 +59,7 @@ back the same way.
 | KVM_SWAP | Swap the monitors; the media hub stays with its screen | Fn+Down |
 | KVM_OTHER_VOLD / VOLU | Volume down / up on whichever of PC and Mac doesn't have the keyboard | Fn+knob turn |
 | KVM_OTHER_MUTE | Mute toggle on that host | Fn+knob press |
-| KVM_SLEEP | Lighting off and, once every key is let go, both PC and Mac put their displays to sleep. The next key press turns the lighting back on and wakes both hosts' displays (and still reaches the host) | Fn+Tab, say |
+| KVM_SLEEP | Lighting off and both PC and Mac put their displays to sleep. The next key press turns the lighting back on and wakes both hosts' displays (and still reaches the host) | Fn+Tab, say |
 
 Each key sends only its action (`KR_KVM_ACTION`) to the ESP32, which works out what to
 ask the core for from the core's latest state, with the same code as the deck
