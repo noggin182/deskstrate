@@ -108,9 +108,23 @@ void handle_locked() {
     }
 }
 
+// TX is only driven while the keyboard is on USB. The STM32 runs from the keyboard's
+// 3.3 V rail, which is off with the switch at Off, so a TX idling high would push current
+// into an unpowered PA3 (there may be no series resistor). Off USB, TX is a floating input.
+void set_tx_driven(bool on) {
+    if (on) {
+        uart_set_pin(kUart, kTx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    } else {
+        gpio_reset_pin(kTx);
+        gpio_set_direction(kTx, GPIO_MODE_INPUT);
+        gpio_set_pull_mode(kTx, GPIO_FLOATING);
+    }
+}
+
 void rx_task(void *) {
     uint8_t buf[64];
-    bool was_on_usb = false;
+    bool was_on_usb = keyboard_on_usb();
+    set_tx_driven(was_on_usb);
     for (;;) {
         // Wait up to 100 ms for the first byte, then take whatever else has arrived.
         // (Asking for a full buffer would wait the whole 100 ms for a short frame, and
@@ -132,6 +146,11 @@ void rx_task(void *) {
         xSemaphoreGive(lock);
         // Tell a keyboard that has just come onto USB where the KVM is.
         const bool on_usb = keyboard_on_usb();
+        if (on_usb != was_on_usb) {
+            xSemaphoreTake(lock, portMAX_DELAY);
+            set_tx_driven(on_usb);
+            xSemaphoreGive(lock);
+        }
         if (on_usb && !was_on_usb) {
             uint8_t state[4];
             if (kvm_client::state(state)) send_kvm_state(state);
@@ -158,7 +177,7 @@ esp_err_t start() {
     cfg.source_clk = UART_SCLK_DEFAULT;
     esp_err_t err = uart_driver_install(kUart, 1024, 0, 0, nullptr, 0);
     if (err == ESP_OK) err = uart_param_config(kUart, &cfg);
-    if (err == ESP_OK) err = uart_set_pin(kUart, kTx, kRx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    if (err == ESP_OK) err = uart_set_pin(kUart, UART_PIN_NO_CHANGE, kRx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
     // Pulled down, so an unpowered keyboard (or no keyboard) reads as "not on USB".
     if (err == ESP_OK) err = gpio_set_pull_mode(kRx, GPIO_PULLDOWN_ONLY);
     if (err != ESP_OK) {

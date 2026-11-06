@@ -68,10 +68,12 @@ static void rx_start(void) {
     // PA3 as USART2_RX (AF7), pulled up so a sleeping ESP (TX floating) reads as idle.
     palSetLineMode(A3, PAL_MODE_ALTERNATE(7) | PAL_STM32_PUPDR_PULLUP);
     RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
-    RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
-    (void)RCC->AHB1ENR;
-
     // USART2_RX is DMA1 stream 5, channel 4: circular into rx_dma_buf, no interrupts.
+    // Allocated through ChibiOS (once, never freed) rather than by enabling the DMA1
+    // clock by hand: ChibiOS switches DMA1's clock off whenever it has no DMA1 stream
+    // allocated, which silently stopped this stream (NDTR read 0, nothing received).
+    static const stm32_dma_stream_t *rx_dma;
+    if (!rx_dma) rx_dma = dmaStreamAlloc(STM32_DMA_STREAM_ID(1, 5), 0, NULL, NULL);
     DMA1_Stream5->CR = 0;
     while (DMA1_Stream5->CR & DMA_SxCR_EN) {
     }
