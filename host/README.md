@@ -62,6 +62,9 @@ powershell -ExecutionPolicy Bypass -File host\windows\install.ps1 -Exe host\wind
 `-User` installs the standalone tray app instead (Startup shortcut, no admin;
 allow the firewall prompt on Private networks). `-Uninstall` removes either.
 
+The keyboard's Fn+knob (while the keyboard is on the Mac) presses the PC's volume
+keys, with Windows' usual on-screen indicator.
+
 Logs: `%ProgramData%\Deskstrate\service.log` and `agent.log` (service), or
 `%LOCALAPPDATA%\Deskstrate\host.log` (standalone). Options `--no-topology` and
 `--core <ipv4>` go after `--service` in the service's command line.
@@ -82,6 +85,12 @@ Log: `~/Library/Logs/Deskstrate/host.log`. The Dells are found by EDID serial
 pass `--left-serial` / `--right-serial` (add them to `ProgramArguments` in
 `com.deskstrate.host.plist`). macOS may ask to allow it to find devices on the
 local network: allow it, or it never hears the core.
+
+The keyboard's Fn+knob (while the keyboard is on the PC) changes the Mac's volume.
+To get macOS's own volume steps and HUD, add `deskstrate-host` under System
+Settings > Privacy & Security > Accessibility; without that it sets the output's
+volume directly in 1/16 steps, with no HUD. An output with no software volume (some
+USB DACs: the volume keys are greyed out) can't be changed either way.
 
 Building it on the Mac (rather than downloading the CI artifact) avoids
 Gatekeeper quarantine on an unsigned binary.

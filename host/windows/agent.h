@@ -15,6 +15,7 @@ int run();  // agent side: --agent
 void sleep_displays();
 void wake_displays();
 bool set_topology(uint8_t topo);  // true once handed over: the agent logs the outcome
+void volume(uint8_t kvm_volume);  // displays::volume
 void stop();                      // ends the agent, e.g. when the console session changes
 
 }  // namespace agent

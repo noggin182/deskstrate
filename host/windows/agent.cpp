@@ -8,6 +8,7 @@
 
 #include "displays.h"
 #include "host_policy.h"
+#include "kvm_proto.h"
 #include "log.h"
 
 namespace agent {
@@ -39,6 +40,12 @@ int run() {
                 displays::set_topology(HOST_TOPO_EXTEND);
             } else if (cmd == "mirror") {
                 displays::set_topology(HOST_TOPO_MIRROR);
+            } else if (cmd == "volup") {
+                displays::volume(KVM_VOL_UP);
+            } else if (cmd == "voldown") {
+                displays::volume(KVM_VOL_DOWN);
+            } else if (cmd == "mute") {
+                displays::volume(KVM_VOL_MUTE);
             }
         }
     }
@@ -139,6 +146,13 @@ bool send(const char *cmd) {
 void sleep_displays() { send("sleep"); }
 void wake_displays() { send("wake"); }
 bool set_topology(uint8_t topo) { return send(topo == HOST_TOPO_MIRROR ? "mirror" : "extend"); }
+void volume(uint8_t kvm_volume) {
+    switch (kvm_volume) {
+        case KVM_VOL_UP: send("volup"); break;
+        case KVM_VOL_DOWN: send("voldown"); break;
+        case KVM_VOL_MUTE: send("mute"); break;
+    }
+}
 
 void stop() {
     if (g_pipe) CloseHandle(g_pipe);  // the agent sees EOF and exits
