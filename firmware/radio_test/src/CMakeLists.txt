@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "main.cpp"
     INCLUDE_DIRS "."
-    REQUIRES esp_wifi esp_netif esp_event nvs_flash
+    REQUIRES esp_wifi esp_netif esp_event esp_timer nvs_flash
 )
 
 # Plain ESP-IDF builds (CI) choose the variant with -DRADIO_TEST_SENDER=0|1 and
