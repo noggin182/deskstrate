@@ -19,8 +19,9 @@ the `tls` release (a prerelease, so it never counts as "latest"). The board fetc
 2. **Squarespace DNS for nogsnet.com:**
    - NS `acme` → `ns1.desec.io` and NS `acme` → `ns2.desec.org`: this hands only
      `acme.nogsnet.com` over to deSEC.
-   - CNAME `_acme-challenge.deskstrate` → `acme.nogsnet.com` (lego follows it and writes
-     the challenge TXT record at deSEC).
+   - CNAME `_acme-challenge.deskstrate` → `deskstrate.acme.nogsnet.com` (lego follows it
+     and writes the challenge TXT record at deSEC). It must point at a name inside the
+     zone, not `acme.nogsnet.com` itself: lego's deSEC plugin can't write at a zone's apex.
    - An A record for each board's LAN address, e.g. `core.deskstrate` → `192.168.4.44`
      and `kb.deskstrate` → the kb's address. Give both boards DHCP reservations so the
      addresses don't move. Don't touch the existing `deskstrate` A record: the doorbells
