@@ -86,7 +86,10 @@ Log: `~/Library/Logs/Deskstrate/host.log`. The Dells are found by EDID serial
 (810562882 left, 810959170 right); if `--list-displays` shows other serials,
 pass `--left-serial` / `--right-serial` (add them to `ProgramArguments` in
 `com.deskstrate.host.plist`). macOS may ask to allow it to find devices on the
-local network: allow it, or it never hears the core.
+local network: allow it, or it never hears the core. (The binary carries an
+Info.plist, `host/mac/Info.plist`, so macOS can ask; if the log shows no `STATE` lines
+while running it by hand from Terminal does, check System Settings > Privacy & Security >
+Local Network.)
 
 The keyboard's Fn+knob (while the keyboard is on the PC) changes the Mac's volume,
 and its Sleep key runs `pmset displaysleepnow` (the displays only, not the Mac); the
