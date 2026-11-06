@@ -77,3 +77,4 @@ managed_components/
 
 # The Mac daemon is built with make
 !host/mac/Makefile
+keychron_q3_max_iso_knob__deskstrate_.layout.json
