@@ -126,7 +126,19 @@ void rx_task(void *) {
     bool was_on_usb = keyboard_on_usb();
     set_tx_driven(was_on_usb);
     for (;;) {
-        const int got = uart_read_bytes(kUart, buf, sizeof buf, pdMS_TO_TICKS(100));
+        // Wait up to 100 ms for the first byte, then take whatever else has arrived.
+        // (Asking for a full buffer would wait the whole 100 ms for a short frame, and
+        // the keyboard resends a KVM request every 50 ms until it sees the ack.)
+        int got = uart_read_bytes(kUart, buf, 1, pdMS_TO_TICKS(100));
+        if (got == 1) {
+            size_t more = 0;
+            uart_get_buffered_data_len(kUart, &more);
+            if (more > sizeof buf - 1) more = sizeof buf - 1;
+            if (more) {
+                const int n = uart_read_bytes(kUart, buf + 1, more, 0);
+                if (n > 0) got += n;
+            }
+        }
         xSemaphoreTake(lock, portMAX_DELAY);
         for (int i = 0; i < got; i++) {
             if (kb_link_feed(&rx, buf[i], now_ms())) handle_locked();
