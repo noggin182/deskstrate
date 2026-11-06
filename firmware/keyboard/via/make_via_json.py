@@ -188,20 +188,13 @@ LIGHTING_MENU = [
 ]
 
 DESKSTRATE_KEYS = [
-    ("KVM: everything to PC", "⇄PC"),
-    ("KVM: everything to Mac", "⇄Mac"),
-    ("KVM: split, PC left + Mac right, keyboard on PC", "PC+Mac"),
-    ("KVM: split, Mac left + PC right, keyboard on Mac", "Mac+PC"),
-    ("KVM: left monitor to PC", "L⇄PC"),
-    ("KVM: left monitor to Mac", "L⇄Mac"),
-    ("KVM: left monitor to guest", "L⇄Gst"),
-    ("KVM: right monitor to PC", "R⇄PC"),
-    ("KVM: right monitor to Mac", "R⇄Mac"),
-    ("KVM: right monitor to guest", "R⇄Gst"),
-    ("KVM: keyboard/mouse hub to PC", "KB⇄PC"),
-    ("KVM: keyboard/mouse hub to Mac", "KB⇄Mac"),
-    ("KVM: media hub to PC", "Med⇄PC"),
-    ("KVM: media hub to Mac", "Med⇄Mac"),
+    ("KVM: all to PC / split: keyboard to left screen", "KVM←"),
+    ("KVM: all to Mac / split: keyboard to right screen", "KVM→"),
+    ("KVM: enter / leave split", "Split"),
+    ("KVM: swap monitors", "Swap"),
+    ("KVM: other host volume up", "OVol+"),
+    ("KVM: other host volume down", "OVol-"),
+    ("KVM: other host mute", "OMute"),
 ]
 
 
@@ -264,7 +257,7 @@ def main():
             "layouts": {"keymap": kle_rows(layout["layout"])},
         }
         path = HERE / f"q3_max_{variant}_deskstrate.json"
-        # ASCII only (\u21c4 for ⇄): usevia reads the file as Latin-1, which garbles raw UTF-8 labels.
+        # ASCII only (\u2190 for ←): usevia reads the file as Latin-1, which garbles raw UTF-8 labels.
         path.write_text(json.dumps(definition, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
         print(f"{path.name}: {layout_name}, {len(layout['layout'])} keys")
 

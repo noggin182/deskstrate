@@ -1,13 +1,13 @@
-# Builds the host daemons (host/) and runs the shared policy's tests. The images are kept
+# Builds the host daemons (host/) and runs the shared policy's and kvm_controls' tests. The images are kept
 # as artifacts of each run; nothing is deployed (the hosts are installed by hand, see
 # host/README.md).
 name: "Host daemons: Windows, Mac"
 
 on:
   push:
-    paths: [host/**, components/kvm_proto/**, .github/workflows/host.yml]
+    paths: [host/**, components/kvm_proto/**, components/kvm_controls/**, .github/workflows/host.yml]
   pull_request:
-    paths: [host/**, components/kvm_proto/**, .github/workflows/host.yml]
+    paths: [host/**, components/kvm_proto/**, components/kvm_controls/**, .github/workflows/host.yml]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +23,11 @@ jobs:
           c++ -std=c++17 -Wall -Wextra -Werror -I components/kvm_proto/include -I host/common \
             host/common/test_host_policy.cpp -o test_host_policy
           ./test_host_policy
+      - name: Test kvm_controls (the deck's and keyboard's key rules)
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror -I components/kvm_proto/include -I components/kvm_controls/include \
+            components/kvm_controls/kvm_controls.cpp components/kvm_controls/test/test_kvm_controls.cpp -o test_kvm_controls
+          ./test_kvm_controls
 
   windows:
     runs-on: windows-2022

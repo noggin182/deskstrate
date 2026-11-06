@@ -46,7 +46,7 @@ async function poll(){
       row('keyboard',(k.usb?'on USB':'not on USB'+(s.sleep_in_s>=0?`, sleeping in ${s.sleep_in_s} s`:''))+(k.hello?' &middot; '+k.hello:''))+
       (st?row('keyboard status',`${TR[st.transport]||st.transport}, host ${OS[st.host_os]||st.host_os}, layer ${st.base_layer}, battery ${st.battery_pct}%, up ${st.uptime_s} s (${k.status_ago_s} s ago)`)+
         row('keyboard sees',`${st.rx_good} good / ${st.rx_bad} bad frames from here, ${st.resends} resends`):'')+
-      row('link',`${k.rx_good} good / ${k.rx_bad} bad frames in, ${k.kvm_requests} KVM requests, ${k.acks} acks`)+
+      row('link',`${k.rx_good} good / ${k.rx_bad} bad frames in, ${k.kvm_actions} KVM keys, ${k.acks} acks`)+
       row('update',s.ota.result+(s.ota.release?' ('+s.ota.release+')':''));
     rx.textContent=k.recent.map(l=>`${l.ago_s}s ago  ${l.text}`).join('\n')||'(nothing yet)';
   }catch(e){}

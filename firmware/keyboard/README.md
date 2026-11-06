@@ -22,7 +22,7 @@ annotated photo in the project files (keyboard/q3max-free-pins.jpg).
 
 The keyboard sends a hello and then a status frame every 2 s (transport, USB power,
 detected host OS, base layer, battery, link counters), which the ESP shows on its page.
-A KVM key sends its request and resends it every 50 ms until the ESP acks it (5 tries).
+A KVM key sends its action and resends it every 50 ms until the ESP acks it (5 tries).
 Text the ESP sends comes straight back as "echo: ...", to test the link both ways.
 
 ## Build and flash
@@ -49,11 +49,26 @@ back the same way.
 
 ## KVM keys and VIA
 
-`keymap/deskstrate_keys.h` adds KVM keys (everything to PC/Mac, the two split layouts, each monitor to
-PC/Mac/guest, each hub to PC/Mac) in the custom keycode slots after Keychron's own.
-Each sends a `kvm_proto` REQUEST through the ESP32, which passes it to the core. That
-works in cable mode with USB power only: in wireless modes the ESP32 is asleep and the
-keys do nothing.
+`keymap/deskstrate_keys.h` adds KVM keys in the custom keycode slots after Keychron's own:
+
+| Key | Does | Bind it to |
+| --- | --- | --- |
+| KVM_LEFT | Everything to the PC; in split mode, keyboard/mouse to the left screen's host (the deck's bottom-left key) | Fn+Left |
+| KVM_RIGHT | Everything to the Mac; in split mode, keyboard/mouse to the right screen's host (the deck's bottom-right key) | Fn+Right |
+| KVM_SPLIT | Enter split (left monitor and both hubs stay, the right monitor gets the other host) or leave it (everything follows the keyboard) | Fn+Up |
+| KVM_SWAP | Swap the monitors; the media hub stays with its screen | Fn+Down |
+| KVM_OTHER_VOLD / VOLU | Volume down / up on whichever of PC and Mac doesn't have the keyboard | Fn+knob turn |
+| KVM_OTHER_MUTE | Mute toggle on that host | Fn+knob press |
+
+Each key sends only its action (`KR_KVM_ACTION`) to the ESP32, which works out what to
+ask the core for from the core's latest state, with the same code as the deck
+(`components/kvm_controls`). The volume keys become a broadcast to the other host's
+daemon instead, so they need the daemons installed. That all works in cable mode with
+USB power only: in wireless modes the ESP32 is asleep and the keys do nothing.
+
+The bindings aren't in the default keymap: set them in VIA, on both Fn layers (Mac Fn
+and Windows Fn, since the base layer follows the host). Fn+knob replaces Keychron's
+backlight brightness there; that is still on Fn+W/S.
 
 They are bound like any other key, so rebinding doesn't need a reflash. To see them by
 name, use VIA rather than the Keychron Launcher (which only loads Keychron's own

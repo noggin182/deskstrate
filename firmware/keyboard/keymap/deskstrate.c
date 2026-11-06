@@ -1,42 +1,34 @@
 // Deskstrate additions to Keychron's stock Q3 Max keymap (build.sh copies the stock
 // keymap.c next to this file).
 //
-// KVM keys (deskstrate_keys.h): each sends a kvm_proto request ([left, right, HID hub,
-// media hub], 0xFF = leave alone) to the ESP32 inside the keyboard over the PB12/PA3
-// link (kb_link.h), which passes it to the core. Only in cable mode with USB power: on
+// KVM keys (deskstrate_keys.h): each sends its action to the ESP32 inside the keyboard
+// over the PB12/PA3 link (kb_link.h), which turns it into a request to the core (or a
+// volume message to the other host). Only in cable mode with USB power: on
 // Bluetooth or 2.4 GHz the ESP32 is asleep and the keys do nothing.
 #include QMK_KEYBOARD_H
 #include "deskstrate_keys.h"
 #include "kb_link.h"
+#include "kb_link_proto.h"
 #include "transport.h"
 
 // Keychron's base layers (keymap.c's enum layers): the back switch picks one.
 #define LAYER_MAC_BASE 0
 #define LAYER_WIN_BASE 2
 
-// kvm_proto (components/kvm_proto): monitor byte = host (0 PC, 1 Mac, 3 guest),
-// hub byte = port (0 PC, 1 Mac).
-static const uint8_t kvm_requests[DESKSTRATE_KEYS_END - KVM_ALL_PC][4] = {
-    [KVM_ALL_PC - KVM_ALL_PC]    = {0x00, 0x00, 0x00, 0x00},
-    [KVM_ALL_MAC - KVM_ALL_PC]   = {0x01, 0x01, 0x01, 0x01},
-    // Split, as on the deck: the right monitor goes to the second host, the rest to the first.
-    [KVM_SPLIT_PC_MAC - KVM_ALL_PC] = {0x00, 0x01, 0x00, 0x00},
-    [KVM_SPLIT_MAC_PC - KVM_ALL_PC] = {0x01, 0x00, 0x01, 0x01},
-    [KVM_L_PC - KVM_ALL_PC]      = {0x00, 0xFF, 0xFF, 0xFF},
-    [KVM_L_MAC - KVM_ALL_PC]     = {0x01, 0xFF, 0xFF, 0xFF},
-    [KVM_L_GUEST - KVM_ALL_PC]   = {0x03, 0xFF, 0xFF, 0xFF},
-    [KVM_R_PC - KVM_ALL_PC]      = {0xFF, 0x00, 0xFF, 0xFF},
-    [KVM_R_MAC - KVM_ALL_PC]     = {0xFF, 0x01, 0xFF, 0xFF},
-    [KVM_R_GUEST - KVM_ALL_PC]   = {0xFF, 0x03, 0xFF, 0xFF},
-    [KVM_HID_PC - KVM_ALL_PC]    = {0xFF, 0xFF, 0x00, 0xFF},
-    [KVM_HID_MAC - KVM_ALL_PC]   = {0xFF, 0xFF, 0x01, 0xFF},
-    [KVM_MEDIA_PC - KVM_ALL_PC]  = {0xFF, 0xFF, 0xFF, 0x00},
-    [KVM_MEDIA_MAC - KVM_ALL_PC] = {0xFF, 0xFF, 0xFF, 0x01},
+// The link's action for each KVM key, in deskstrate_keys.h order.
+static const uint8_t kvm_actions[DESKSTRATE_KEYS_END - KVM_LEFT] = {
+    [KVM_LEFT - KVM_LEFT]       = KB_ACT_LEFT,
+    [KVM_RIGHT - KVM_LEFT]      = KB_ACT_RIGHT,
+    [KVM_SPLIT - KVM_LEFT]      = KB_ACT_SPLIT,
+    [KVM_SWAP - KVM_LEFT]       = KB_ACT_SWAP,
+    [KVM_OTHER_VOLU - KVM_LEFT] = KB_ACT_OTHER_VOLU,
+    [KVM_OTHER_VOLD - KVM_LEFT] = KB_ACT_OTHER_VOLD,
+    [KVM_OTHER_MUTE - KVM_LEFT] = KB_ACT_OTHER_MUTE,
 };
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    if (keycode >= KVM_ALL_PC && keycode < DESKSTRATE_KEYS_END) {
-        if (record->event.pressed) kb_link_send_kvm_request(kvm_requests[keycode - KVM_ALL_PC]);
+    if (keycode >= KVM_LEFT && keycode < DESKSTRATE_KEYS_END) {
+        if (record->event.pressed) kb_link_send_kvm_action(kvm_actions[keycode - KVM_LEFT]);
         return false;
     }
     return true;

@@ -8,6 +8,8 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "kb_link.h"
+#include "kb_link_proto.h"
+#include "kvm_controls.h"
 #include "kvm_proto.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
@@ -44,6 +46,27 @@ void send_locked() {
     sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
     sent_at = xTaskGetTickCount();
     sends++;
+}
+
+// Call with mutex held. Broadcast, never to the core: only the host daemon named in it
+// acts on it, and the Mac (on a VPN) can only hear broadcasts.
+void send_volume_locked(uint8_t host, uint8_t vol) {
+    sockaddr_in to = {};
+    to.sin_family = AF_INET;
+    to.sin_port = htons(KVM_PORT);
+    to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    const uint8_t b[KVM_SLOTS] = {host, vol, KVM_UNKNOWN, KVM_UNKNOWN};
+    const kvm_msg_t msg = kvm_msg(KVM_VOLUME, b);
+    sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
+}
+
+// Call with mutex held.
+void request_locked(const uint8_t b[KVM_SLOTS]) {
+    memcpy(wanted, b, KVM_SLOTS);
+    pending = true;
+    asked_at = xTaskGetTickCount();
+    sends = 0;
+    send_locked();
 }
 
 // True once every byte asked for shows in the state (monitors: the host only).
@@ -134,11 +157,49 @@ esp_err_t start() {
 void request(const uint8_t b[4]) {
     if (!mutex || sock < 0) return;
     xSemaphoreTake(mutex, portMAX_DELAY);
-    memcpy(wanted, b, KVM_SLOTS);
-    pending = true;
-    asked_at = xTaskGetTickCount();
-    sends = 0;
-    send_locked();
+    request_locked(b);
+    xSemaphoreGive(mutex);
+}
+
+void action(uint8_t act) {
+    if (!mutex || sock < 0) return;
+    using namespace kvm_controls;
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    // Plan against what the state will be once a request still in flight lands, so two
+    // quick presses (Fn+Up twice) build on each other.
+    View view;
+    if (have_state) memcpy(view.b, latest, KVM_SLOTS);
+    if (pending) {
+        for (uint8_t i = 0; i < KVM_SLOTS; i++) {
+            if (wanted[i] != KVM_UNKNOWN) view.b[i] = wanted[i];
+        }
+    }
+    Target t;
+    uint8_t vol = 0;
+    switch (act) {
+        case KB_ACT_LEFT: t = plan_side(view, true); break;
+        case KB_ACT_RIGHT: t = plan_side(view, false); break;
+        case KB_ACT_SPLIT: t = plan_toggle_split(view); break;
+        case KB_ACT_SWAP: t = plan_swap_media(view); break;
+        case KB_ACT_OTHER_VOLU: vol = KVM_VOL_UP; break;
+        case KB_ACT_OTHER_VOLD: vol = KVM_VOL_DOWN; break;
+        case KB_ACT_OTHER_MUTE: vol = KVM_VOL_MUTE; break;
+        default: ESP_LOGW(TAG, "unknown action %u", act); break;
+    }
+    if (vol) {
+        const uint8_t host = other_host(view);
+        if (host != kNoHost) {
+            ESP_LOGI(TAG, "volume %u to %s", vol, host == kPc ? "PC" : "Mac");
+            send_volume_locked(host, vol);
+        } else {
+            ESP_LOGI(TAG, "volume: keyboard isn't on the PC or Mac");
+        }
+    } else if (!is_empty(t)) {
+        ESP_LOGI(TAG, "action %u: request %02X %02X %02X %02X", act, t.b[0], t.b[1], t.b[2], t.b[3]);
+        request_locked(t.b);
+    } else {
+        ESP_LOGI(TAG, "action %u: nothing to do", act);
+    }
     xSemaphoreGive(mutex);
 }
 

@@ -3,7 +3,7 @@
 //   RX (CONFIG_DESKSTRATE_KB_RX_GPIO) <- STM32 PB12, bit-banged TX
 //   TX (CONFIG_DESKSTRATE_KB_TX_GPIO) -> STM32 PA3, USART2 RX
 // The keyboard holds PB12 high while it is on USB, so the RX level doubles as "keyboard
-// is on USB" (see sleep.h). KVM requests from the keyboard go to kvm_client; the core's
+// is on USB" (see sleep.h). KVM key actions from the keyboard go to kvm_client; the core's
 // STATE goes back to the keyboard.
 #pragma once
 
@@ -27,7 +27,7 @@ bool send_text(const char *text);
 void send_kvm_state(const uint8_t state[4]);
 
 // The link as JSON: {"usb":true,"hello":"...","status":{...}|null,"status_ago_s":N,
-//   "rx_good":N,"rx_bad":N,"acks":N,"kvm_requests":N,"recent":[{"ago_s":N,"text":"..."},...]}
+//   "rx_good":N,"rx_bad":N,"acks":N,"kvm_actions":N,"recent":[{"ago_s":N,"text":"..."},...]}
 // (recent: oldest first). Returns the length written.
 int status_json(char *buf, size_t len);
 
