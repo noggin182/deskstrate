@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "host_policy.h"
+#include "kvm_proto.h"
 #include "log.h"
 
 namespace displays {
@@ -51,6 +52,23 @@ void sleep() {
         HWND w = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, nullptr, nullptr);
         DefWindowProcW(w, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
         if (w) DestroyWindow(w);
+    });
+}
+
+void volume(uint8_t kvm_volume) {
+    WORD vk = 0;
+    switch (kvm_volume) {
+        case KVM_VOL_UP: vk = VK_VOLUME_UP; break;
+        case KVM_VOL_DOWN: vk = VK_VOLUME_DOWN; break;
+        case KVM_VOL_MUTE: vk = VK_VOLUME_MUTE; break;
+        default: return;
+    }
+    on_input_desktop([vk] {
+        INPUT in[2] = {};
+        in[0].type = in[1].type = INPUT_KEYBOARD;
+        in[0].ki.wVk = in[1].ki.wVk = vk;
+        in[1].ki.dwFlags = KEYEVENTF_KEYUP;
+        if (SendInput(2, in, sizeof(INPUT)) != 2) trace("volume: SendInput failed: %lu", GetLastError());
     });
 }
 

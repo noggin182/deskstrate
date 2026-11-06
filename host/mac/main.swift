@@ -3,8 +3,9 @@
 //
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
 // extend or mirror the two Dells, and wake the displays when a monitor comes back to the
-// Mac or the keyboard moves to it. It only ever sends the core an empty REQUEST, to get a
-// STATE.
+// Mac or the keyboard moves to it. A KV VOLUME message for the Mac changes its volume
+// (the keyboard's Fn+knob while the keyboard is on the PC). It only ever sends the core
+// an empty REQUEST, to get a STATE.
 //
 // Mirroring as in the VERIFIED test (PROJECT_KNOWLEDGE.md §3): CGConfigureDisplayMirrorOfDisplay
 // mirrors the hidden Dell onto the visible one; it fails (CGError 1014) while the displays
@@ -17,6 +18,8 @@
 //          --list-displays        print the online displays and their serials, then exit
 
 import AppKit
+import AudioToolbox  // kAudioHardwareServiceDeviceProperty_VirtualMainVolume
+import CoreAudio
 import CoreGraphics
 import Foundation
 import IOKit.pwr_mgt
@@ -192,10 +195,86 @@ func onState(_ b: [UInt8], from: in_addr_t) {
     if act.wake_displays != 0 { wakeDisplays() }
 }
 
+// ---- volume (the keyboard's Fn+knob while the keyboard is on the PC) -----------------
+
+// With Accessibility permission (System Settings > Privacy & Security > Accessibility),
+// press the media key itself: macOS's own step and volume HUD. Without it, set the
+// default output's volume through CoreAudio: no HUD, 1/16 steps.
+func pressVolumeKey(_ action: UInt8) -> Bool {
+    guard AXIsProcessTrusted() else { return false }
+    let key: Int
+    switch action {
+    case UInt8(KVM_VOL_UP.rawValue): key = 0    // NX_KEYTYPE_SOUND_UP
+    case UInt8(KVM_VOL_DOWN.rawValue): key = 1  // NX_KEYTYPE_SOUND_DOWN
+    case UInt8(KVM_VOL_MUTE.rawValue): key = 7  // NX_KEYTYPE_MUTE
+    default: return true
+    }
+    for down in [true, false] {
+        let state = down ? 0xA : 0xB
+        guard let ev = NSEvent.otherEvent(with: .systemDefined, location: .zero,
+                                          modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
+                                          timestamp: 0, windowNumber: 0, context: nil, subtype: 8,
+                                          data1: (key << 16) | (state << 8), data2: -1) else { return false }
+        ev.cgEvent?.post(tap: .cghidEventTap)
+    }
+    return true
+}
+
+func defaultOutput() -> AudioObjectID? {
+    var id = AudioObjectID(0)
+    var size = UInt32(MemoryLayout<AudioObjectID>.size)
+    var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                          mScope: kAudioObjectPropertyScopeGlobal,
+                                          mElement: kAudioObjectPropertyElementMain)
+    let err = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &id)
+    return err == noErr && id != 0 ? id : nil
+}
+
+func setVolumeDirectly(_ action: UInt8) {
+    guard let dev = defaultOutput() else { log("volume: no default output"); return }
+    if action == UInt8(KVM_VOL_MUTE.rawValue) {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+                                              mScope: kAudioDevicePropertyScopeOutput,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var muted: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &muted) == noErr else {
+            log("volume: this output has no mute"); return
+        }
+        muted = muted == 0 ? 1 : 0
+        let err = AudioObjectSetPropertyData(dev, &addr, 0, nil, size, &muted)
+        if err != noErr { log("volume: mute failed (\(err))") }
+        return
+    }
+    var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+                                          mScope: kAudioDevicePropertyScopeOutput,
+                                          mElement: kAudioObjectPropertyElementMain)
+    var vol: Float32 = 0
+    var size = UInt32(MemoryLayout<Float32>.size)
+    guard AudioObjectGetPropertyData(dev, &addr, 0, nil, &size, &vol) == noErr else {
+        log("volume: this output has no software volume"); return
+    }
+    let step: Float32 = action == UInt8(KVM_VOL_UP.rawValue) ? 1.0 / 16 : -1.0 / 16
+    vol = min(1, max(0, vol + step))
+    let err = AudioObjectSetPropertyData(dev, &addr, 0, nil, size, &vol)
+    if err != noErr { log("volume: set failed (\(err))") }
+}
+
+// KV VOLUME: [host, enum kvm_volume, FF, FF], broadcast by the keyboard's ESP.
+func onVolume(_ b: [UInt8]) {
+    guard b[0] == UInt8(KVM_HOST_MAC.rawValue) else { return }
+    log("volume \(b[1])")
+    if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
+}
+
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
     var msg = kvm_msg_t()
-    guard let base = buf.baseAddress, kvm_decode(base, Int32(buf.count), UInt8(KVM_STATE.rawValue), &msg) != 0 else { return }
-    onState([msg.b.0, msg.b.1, msg.b.2, msg.b.3], from: from)
+    guard let base = buf.baseAddress else { return }
+    if kvm_decode(base, Int32(buf.count), UInt8(KVM_STATE.rawValue), &msg) != 0 {
+        onState([msg.b.0, msg.b.1, msg.b.2, msg.b.3], from: from)
+    } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_VOLUME.rawValue), &msg) != 0 {
+        onVolume([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
+    }
 }
 
 func onDisplaysChanged(on: Bool) {
