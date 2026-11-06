@@ -79,8 +79,7 @@ when all is well.
 | --- | --- | --- | --- |
 | Firmware: core, deck, kb (release + OTA) | `firmware.yml` | core, deck, kb or `components/` change | On `main`: a `build-<run>.<attempt>` release, then rings the doorbells |
 | Keyboard (QMK) | `keyboard.yml` | `firmware/keyboard` or `kb_link_proto` change | On `main`: the `.bin` files and VIA JSON on the `keyboard` prerelease |
-| Bench tools: bench, radio_test, swd_dump | `bench.yml` | those projects or `components/` change | Nothing; a compile check |
 | Host daemons: Windows, Mac | `host.yml` | `host/` or `kvm_proto` change | Policy tests; the daemons as run artifacts |
 | TLS certificates (renew) | `tls.yml` | weekly, or a `tls/*.csr` changes on `main` | Certificates on the `tls` prerelease |
 
-`firmware.yml` and `bench.yml` share `.github/actions/setup-idf`, a cached minimal ESP-IDF.
+The bench tools (`firmware/bench`, `radio_test`, `swd_dump`) aren't built in CI.

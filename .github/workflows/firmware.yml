@@ -10,11 +10,11 @@
 #   none of those build nothing.
 # - Each board's build directory is cached, so a build only recompiles what changed.
 # - Plain ESP-IDF (every firmware here is an ESP-IDF CMake project), installed with only
-#   the tools a build needs and cached (.github/actions/setup-idf). platformio.ini is kept
-#   for flashing on the bench.
+#   the tools a build needs and cached. platformio.ini is kept for flashing on the bench.
 # - The release is published and the doorbells rung before any cache is saved.
 # Run it by hand with "rebuild" to build every board from scratch.
-# The keyboard's own QMK firmware is keyboard.yml; bench tools are bench.yml.
+# The keyboard's own QMK firmware is keyboard.yml. Bench tools (bench, radio_test,
+# swd_dump) aren't built in CI.
 name: "Firmware: core, deck, kb (release + OTA)"
 
 on:
@@ -28,7 +28,6 @@ on:
       - components/**
       - tools/release_manifest.py
       - tools/doorbell.py
-      - .github/actions/setup-idf/**
       - .github/workflows/firmware.yml
   pull_request:
     paths: *paths
@@ -56,7 +55,11 @@ jobs:
       DEPLOY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       GH_TOKEN: ${{ github.token }}
       TAG: build-${{ github.run_number }}.${{ github.run_attempt }}
-      IDF_VERSION: v6.1  # also part of the build caches' keys
+      # ESP-IDF release (a tag of espressif/esp-idf) and the tools installed from it.
+      # Change either to rebuild the toolchain cache.
+      IDF_VERSION: v6.1
+      IDF_TOOLS: xtensa-esp-elf cmake ninja
+      IDF_TARGET: esp32s3
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,7 +84,7 @@ jobs:
           for board in core deck kb; do
             if [ "${{ inputs.rebuild }}" = true ] || [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
               build=true
-            elif git diff --quiet "$base" HEAD -- "firmware/$board" components .github/actions/setup-idf .github/workflows/firmware.yml; then
+            elif git diff --quiet "$base" HEAD -- "firmware/$board" components .github/workflows/firmware.yml; then
               build=false
             else
               build=true
@@ -92,11 +95,28 @@ jobs:
           done
           echo "any=$any" >> "$GITHUB_OUTPUT"
 
-      - name: Set up ESP-IDF
+      - name: Cache ESP-IDF
+        id: idf-cache
         if: steps.plan.outputs.any == 'true'
-        uses: ./.github/actions/setup-idf
+        uses: actions/cache@v4
         with:
-          idf-version: ${{ env.IDF_VERSION }}
+          path: |
+            ~/esp-idf
+            ~/.espressif
+          key: idf-${{ runner.os }}-${{ env.IDF_VERSION }}-${{ env.IDF_TOOLS }}
+
+      - name: Install ESP-IDF
+        # Only what a build needs: the ESP-IDF tree, the Xtensa compiler, CMake, Ninja and
+        # the Python env. install.sh would also fetch gdb, OpenOCD, the RISC-V and ULP
+        # toolchains and more, none of which CI uses.
+        if: steps.plan.outputs.any == 'true' && steps.idf-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch "$IDF_VERSION" --recurse-submodules --shallow-submodules --jobs 8 \
+            https://github.com/espressif/esp-idf ~/esp-idf
+          python3 ~/esp-idf/tools/idf_tools.py install $IDF_TOOLS
+          python3 ~/esp-idf/tools/idf_tools.py install-python-env
+          rm -rf ~/.espressif/dist  # the downloaded archives, already unpacked
 
       - name: Cache core build
         if: steps.plan.outputs.core == 'true'
@@ -143,6 +163,12 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
+          # What export.sh would set. export.sh itself refuses to run without every tool
+          # install.sh would have installed (gdb, OpenOCD, ...), so set it by hand.
+          export IDF_PATH=~/esp-idf
+          export IDF_PYTHON_ENV_PATH=$(echo ~/.espressif/python_env/idf*_env)
+          export ESP_IDF_VERSION=$(basename "$IDF_PYTHON_ENV_PATH" | sed -E 's/^idf([0-9.]+)_py.*/\1/')
+          export PATH="$(echo ~/.espressif/tools/xtensa-esp-elf/*/xtensa-esp-elf/bin):$(echo ~/.espressif/tools/cmake/*/bin):$(echo ~/.espressif/tools/ninja/*):$IDF_PYTHON_ENV_PATH/bin:$PATH"
           build() {  # <board>
             dir=firmware/$1
             # CMake always re-runs (a fresh checkout looks newer than the cache): that is
