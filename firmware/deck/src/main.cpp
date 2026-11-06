@@ -1,9 +1,11 @@
 #include <cstdio>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
@@ -46,6 +48,11 @@
 #define MENU_IDLE_MS 20000
 // NeoKey frame period.
 #define NEOKEY_FRAME_MS 30
+// While the keyboard's Sleep has the monitors in standby: the TFT backlight's duty
+// (of 255) and the NeoKeys' share of their usual brightness. Fades take DIM_FADE_MS.
+#define DIM_BACKLIGHT_DUTY 8
+#define DIM_NEOKEY_DIVISOR 8
+#define DIM_FADE_MS 400
 
 static lv_disp_drv_t disp_drv;
 
@@ -955,6 +962,31 @@ static bool display_color_trans_done_cb(
 // This will intentionally crash the compiler if LVGL isn't correctly configured for 16-bit
 static_assert(sizeof(lv_color_t) == 2, "LVGL must be configured for 16-bit color!");
 
+static void backlight_start() {
+    ledc_timer_config_t timer = {};
+    timer.speed_mode = LEDC_LOW_SPEED_MODE;
+    timer.duty_resolution = LEDC_TIMER_8_BIT;
+    timer.timer_num = LEDC_TIMER_0;
+    timer.freq_hz = 5000;
+    timer.clk_cfg = LEDC_AUTO_CLK;
+    ledc_channel_config_t channel = {};
+    channel.gpio_num = PIN_TFT_BACKLIGHT;
+    channel.speed_mode = LEDC_LOW_SPEED_MODE;
+    channel.channel = LEDC_CHANNEL_0;
+    channel.timer_sel = LEDC_TIMER_0;
+    channel.duty = 255;
+    if (ledc_timer_config(&timer) != ESP_OK || ledc_channel_config(&channel) != ESP_OK
+        || ledc_fade_func_install(0) != ESP_OK) {
+        printf("Backlight PWM not started; full brightness only\n");
+        gpio_set_direction(PIN_TFT_BACKLIGHT, GPIO_MODE_OUTPUT);
+        gpio_set_level(PIN_TFT_BACKLIGHT, 1);
+    }
+}
+
+static void backlight_fade(uint32_t duty) {
+    ledc_set_fade_time_and_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty, DIM_FADE_MS, LEDC_FADE_NO_WAIT);
+}
+
 // extern "C" is mandatory so the FreeRTOS bootloader can find the entry point
 extern "C" void app_main(void) {
 
@@ -967,9 +999,8 @@ extern "C" void app_main(void) {
     // Give the display hardware time to wake up before sending SPI commands
     vTaskDelay(pdMS_TO_TICKS(150));
     
-    // 2. Turn on the TFT Backlight
-    gpio_set_direction(PIN_TFT_BACKLIGHT, GPIO_MODE_OUTPUT);
-    gpio_set_level(PIN_TFT_BACKLIGHT, 1);
+    // 2. Turn on the TFT Backlight (PWM, so Sleep can dim it)
+    backlight_start();
 
     // 3. The built-in NeoPixel is the status LED (status_led.h): green while booting
     gpio_set_direction(PIN_NEOPIXEL_POWER, GPIO_MODE_OUTPUT);
@@ -1121,6 +1152,9 @@ extern "C" void app_main(void) {
     TickType_t last_core_state = xTaskGetTickCount();
     TickType_t last_key = xTaskGetTickCount();
     TickType_t last_ping = 0;
+    // The keyboard's Sleep key dims the backlight and NeoKeys; its wake, or a deck key, restores them.
+    bool dimmed = false;
+    float neokey_scale = 1.0f;  // eases between 1 and 1/DIM_NEOKEY_DIVISOR
 
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
@@ -1138,6 +1172,15 @@ extern "C" void app_main(void) {
             if (newly_pressed & (1u << k)) neokeys::flash(static_cast<controls::Key>(k), now_ms);
         }
         if (newly_pressed) last_key = xTaskGetTickCount();
+
+        uint8_t displays;
+        bool dim = dimmed;
+        if (network_take_displays(&displays)) dim = displays == KVM_DISPLAYS_SLEEP;
+        if (newly_pressed) dim = false;
+        if (dim != dimmed) {
+            dimmed = dim;
+            backlight_fade(dimmed ? DIM_BACKLIGHT_DUTY : 255);
+        }
 
         controls::Event events[controls::kKeyCount];
         const uint8_t event_count = gestures.update(pressed, now_ms, menu::is_open(), events);
@@ -1204,7 +1247,10 @@ extern "C" void app_main(void) {
             scene.menu = menu::is_open();
             scene.held = pressed;
             scene.view = view;
-            scene.brightness = menu::light_brightness(settings.light_level);
+            const float target = dimmed ? 1.0f / DIM_NEOKEY_DIVISOR : 1.0f;
+            neokey_scale += (target - neokey_scale) * (float(NEOKEY_FRAME_MS) / DIM_FADE_MS * 3.0f);
+            if (fabsf(target - neokey_scale) < 0.005f) neokey_scale = target;
+            scene.brightness = static_cast<uint8_t>(menu::light_brightness(settings.light_level) * neokey_scale + 0.5f);
             neokeys::render(scene, now_ms);
         }
 
