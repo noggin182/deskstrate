@@ -11,10 +11,11 @@ AGENT := $(HOME)/Library/LaunchAgents/com.deskstrate.host.plist
 LABEL := gui/$(shell id -u)/com.deskstrate.host
 SIGN_ID := Deskstrate Host Signing
 
-$(BIN): main.swift Bridging.h ../common/host_policy.h $(ROOT)/components/kvm_proto/include/kvm_proto.h
+$(BIN): main.swift Bridging.h Info.plist ../common/host_policy.h $(ROOT)/components/kvm_proto/include/kvm_proto.h
 	mkdir -p build
 	swiftc -O -cxx-interoperability-mode=default -import-objc-header Bridging.h \
 		-Xcc -I../common -Xcc -I$(ROOT)/components/kvm_proto/include \
+		-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker Info.plist \
 		main.swift -o $@
 	@# Signed with the same certificate every time (make cert), macOS keeps the Accessibility
 	@# permission across rebuilds. Without it (CI, or before make cert), ad-hoc sign.
