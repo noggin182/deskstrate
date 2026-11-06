@@ -18,7 +18,7 @@
  * a byte is late (KB_LINK_BYTE_GAP_MS), or the CRC is wrong; then it hunts again. So a
  * corrupted byte costs one frame, never a wrong action.
  *
- * Reliability: KR_KVM_REQUEST is acknowledged. The ESP answers every good one with
+ * Reliability: KR_KVM_ACTION is acknowledged. The ESP answers every good one with
  * EK_ACK carrying its seq; the keyboard resends it (same seq) every KB_LINK_ACK_MS until
  * acked, up to KB_LINK_TRIES times. The ESP acts on a seq once and re-acks repeats.
  * Everything else is sent periodically or on change and simply replaced by the next one.
@@ -37,14 +37,26 @@
 #define KB_LINK_ACK_MS       50u
 #define KB_LINK_TRIES        5u
 #define KB_LINK_STATUS_MS    2000u  /* keyboard -> ESP status heartbeat */
-#define KB_LINK_VERSION      1u
+#define KB_LINK_VERSION      2u   /* 2: KR_KVM_ACTION replaced KR_KVM_REQUEST */
 
 /* keyboard -> ESP */
 enum kb_link_kr_type {
     KR_HELLO        = 0x01, /* [version] + text: sent when the link (re)starts */
-    KR_KVM_REQUEST  = 0x02, /* 4 bytes: a kvm_proto REQUEST [left, right, HID, media]; acked */
+    KR_KVM_ACTION   = 0x02, /* 1 byte: enum kb_link_action, a KVM key pressed; acked */
     KR_STATUS       = 0x03, /* struct kb_link_status */
     KR_TEXT         = 0x04, /* text, for the ESP's log and web page */
+};
+
+/* KR_KVM_ACTION: what a KVM key asks for. The ESP works out the request from the core's
+ * latest STATE with components/kvm_controls (the same rules as the deck's keys). */
+enum kb_link_action {
+    KB_ACT_LEFT       = 1, /* deck bottom-left: all to PC; split: keyboard to the left screen */
+    KB_ACT_RIGHT      = 2, /* deck bottom-right: all to Mac; split: keyboard to the right screen */
+    KB_ACT_SPLIT      = 3, /* enter / leave split */
+    KB_ACT_SWAP       = 4, /* swap the monitors; the media hub stays with its screen */
+    KB_ACT_OTHER_VOLU = 5, /* volume up on the PC/Mac that doesn't have the keyboard */
+    KB_ACT_OTHER_VOLD = 6, /* volume down, same host */
+    KB_ACT_OTHER_MUTE = 7, /* mute toggle, same host */
 };
 
 /* ESP -> keyboard */

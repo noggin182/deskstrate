@@ -11,9 +11,11 @@ Q3 Max, wired to the keyboard's STM32 (which runs `firmware/keyboard`). Hostname
   characters) to the keyboard, which echoes it back, so the page tests the link both ways.
 - **Link to the keyboard**: framed UART at 57600 with a CRC and acks
   (`components/kb_link_proto`, shared with `firmware/keyboard`). A KVM key on the
-  keyboard arrives as a request, is acked, and goes to the core as a `kvm_proto`
-  REQUEST, resent until the core's STATE shows it (`kvm_client`). Each new STATE goes
-  back to the keyboard.
+  keyboard arrives as an action (Fn+Left, split, swap, ...) and is acked. `kvm_client`
+  works out the `kvm_proto` REQUEST from the core's latest STATE with the deck's rules
+  (`components/kvm_controls`) and resends it until a STATE shows it. The other-host
+  volume keys are broadcast as a `KV` message for that host's daemon instead. Each new
+  STATE goes back to the keyboard.
 - **Deep sleep** once the keyboard has been off USB for 30 s, with the status LED off.
   It wakes when the keyboard is back on USB (a wake is a fresh boot).
 - **Updates** from GitHub releases like the core and deck (`components/ota_pull`):

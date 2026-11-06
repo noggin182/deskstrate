@@ -20,9 +20,9 @@ static uint8_t           tx_seq;
 static uint32_t          status_at;
 static uint16_t          resends;
 
-// The KVM request waiting for its ack.
+// The KVM action waiting for its ack.
 static bool     kvm_pending;
-static uint8_t  kvm_state[4];
+static uint8_t  kvm_action;
 static uint8_t  kvm_seq;
 static uint8_t  kvm_tries;
 static uint32_t kvm_sent_at;
@@ -199,7 +199,7 @@ void kb_link_task(void) {
         if (kvm_tries >= KB_LINK_TRIES) {
             kvm_pending = false;
         } else {
-            send_frame(KR_KVM_REQUEST, kvm_seq, kvm_state, 4);
+            send_frame(KR_KVM_ACTION, kvm_seq, &kvm_action, 1);
             kvm_tries++;
             resends++;
             kvm_sent_at = timer_read32();
@@ -208,12 +208,12 @@ void kb_link_task(void) {
     if (timer_elapsed32(status_at) >= KB_LINK_STATUS_MS) send_status();
 }
 
-void kb_link_send_kvm_request(const uint8_t state[4]) {
+void kb_link_send_kvm_action(uint8_t action) {
     if (!up) return;
-    memcpy(kvm_state, state, 4);
+    kvm_action  = action;
     kvm_seq     = tx_seq++;
     kvm_pending = true;
     kvm_tries   = 1;
-    send_frame(KR_KVM_REQUEST, kvm_seq, kvm_state, 4);
+    send_frame(KR_KVM_ACTION, kvm_seq, &kvm_action, 1);
     kvm_sent_at = timer_read32();
 }

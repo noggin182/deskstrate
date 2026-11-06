@@ -3,12 +3,19 @@
  * C++ only (the Mac daemon imports it through Swift's C++ interop).
  *
  * The core is the source of truth; everyone else asks. UDP, KVM_PORT on every node,
- * and every datagram is 6 bytes: a 2-byte magic then the 4 state bytes.
+ * and every datagram is 6 bytes: a 2-byte magic then 4 bytes (the state bytes, but
+ * for VOLUME).
  *
  *   "KS" STATE    core -> all. Broadcast on every change and every KVM_HEARTBEAT_MS,
  *                 and sent straight back to whoever sent a REQUEST.
  *   "KR" REQUEST  deck/hosts -> core. The state wanted; 0xFF bytes are left alone, so
  *                 KR FF FF FF FF changes nothing and just asks for a STATE.
+ *
+ *   "KV" VOLUME   keyboard ESP -> hosts, broadcast. [host, action, 0xFF, 0xFF]: host
+ *                 is enum kvm_host (PC or Mac), action enum kvm_volume. Only the daemon
+ *                 on that host acts on it; the core ignores it. Broadcast because the
+ *                 Mac's VPN keeps it from receiving unicast from the LAN. Not resent:
+ *                 a lost one is a missed step (resending a mute toggle could undo it).
  *
  * A REQUEST is idempotent: a sender that doesn't see its change in a STATE simply sends
  * it again.
@@ -42,6 +49,13 @@
 enum kvm_type {
     KVM_STATE   = 0x53,  /* 'S' */
     KVM_REQUEST = 0x52,  /* 'R' */
+    KVM_VOLUME  = 0x56,  /* 'V' */
+};
+
+enum kvm_volume {
+    KVM_VOL_UP   = 1,
+    KVM_VOL_DOWN = 2,
+    KVM_VOL_MUTE = 3,  /* toggle */
 };
 
 enum kvm_slot {

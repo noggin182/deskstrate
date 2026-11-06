@@ -99,7 +99,8 @@ guest hosts are purple and coral. Host labels appear below the hub icons,
 including guest numbers. Volume is planned for PC and Mac only and depends on
 a companion app running on those hosts.
 
-The keys ask the core to switch (`src/controls.h`). Split mode is not stored on
+The keys ask the core to switch (`src/controls.h`; what each one asks for is in
+`components/kvm_controls`, shared with the keyboard's Fn keys). Split mode is not stored on
 the deck: it is whenever the two monitors show different hosts.
 
 | Keys | Outside split mode | In split mode |

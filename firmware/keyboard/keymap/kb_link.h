@@ -11,6 +11,6 @@
 // Call every matrix scan (Keychron's housekeeping_task_kb doesn't call the user hook).
 void kb_link_task(void);
 
-// Sends a kvm_proto REQUEST [left, right, HID hub, media hub] to the ESP, resent until
-// acked. Dropped if the link isn't up (wireless or no USB power).
-void kb_link_send_kvm_request(const uint8_t state[4]);
+// Sends a KVM key press (enum kb_link_action) to the ESP, resent until acked; a newer
+// one replaces one still waiting. Dropped if the link isn't up (wireless or no USB power).
+void kb_link_send_kvm_action(uint8_t action);

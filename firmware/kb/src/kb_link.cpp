@@ -43,7 +43,7 @@ int64_t status_at_us = 0;  // 0: none yet
 kb_link_rx rx = {};
 uint8_t tx_seq = 0;
 int last_kvm_seq = -1;
-uint32_t acks = 0, kvm_requests = 0;
+uint32_t acks = 0, kvm_actions = 0;
 std::atomic<bool> started{false};
 
 uint32_t now_ms() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
@@ -83,15 +83,15 @@ void handle_locked() {
             keep_locked(hello);
             last_kvm_seq = -1;  // a restarted keyboard counts its seq from 0 again
             break;
-        case KR_KVM_REQUEST:
-            if (len != 4) break;
+        case KR_KVM_ACTION:
+            if (len != 1) break;
             send_locked(EK_ACK, &seq, 1, tx_seq++);
             acks++;
             if (seq == last_kvm_seq) break;  // a resend whose ack was lost: done already
             last_kvm_seq = seq;
-            kvm_requests++;
-            ESP_LOGI(TAG, "KVM request %02X %02X %02X %02X", p[0], p[1], p[2], p[3]);
-            kvm_client::request(p);
+            kvm_actions++;
+            ESP_LOGI(TAG, "KVM action %u", p[0]);
+            kvm_client::action(p[0]);
             break;
         case KR_STATUS:
             if (len != sizeof status) break;
@@ -251,9 +251,9 @@ int status_json(char *buf, size_t len) {
     } else {
         o += add(buf, len, o, "null");
     }
-    o += add(buf, len, o, ",\"status_ago_s\":%lld,\"rx_good\":%lu,\"rx_bad\":%lu,\"acks\":%lu,\"kvm_requests\":%lu,\"recent\":[",
+    o += add(buf, len, o, ",\"status_ago_s\":%lld,\"rx_good\":%lu,\"rx_bad\":%lu,\"acks\":%lu,\"kvm_actions\":%lu,\"recent\":[",
              status_at_us ? (long long)((now - status_at_us) / 1000000) : -1LL, (unsigned long)rx.good,
-             (unsigned long)rx.bad, (unsigned long)acks, (unsigned long)kvm_requests);
+             (unsigned long)rx.bad, (unsigned long)acks, (unsigned long)kvm_actions);
     for (size_t i = 0; i < recent_count && (size_t)o + 64 < len; i++) {
         const Text &t = recent[(recent_next + kRecent - recent_count + i) % kRecent];
         o += add(buf, len, o, "%s{\"ago_s\":%lld,\"text\":\"", i ? "," : "", (long long)((now - t.at_us) / 1000000));
