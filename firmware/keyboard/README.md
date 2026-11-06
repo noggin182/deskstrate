@@ -27,8 +27,8 @@ Text the ESP sends comes straight back as "echo: ...", to test the link both way
 
 ## Build and flash
 
-`./build.sh` (both layouts) or `./build.sh iso_encoder`. CI (`bench-firmware.yml`)
-builds both and uploads the `.bin` files as an artifact. `build.sh` also patches one line of
+`./build.sh` (both layouts) or `./build.sh iso_encoder`. CI (`keyboard.yml`)
+builds both; pushes to `main` put the `.bin` files and VIA JSON on the `keyboard` release. `build.sh` also patches one line of
 Keychron's config: it scans only 9 of the RGB drivers' 12 phases, which leaves the Tab row
 dark, so the build scans all 12.
 

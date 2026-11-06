@@ -1,0 +1,68 @@
+# Builds the keyboard's own firmware: the Deskstrate keymap for the Keychron Q3 Max (QMK,
+# firmware/keyboard/build.sh). This is the STM32 in the keyboard, flashed by hand over
+# DFU; the ESP inside the keyboard is "kb" in firmware.yml.
+# Every run keeps the images as an artifact. Pushes to main also put them, with the VIA
+# JSON, on the "keyboard" prerelease, so the latest build is always at
+# releases/download/keyboard/<file>.
+name: "Keyboard (QMK)"
+
+on:
+  push:
+    paths: &paths
+      - firmware/keyboard/**
+      - components/kb_link_proto/**
+      - .github/workflows/keyboard.yml
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keyboard-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  RELEASE: keyboard
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # update the keyboard release (main only)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the QMK toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util
+          pip install qmk
+      - uses: actions/cache@v4
+        with:
+          path: firmware/keyboard/.qmk
+          key: keychron-qmk-${{ hashFiles('firmware/keyboard/build.sh') }}
+      - name: Build
+        run: |
+          firmware/keyboard/build.sh
+          cp firmware/keyboard/via/*.json firmware/keyboard/out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-${{ github.sha }}
+          path: firmware/keyboard/out/
+          if-no-files-found: error
+      - name: Publish to the keyboard release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A prerelease never becomes "latest", so the boards' OTA (releases/latest) and
+          # firmware.yml's "gh release view" never see it.
+          gh release view "$RELEASE" >/dev/null 2>&1 || \
+            gh release create "$RELEASE" --prerelease --latest=false --title "Keyboard firmware (QMK)" --notes "-"
+          gh release upload "$RELEASE" firmware/keyboard/out/* --clobber
+          gh release edit "$RELEASE" --notes "Keyboard firmware (QMK) and VIA JSON from ${GITHUB_SHA::7}, built by .github/workflows/keyboard.yml. Flash over DFU (firmware/keyboard/README.md)."
