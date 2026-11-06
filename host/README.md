@@ -76,6 +76,7 @@ A LaunchAgent (`com.deskstrate.host`) in the user's session, restarted if it
 exits. Needs the Xcode command line tools (`xcode-select --install`).
 
 ```
+make -C host/mac cert        # once: a signing certificate, so rebuilds keep Accessibility
 make -C host/mac install     # build, install to ~/Library/Application Support/Deskstrate, start
 make -C host/mac uninstall
 host/mac/build/deskstrate-host --list-displays   # serials, origins, mirroring
@@ -94,6 +95,13 @@ To get macOS's own volume steps and HUD, add `deskstrate-host` under System
 Settings > Privacy & Security > Accessibility; without that it sets the output's
 volume directly in 1/16 steps, with no HUD. An output with no software volume (some
 USB DACs: the volume keys are greyed out) can't be changed either way.
+
+macOS ties that permission to the binary's signature. `make cert` (once; it asks for your
+password to trust the certificate) creates a self-signed "Deskstrate Host Signing"
+certificate in the login keychain, and every build is then signed with it, so the
+permission survives rebuilds. Without it the build is ad-hoc signed, looks like a new app
+each time, and needs removing (−) and re-adding in Accessibility after every
+`make install`; switching the old entry off and on isn't enough.
 
 Building it on the Mac (rather than downloading the CI artifact) avoids
 Gatekeeper quarantine on an unsigned binary.
