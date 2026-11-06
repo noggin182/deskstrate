@@ -264,7 +264,8 @@ def main():
             "layouts": {"keymap": kle_rows(layout["layout"])},
         }
         path = HERE / f"q3_max_{variant}_deskstrate.json"
-        path.write_text(json.dumps(definition, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        # ASCII only (⇄ as \u21c4): VIA's Design tab misreads raw UTF-8 as Windows-1252.
+        path.write_text(json.dumps(definition, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
         print(f"{path.name}: {layout_name}, {len(layout['layout'])} keys")
 
 
