@@ -61,8 +61,8 @@ them set in `sdkconfig.s3_mini` (gitignored, never commit it) writes them there;
 a build with them blank, like CI's, keeps the stored ones. So a new board needs
 one USB flash of a build with both set, and nothing after that does.
 
-CI (`.github/workflows/firmware.yml`) builds core and deck on every push and
-keeps `firmware.bin`, `bootloader.bin` and `partitions.bin` as artifacts. Those
+CI (`.github/workflows/firmware.yml`) builds core, deck and kb whenever their
+sources change and keeps their images as artifacts. Those
 images carry no secrets.
 
 ## OTA

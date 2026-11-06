@@ -27,8 +27,8 @@ Text the ESP sends comes straight back as "echo: ...", to test the link both way
 
 ## Build and flash
 
-`./build.sh` (both layouts) or `./build.sh iso_encoder`. CI (`bench-firmware.yml`)
-builds both and uploads the `.bin` files as an artifact. `build.sh` also patches one line of
+`./build.sh` builds the UK (ISO) board only. CI (`keyboard.yml`)
+builds it too; pushes to `main` put the `.bin` and VIA JSON on the `keyboard` release. `build.sh` also patches one line of
 Keychron's config: it scans only 9 of the RGB drivers' 12 phases, which leaves the Tab row
 dark, so the build scans all 12.
 
@@ -58,8 +58,7 @@ keys do nothing.
 They are bound like any other key, so rebinding doesn't need a reflash. To see them by
 name, use VIA rather than the Keychron Launcher (which only loads Keychron's own
 definitions): open usevia.app in Chrome or Edge with the keyboard on a cable, turn on
-Settings > Show Design tab, load `via/q3_max_iso_encoder_deskstrate.json` (UK) or the
-ANSI one under Design, and the keys appear under Custom. The definitions are generated
+Settings > Show Design tab, load `via/q3_max_iso_encoder_deskstrate.json` under Design, and the keys appear under Custom. The definitions are generated
 by `via/make_via_json.py` from Keychron's `keyboard.json`, with the lighting menu
 copied from the Launcher's own definition; rerun it if the keys change.
 

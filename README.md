@@ -25,7 +25,7 @@ or `pio run -d firmware/deck`, or open `deskstrate.code-workspace` in VS Code to
 
 ## Deployment
 
-Every push to `main` is built by GitHub Actions (`.github/workflows/firmware.yml`)
+Every push to `main` that changes a board is built by GitHub Actions (`.github/workflows/firmware.yml`)
 and published as a release (`build-<run>.<attempt>`) with `manifest.txt`,
 `deskstrate_core.bin`, `deskstrate_deck.bin` and `deskstrate_kb.bin`. CI then rings each board's
 doorbell, and the boards download and install their own image from the release
@@ -72,3 +72,14 @@ when all is well.
 | Purple, flashing | Writing an update to the spare slot |
 | Red | A fault: a service didn't start, no Wi-Fi, or the last update check failed |
 | Orange, bright | Deck only: no `STATE` from the core for 10 s |
+
+## CI workflows
+
+| Workflow | File | Runs when | Produces |
+| --- | --- | --- | --- |
+| Firmware: core, deck, kb (release + OTA) | `firmware.yml` | core, deck, kb or `components/` change | On `main`: a `build-<run>.<attempt>` release, then rings the doorbells |
+| Keyboard (QMK) | `keyboard.yml` | `firmware/keyboard` or `kb_link_proto` change | On `main`: the `.bin` and VIA JSON on the `keyboard` prerelease |
+| Host daemons: Windows, Mac | `host.yml` | `host/` or `kvm_proto` change | Policy tests; the daemons as run artifacts |
+| TLS certificates (renew) | `tls.yml` | weekly, or a `tls/*.csr` changes on `main` | Certificates on the `tls` prerelease |
+
+The bench tools (`firmware/bench`, `radio_test`, `swd_dump`) aren't built in CI.

@@ -25,7 +25,7 @@ the `tls` release (a prerelease, so it never counts as "latest"). The board fetc
      and `kb.deskstrate` → the kb's address. Give both boards DHCP reservations so the
      addresses don't move. Don't touch the existing `deskstrate` A record: the doorbells
      use it.
-3. Test the DNS side: run the tls workflow by hand with **staging** ticked. It uses Let's
+3. Test the DNS side: run the "TLS certificates (renew)" workflow by hand with **staging** ticked. It uses Let's
    Encrypt's staging server and publishes nothing.
 
 ## Adding a board (or after its key changes)

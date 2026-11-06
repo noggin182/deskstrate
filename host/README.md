@@ -44,7 +44,7 @@ One exe, `deskstrate-host.exe`, normally installed as a service:
   at the sign-in or lock screen.
 
 Build (Visual Studio 2022 with the C++ workload, or take the
-`deskstrate-host-windows` artifact from the `host` workflow run):
+`deskstrate-host-windows` artifact from the "Host daemons" workflow run):
 
 ```
 cmake -S host/windows -B host/windows/build -A x64

@@ -1,7 +1,7 @@
 # Builds the host daemons (host/) and runs the shared policy's tests. The images are kept
 # as artifacts of each run; nothing is deployed (the hosts are installed by hand, see
 # host/README.md).
-name: host
+name: "Host daemons: Windows, Mac"
 
 on:
   push:

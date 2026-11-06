@@ -1,4 +1,4 @@
-# Builds the core, deck and kb (keyboard) firmware. Pushes to main are published as a
+# Builds the core, deck and kb (the ESP inside the keyboard) firmware. Pushes to main are published as a
 # GitHub release and the boards' doorbells are rung, so they pull the new images themselves
 # (components/ota_pull/include/ota_pull.h). No secrets: Wi-Fi credentials and the core's
 # OTA push token live in each board's NVS.
@@ -13,11 +13,24 @@
 #   the tools a build needs and cached. platformio.ini is kept for flashing on the bench.
 # - The release is published and the doorbells rung before any cache is saved.
 # Run it by hand with "rebuild" to build every board from scratch.
-name: firmware
+# The keyboard's own QMK firmware is keyboard.yml. Bench tools (bench, radio_test,
+# swd_dump) aren't built in CI.
+name: "Firmware: core, deck, kb (release + OTA)"
 
 on:
+  # Only when something a board image is built or released from changes. A push that
+  # skips this workflow is still covered: the next one compares against the last release.
   push:
+    paths: &paths
+      - firmware/core/**
+      - firmware/deck/**
+      - firmware/kb/**
+      - components/**
+      - tools/release_manifest.py
+      - tools/doorbell.py
+      - .github/workflows/firmware.yml
   pull_request:
+    paths: *paths
   workflow_dispatch:
     inputs:
       rebuild:

@@ -18,7 +18,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 QMK_BOARD = HERE.parent / ".qmk" / "keyboards" / "keychron" / "q3_max"
 
-VARIANTS = {"iso_encoder": "ISO", "ansi_encoder": "ANSI"}
+VARIANTS = {"iso_encoder": "ISO"}  # UK only
 ENCODER_KEY = [0, 13]  # the knob's press switch
 
 KEYCHRON_KEYS = [

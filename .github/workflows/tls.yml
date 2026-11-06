@@ -12,7 +12,7 @@
 # Needs the repo secret DESEC_TOKEN (a deSEC API token). The ACME account email is the repo
 # variable ACME_EMAIL, or certs@nogsnet.com: lego requires one, and Let's Encrypt no longer
 # sends mail to it.
-name: tls
+name: "TLS certificates (renew)"
 
 on:
   schedule:
