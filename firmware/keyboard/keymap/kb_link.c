@@ -1,6 +1,7 @@
 // See kb_link.h.
 #include QMK_KEYBOARD_H
 #include <string.h>
+#include <stdio.h>
 #include "kb_link.h"
 #include "kb_link_proto.h"
 #include "transport.h"
@@ -121,9 +122,15 @@ static void handle_frame(void) {
     }
 }
 
+// Diagnostics: raw bytes seen and USART error flags, reported as text with each status.
+static uint32_t diag_bytes;
+static uint8_t  diag_err;
+static uint8_t  diag_last;
+
 static void rx_poll(void) {
     // A framing or overrun error doesn't stop the DMA; clear it so the USART keeps going
     // (SR then DR). The CRC drops whatever it corrupted.
+    diag_err |= (uint8_t)(USART2->SR & 0x0Fu);  // PE, FE, NE, ORE
     if (USART2->SR & (USART_SR_ORE | USART_SR_FE | USART_SR_NE)) {
         (void)USART2->SR;
         (void)USART2->DR;
@@ -131,6 +138,8 @@ static void rx_poll(void) {
     const uint16_t head = (uint16_t)(RX_BUF_SIZE - DMA1_Stream5->NDTR) % RX_BUF_SIZE;
     const uint32_t now  = timer_read32();
     while (rx_tail != head) {
+        diag_bytes++;
+        diag_last = rx_dma_buf[rx_tail];
         if (kb_link_feed(&rx, rx_dma_buf[rx_tail], now)) handle_frame();
         rx_tail = (uint16_t)((rx_tail + 1) % RX_BUF_SIZE);
     }
@@ -152,6 +161,10 @@ static void send_status(void) {
     };
     send_frame(KR_STATUS, tx_seq++, &s, sizeof s);
     status_at = timer_read32();
+    char d[KB_LINK_MAX_PAYLOAD];
+    snprintf(d, sizeof d, "rx b=%lu e=%x l=%02x n=%u m=%lx", (unsigned long)diag_bytes, diag_err, diag_last,
+             (unsigned)DMA1_Stream5->NDTR, (unsigned long)((GPIOA->MODER >> 6) & 3u) | ((GPIOA->IDR & 8u) << 1));
+    send_text(d);
 }
 
 static void link_up(void) {
