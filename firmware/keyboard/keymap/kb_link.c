@@ -20,7 +20,12 @@ static uint8_t           tx_seq;
 static uint32_t          status_at;
 static uint16_t          resends;
 
-// The KVM action waiting for its ack.
+// The KVM action waiting for its ack, and the ones queued behind it (one at a time, since
+// the ESP only remembers the last seq it acted on). Sleep's wake and a KVM key can be
+// pressed together.
+#define KVM_QUEUE 4
+static uint8_t  kvm_queue[KVM_QUEUE];
+static uint8_t  kvm_queued;
 static bool     kvm_pending;
 static uint8_t  kvm_action;
 static uint8_t  kvm_seq;
@@ -99,12 +104,31 @@ static void rx_stop(void) {
     palSetLineMode(A3, PAL_MODE_INPUT_PULLUP);
 }
 
+static void kvm_send(uint8_t action) {
+    kvm_action  = action;
+    kvm_seq     = tx_seq++;
+    kvm_pending = true;
+    kvm_tries   = 1;
+    send_frame(KR_KVM_ACTION, kvm_seq, &kvm_action, 1);
+    kvm_sent_at = timer_read32();
+}
+
+// The pending action is acked or given up on: send the next queued one, if any.
+static void kvm_next(void) {
+    kvm_pending = false;
+    if (kvm_queued == 0) return;
+    const uint8_t next = kvm_queue[0];
+    kvm_queued--;
+    memmove(kvm_queue, kvm_queue + 1, kvm_queued);
+    kvm_send(next);
+}
+
 static void handle_frame(void) {
     const uint8_t  type = KB_LINK_TYPE(&rx), len = KB_LINK_LEN(&rx);
     const uint8_t *p    = KB_LINK_PAYLOAD(&rx);
     switch (type) {
         case EK_ACK:
-            if (len == 1 && kvm_pending && p[0] == kvm_seq) kvm_pending = false;
+            if (len == 1 && kvm_pending && p[0] == kvm_seq) kvm_next();
             break;
         case EK_KVM_STATE:
             if (len == 4) memcpy(core_state, p, 4);
@@ -176,6 +200,7 @@ static void link_up(void) {
 static void link_down(void) {
     up          = false;
     kvm_pending = false;
+    kvm_queued  = 0;
     rx_stop();
     tx_line(false);  // low: the ESP's "keyboard off USB"
     palSetLineMode(B12, PAL_MODE_OUTPUT_PUSHPULL);
@@ -197,7 +222,7 @@ void kb_link_task(void) {
     rx_poll();
     if (kvm_pending && timer_elapsed32(kvm_sent_at) >= KB_LINK_ACK_MS) {
         if (kvm_tries >= KB_LINK_TRIES) {
-            kvm_pending = false;
+            kvm_next();
         } else {
             send_frame(KR_KVM_ACTION, kvm_seq, &kvm_action, 1);
             kvm_tries++;
@@ -210,10 +235,9 @@ void kb_link_task(void) {
 
 void kb_link_send_kvm_action(uint8_t action) {
     if (!up) return;
-    kvm_action  = action;
-    kvm_seq     = tx_seq++;
-    kvm_pending = true;
-    kvm_tries   = 1;
-    send_frame(KR_KVM_ACTION, kvm_seq, &kvm_action, 1);
-    kvm_sent_at = timer_read32();
+    if (kvm_pending) {
+        if (kvm_queued < KVM_QUEUE) kvm_queue[kvm_queued++] = action;
+        return;
+    }
+    kvm_send(action);
 }

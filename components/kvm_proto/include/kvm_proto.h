@@ -16,10 +16,10 @@
  *                 on that host acts on it; the core ignores it. Broadcast because the
  *                 Mac's VPN keeps it from receiving unicast from the LAN. Not resent:
  *                 a lost one is a missed step (resending a mute toggle could undo it).
- *   "KD" DISPLAYS keyboard ESP -> hosts, broadcast. [enum kvm_displays, FF, FF, FF]:
+ *   "KD" DISPLAYS keyboard ESP -> hosts, broadcast. [enum kvm_displays, seq, FF, FF]:
  *                 every daemon puts its own displays to sleep (not the computer) or
- *                 wakes them; the core ignores it. Sent a few times, since doing it
- *                 twice is harmless.
+ *                 wakes them; the core ignores it. Each command is sent three times
+ *                 with the same seq (0-254, new per command); act on a seq once.
  *
  * A REQUEST is idempotent: a sender that doesn't see its change in a STATE simply sends
  * it again.

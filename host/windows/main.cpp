@@ -200,15 +200,13 @@ void on_volume(const uint8_t b[KVM_SLOTS]) {
 }
 
 // The keyboard's Sleep key (and the key press after it), broadcast by the keyboard's ESP to
-// both hosts: [enum kvm_displays, FF, FF, FF]. It sends each one three times in case one is
-// lost: act on the first only.
+// both hosts: [enum kvm_displays, seq, FF, FF]. It sends each command three times with the
+// same seq in case one is lost: act on a seq once.
 void on_displays(const uint8_t b[KVM_SLOTS]) {
-    static ULONGLONG last = 0;
-    static uint8_t last_what = KVM_UNKNOWN;
-    const ULONGLONG now = GetTickCount64();
-    if (b[0] == last_what && now - last < 1000) return;
-    last = now;
-    last_what = b[0];
+    static int last_seq = -1;
+    if (b[0] != KVM_DISPLAYS_SLEEP && b[0] != KVM_DISPLAYS_WAKE) return;
+    if (b[1] == last_seq) return;
+    last_seq = b[1];
     if (b[0] == KVM_DISPLAYS_SLEEP) {
         trace("displays: sleep (keyboard)");
         if (g_mode == Mode::Service) agent::sleep_displays(); else displays::sleep();

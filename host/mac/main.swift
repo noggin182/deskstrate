@@ -268,15 +268,15 @@ func onVolume(_ b: [UInt8]) {
     if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
 }
 
-// KD DISPLAYS [enum kvm_displays, FF, FF, FF]: the keyboard's Sleep key sleeps the displays
-// (not the Mac), and the key press after it wakes them. The ESP sends each one three times
-// in case one is lost: act on the first only.
-var lastDisplays: (what: UInt8, at: Date)?
+// KD DISPLAYS [enum kvm_displays, seq, FF, FF]: the keyboard's Sleep key sleeps the displays
+// (not the Mac), and the key press after it wakes them. The ESP sends each command three
+// times with the same seq in case one is lost: act on a seq once.
+var lastDisplaysSeq: UInt8?
 func onDisplays(_ b: [UInt8]) {
-    if let last = lastDisplays, last.what == b[0], Date().timeIntervalSince(last.at) < 1 { return }
-    lastDisplays = (b[0], Date())
-    if b[0] == UInt8(KVM_DISPLAYS_WAKE.rawValue) { wakeDisplays(); return }
-    guard b[0] == UInt8(KVM_DISPLAYS_SLEEP.rawValue) else { return }
+    let wake = b[0] == UInt8(KVM_DISPLAYS_WAKE.rawValue)
+    guard wake || b[0] == UInt8(KVM_DISPLAYS_SLEEP.rawValue), b[1] != lastDisplaysSeq else { return }
+    lastDisplaysSeq = b[1]
+    if wake { wakeDisplays(); return }
     log("displays: sleep (keyboard)")
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
