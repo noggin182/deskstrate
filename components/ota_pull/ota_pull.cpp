@@ -1,5 +1,6 @@
 #include "ota_pull.h"
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -35,6 +36,8 @@ struct Last {
 };
 Last last;
 SemaphoreHandle_t last_lock;
+
+std::atomic<DoorbellHook> doorbell_hook{nullptr};
 
 bool reached(TickType_t deadline) { return (int32_t)(xTaskGetTickCount() - deadline) >= 0; }
 
@@ -259,7 +262,11 @@ void task(void *arg) {
         }
         uint8_t buf[16];
         const int n = recv(sock, buf, sizeof buf, 0);
-        if (n >= (int)sizeof kDoorbellMagic && memcmp(buf, kDoorbellMagic, sizeof kDoorbellMagic) == 0 && !rung) {
+        const bool doorbell = n >= (int)sizeof kDoorbellMagic && memcmp(buf, kDoorbellMagic, sizeof kDoorbellMagic) == 0;
+        if (doorbell) {
+            if (const DoorbellHook hook = doorbell_hook.load()) hook();
+        }
+        if (doorbell && !rung) {
             rung = true;
             status_led::set_activity(status_led::kDoorbell, true);
             ESP_LOGI(TAG, "doorbell: checking %s", reached(next_allowed) ? "now" : "when the rate limit allows");
@@ -347,6 +354,8 @@ esp_err_t start(uint16_t doorbell_port) {
     }
     return ESP_OK;
 }
+
+void on_doorbell(DoorbellHook hook) { doorbell_hook = hook; }
 
 void confirm_boot(bool healthy) {
     esp_ota_img_states_t s;

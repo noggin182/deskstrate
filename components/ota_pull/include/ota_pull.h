@@ -49,6 +49,12 @@ inline constexpr uint32_t kConfirmTimeoutMs = 60 * 1000;
 // network), from either board.
 esp_err_t start(uint16_t doorbell_port);
 
+// Called from the updater's task each time a doorbell arrives (before the rate limit),
+// so other parts of the board can react to it too: web_tls re-fetches its certificate.
+// Keep it quick and non-blocking (e.g. notify a task). One hook; a second call replaces it.
+using DoorbellHook = void (*)();
+void on_doorbell(DoorbellHook hook);
+
 // Rollback guard, call once after start-up. A new image boots pending verify: this marks
 // it valid once Wi-Fi has an IP within kConfirmTimeoutMs (and `healthy`, the app's own
 // services started, is true); otherwise it rolls back to the previous image and reboots.

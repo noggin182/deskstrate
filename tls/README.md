@@ -7,8 +7,9 @@ Only its certificate signing request (CSR), which is public, comes here.
 
 `.github/workflows/tls.yml` turns each `<board>.csr` in this folder into a certificate,
 renews it weekly once it has less than 30 days left, and publishes it as `<board>.pem` on
-the `tls` release (a prerelease, so it never counts as "latest"). The board fetches it
-30 s after boot and every 12 hours, and installs it only if it matches its own key.
+the `tls` release (a prerelease, so it never counts as "latest"), then rings that board's
+update doorbell. The board fetches its certificate on the doorbell, 30 s after boot and
+every 12 hours, and installs it only if it matches its own key.
 
 ## One-time setup
 
@@ -43,8 +44,9 @@ curl -o tls/core.csr http://deskstrate.local/api/tls/csr
 curl -o tls/kb.csr http://deskstrate-kb.local/api/tls/csr
 ```
 
-The push runs the workflow, and the board picks the certificate up within 12 hours.
-Reboot it to pick it up straight away. `GET /api/tls` shows what it has:
+The push runs the workflow, which rings the board's doorbell once the certificate is
+published, so the board installs it within a minute or so. If the ring is missed, it
+picks it up at its next 12-hourly check, or straight away after a reboot. `GET /api/tls` shows what it has:
 
 ```
 {"name":"core","domain":"deskstrate.nogsnet.com","https":true,

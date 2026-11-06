@@ -86,6 +86,7 @@ jobs:
           [ ${#csrs[@]} -gt 0 ] || { echo "no tls/*.csr yet: nothing to do"; exit 0; }
           mkdir -p out
           failed=0
+          published=""
           for csr in "${csrs[@]}"; do
             board=$(basename "$csr" .csr)
             openssl req -in "$csr" -noout -verify >/dev/null
@@ -119,6 +120,7 @@ jobs:
                 echo "staging certificate issued; not published"
               else
                 gh release upload "$RELEASE" "out/$board.pem" --clobber
+                published="$published $board"
               fi
             else
               echo "::error::$board: lego failed"
@@ -126,4 +128,16 @@ jobs:
             fi
             echo "::endgroup::"
           done
+          # Ring the doorbells of boards that got a new certificate, so they fetch it now
+          # rather than at their next 12-hourly check (components/web_tls). Best effort.
+          ports=""
+          for board in $published; do
+            case "$board" in
+              core) ports="$ports 18210" ;;
+              kb) ports="$ports 18212" ;;
+            esac
+          done
+          if [ -n "$ports" ]; then
+            python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" $ports || true
+          fi
           exit $failed
