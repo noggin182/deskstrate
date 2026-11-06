@@ -27,9 +27,9 @@ static const uint8_t kvm_actions[DESKSTRATE_KEYS_END - KVM_LEFT] = {
     [KVM_SLEEP - KVM_LEFT]      = KB_ACT_SLEEP,
 };
 
-// KVM_SLEEP turns the lighting off without saving that, and the next key press turns it
-// back on (unless the lighting was already off, or that press is a lighting toggle, which
-// then does its usual thing).
+// KVM_SLEEP turns the lighting off without saving that, and the next key press always
+// turns it back on, then goes to the host as usual (so it also wakes the host). A lighting
+// toggle as that press is left to turn it on itself.
 static bool rgb_off_for_sleep = false;
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
@@ -39,7 +39,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     }
     if (keycode >= KVM_LEFT && keycode < DESKSTRATE_KEYS_END) {
         if (record->event.pressed) {
-            if (keycode == KVM_SLEEP && rgb_matrix_is_enabled()) {
+            if (keycode == KVM_SLEEP) {
                 rgb_matrix_disable_noeeprom();
                 rgb_off_for_sleep = true;
             }
