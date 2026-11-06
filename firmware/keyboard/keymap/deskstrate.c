@@ -24,11 +24,27 @@ static const uint8_t kvm_actions[DESKSTRATE_KEYS_END - KVM_LEFT] = {
     [KVM_OTHER_VOLU - KVM_LEFT] = KB_ACT_OTHER_VOLU,
     [KVM_OTHER_VOLD - KVM_LEFT] = KB_ACT_OTHER_VOLD,
     [KVM_OTHER_MUTE - KVM_LEFT] = KB_ACT_OTHER_MUTE,
+    [KVM_SLEEP - KVM_LEFT]      = KB_ACT_SLEEP,
 };
 
+// KVM_SLEEP turns the lighting off without saving that, and the next key press turns it
+// back on (unless the lighting was already off, or that press is a lighting toggle, which
+// then does its usual thing).
+static bool rgb_off_for_sleep = false;
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (record->event.pressed && rgb_off_for_sleep && keycode != KVM_SLEEP) {
+        rgb_off_for_sleep = false;
+        if (keycode != QK_UNDERGLOW_TOGGLE && keycode != QK_RGB_MATRIX_TOGGLE) rgb_matrix_enable_noeeprom();
+    }
     if (keycode >= KVM_LEFT && keycode < DESKSTRATE_KEYS_END) {
-        if (record->event.pressed) kb_link_send_kvm_action(kvm_actions[keycode - KVM_LEFT]);
+        if (record->event.pressed) {
+            if (keycode == KVM_SLEEP && rgb_matrix_is_enabled()) {
+                rgb_matrix_disable_noeeprom();
+                rgb_off_for_sleep = true;
+            }
+            kb_link_send_kvm_action(kvm_actions[keycode - KVM_LEFT]);
+        }
         return false;
     }
     return true;

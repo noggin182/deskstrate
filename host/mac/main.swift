@@ -4,7 +4,8 @@
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
 // extend or mirror the two Dells, and wake the displays when a monitor comes back to the
 // Mac or the keyboard moves to it. A KV VOLUME message for the Mac changes its volume
-// (the keyboard's Fn+knob while the keyboard is on the PC). It only ever sends the core
+// (the keyboard's Fn+knob while the keyboard is on the PC), and a KZ SLEEP (the keyboard's
+// Sleep key) puts the displays to sleep. It only ever sends the core
 // an empty REQUEST, to get a STATE.
 //
 // Mirroring as in the VERIFIED test (PROJECT_KNOWLEDGE.md §3): CGConfigureDisplayMirrorOfDisplay
@@ -267,6 +268,19 @@ func onVolume(_ b: [UInt8]) {
     if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
 }
 
+// KZ SLEEP, the keyboard's Sleep key: put the displays to sleep (not the Mac). The ESP
+// sends it three times in case one is lost: act on the first only.
+var lastSleep: Date?
+func onSleep() {
+    if let last = lastSleep, Date().timeIntervalSince(last) < 1 { return }
+    lastSleep = Date()
+    log("displays: sleep (keyboard)")
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+    p.arguments = ["displaysleepnow"]
+    do { try p.run() } catch { log("displays: pmset failed: \(error)") }
+}
+
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
     var msg = kvm_msg_t()
     guard let base = buf.baseAddress else { return }
@@ -274,6 +288,8 @@ func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
         onState([msg.b.0, msg.b.1, msg.b.2, msg.b.3], from: from)
     } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_VOLUME.rawValue), &msg) != 0 {
         onVolume([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
+    } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_SLEEP.rawValue), &msg) != 0 {
+        onSleep()
     }
 }
 

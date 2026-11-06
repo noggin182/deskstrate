@@ -57,6 +57,7 @@ enum kb_link_action {
     KB_ACT_OTHER_VOLU = 5, /* volume up on the PC/Mac that doesn't have the keyboard */
     KB_ACT_OTHER_VOLD = 6, /* volume down, same host */
     KB_ACT_OTHER_MUTE = 7, /* mute toggle, same host */
+    KB_ACT_SLEEP      = 8, /* both hosts put their displays to sleep (kvm_proto SLEEP) */
 };
 
 /* ESP -> keyboard */

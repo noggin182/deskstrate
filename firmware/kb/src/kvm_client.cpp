@@ -60,6 +60,21 @@ void send_volume_locked(uint8_t host, uint8_t vol) {
     sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
 }
 
+// Call with mutex held. SLEEP is broadcast for the same reason as VOLUME (the Mac's VPN),
+// three times since a broadcast over Wi-Fi can be lost and sleeping twice is harmless (the
+// daemons ignore repeats within a second).
+void send_sleep_locked() {
+    sockaddr_in to = {};
+    to.sin_family = AF_INET;
+    to.sin_port = htons(KVM_PORT);
+    to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    const uint8_t b[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
+    const kvm_msg_t msg = kvm_msg(KVM_SLEEP, b);
+    for (int i = 0; i < 3; i++) {
+        sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
+    }
+}
+
 // Call with mutex held.
 void request_locked(const uint8_t b[KVM_SLOTS]) {
     memcpy(wanted, b, KVM_SLOTS);
@@ -184,6 +199,11 @@ void action(uint8_t act) {
         case KB_ACT_OTHER_VOLU: vol = KVM_VOL_UP; break;
         case KB_ACT_OTHER_VOLD: vol = KVM_VOL_DOWN; break;
         case KB_ACT_OTHER_MUTE: vol = KVM_VOL_MUTE; break;
+        case KB_ACT_SLEEP:
+            ESP_LOGI(TAG, "sleep: both hosts' displays");
+            send_sleep_locked();
+            xSemaphoreGive(mutex);
+            return;
         default: ESP_LOGW(TAG, "unknown action %u", act); break;
     }
     if (vol) {

@@ -59,11 +59,12 @@ back the same way.
 | KVM_SWAP | Swap the monitors; the media hub stays with its screen | Fn+Down |
 | KVM_OTHER_VOLD / VOLU | Volume down / up on whichever of PC and Mac doesn't have the keyboard | Fn+knob turn |
 | KVM_OTHER_MUTE | Mute toggle on that host | Fn+knob press |
+| KVM_SLEEP | Lighting off (back on at the next key press) and both PC and Mac put their displays to sleep | Fn+Tab, say |
 
 Each key sends only its action (`KR_KVM_ACTION`) to the ESP32, which works out what to
 ask the core for from the core's latest state, with the same code as the deck
-(`components/kvm_controls`). The volume keys become a broadcast to the other host's
-daemon instead, so they need the daemons installed. That all works in cable mode with
+(`components/kvm_controls`). The volume and sleep keys become a broadcast to the hosts'
+daemons instead, so they need the daemons installed. That all works in cable mode with
 USB power only: in wireless modes the ESP32 is asleep and the keys do nothing.
 
 The bindings aren't in the default keymap: set them in VIA, on both Fn layers (Mac Fn

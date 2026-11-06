@@ -3,7 +3,8 @@
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
 // extend or duplicate the displays, and wake them when a monitor comes back to the PC or
 // the keyboard moves to it. A KV VOLUME message for the PC presses its volume keys (the
-// keyboard's Fn+knob while the keyboard is on the Mac). It only ever sends the core an empty REQUEST, to get a STATE.
+// keyboard's Fn+knob while the keyboard is on the Mac), and a KZ SLEEP (the keyboard's
+// Sleep key) puts the displays to sleep. It only ever sends the core an empty REQUEST, to get a STATE.
 //
 // One exe, three ways to run:
 //   --service    the normal install: a LocalSystem service started at boot, so it works
@@ -198,10 +199,22 @@ void on_volume(const uint8_t b[KVM_SLOTS]) {
     if (g_mode == Mode::Service) agent::volume(b[1]); else displays::volume(b[1]);
 }
 
+// The keyboard's Sleep key, broadcast by the keyboard's ESP to both hosts. It sends each
+// one three times in case one is lost: act on the first only.
+void on_sleep() {
+    static ULONGLONG last = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (last && now - last < 1000) return;
+    last = now;
+    trace("displays: sleep (keyboard)");
+    if (g_mode == Mode::Service) agent::sleep_displays(); else displays::sleep();
+}
+
 void on_datagram(const uint8_t *buf, int n, const sockaddr_in &from) {
     kvm_msg_t msg;
     if (kvm_decode(buf, n, KVM_STATE, &msg)) on_state(msg.b, from);
     else if (kvm_decode(buf, n, KVM_VOLUME, &msg)) on_volume(msg.b);
+    else if (kvm_decode(buf, n, KVM_SLEEP, &msg)) on_sleep();
 }
 
 void on_socket() {
