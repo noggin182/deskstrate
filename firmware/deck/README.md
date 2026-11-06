@@ -143,6 +143,11 @@ the first `STATE` arrives all four breathe amber. Each press flashes its key
 white. Which NeoPixel sits under which key is set in `kPixelForKey` in
 `src/neokeys.cpp`.
 
+The keyboard's Sleep key also dims the deck: its `KD` sleep broadcast fades the
+TFT backlight to about 3% and the key lights to an eighth of their level. The
+keyboard's `KD` wake (its next key press), or a press on any deck key, brings
+them back. The deck key still does what it normally does.
+
 A debug code overlay (on by default; Debug code in the menu)
 covers the volume panel to make states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
 Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
