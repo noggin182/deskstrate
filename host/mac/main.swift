@@ -23,7 +23,89 @@ import AudioToolbox  // kAudioHardwareServiceDeviceProperty_VirtualMainVolume
 import CoreAudio
 import CoreGraphics
 import Foundation
+import IOKit
 import IOKit.pwr_mgt
+
+// ---- DDC/CI (Apple Silicon) ------------------------------------------------------
+// The Sleep key puts the monitors showing the Mac into DDC standby (VCP 0xD6 = 4) before
+// sleeping the displays, so they go dark at once instead of showing "No signal", and
+// switches them back on (0xD6 = 1) on wake: a monitor in DDC standby doesn't wake on its
+// own when the signal comes back. Apple Silicon has no public DDC API; this uses the
+// IOAVService calls that MonitorControl, m1ddc and BetterDisplay use.
+
+@_silgen_name("IOAVServiceCreateWithService")
+func IOAVServiceCreateWithService(_ allocator: CFAllocator?, _ service: io_service_t) -> Unmanaged<CFTypeRef>?
+@_silgen_name("IOAVServiceReadI2C")
+func IOAVServiceReadI2C(_ service: CFTypeRef, _ chip: UInt32, _ offset: UInt32, _ buf: UnsafeMutableRawPointer, _ size: UInt32) -> IOReturn
+@_silgen_name("IOAVServiceWriteI2C")
+func IOAVServiceWriteI2C(_ service: CFTypeRef, _ chip: UInt32, _ offset: UInt32, _ buf: UnsafeMutableRawPointer, _ size: UInt32) -> IOReturn
+
+let vcpInput: UInt8 = 0x60
+let vcpPower: UInt8 = 0xD6  // 1 on, 4 standby
+let macInputs: Set<UInt16> = [0x1B]  // the Dells' USB-C input
+let ddcQueue = DispatchQueue(label: "ddc")
+
+/// The external displays' AV services (one per display on a DCP).
+func avServices() -> [CFTypeRef] {
+    var out: [CFTypeRef] = []
+    var iter: io_iterator_t = 0
+    guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("DCPAVServiceProxy"), &iter) == KERN_SUCCESS else { return out }
+    defer { IOObjectRelease(iter) }
+    var s = IOIteratorNext(iter)
+    while s != 0 {
+        let loc = IORegistryEntryCreateCFProperty(s, "Location" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String
+        if loc == "External", let av = IOAVServiceCreateWithService(kCFAllocatorDefault, s) {
+            out.append(av.takeRetainedValue())
+        }
+        IOObjectRelease(s)
+        s = IOIteratorNext(iter)
+    }
+    return out
+}
+
+func ddcWrite(_ av: CFTypeRef, _ body: [UInt8]) -> Bool {
+    var packet = body
+    packet.append(body.reduce(UInt8(0x6E ^ 0x51), ^))  // checksum: dest 0x6E, source 0x51
+    var ok = false
+    for _ in 0..<2 {  // as MonitorControl does: a single write is sometimes dropped
+        usleep(10_000)
+        if IOAVServiceWriteI2C(av, 0x37, 0x51, &packet, UInt32(packet.count)) == kIOReturnSuccess { ok = true }
+    }
+    return ok
+}
+
+/// The current value of a VCP feature, or nil if the monitor didn't answer.
+func ddcGet(_ av: CFTypeRef, _ vcp: UInt8) -> UInt16? {
+    for _ in 0..<3 {
+        guard ddcWrite(av, [0x82, 0x01, vcp]) else { continue }
+        usleep(40_000)
+        var reply = [UInt8](repeating: 0, count: 12)
+        guard IOAVServiceReadI2C(av, 0x37, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess else { continue }
+        // [0x6E, 0x88, 0x02 (VCP reply), result, vcp, type, max hi, max lo, cur hi, cur lo, checksum]
+        for i in 0...(reply.count - 8) where reply[i] == 0x02 && reply[i + 1] == 0x00 && reply[i + 2] == vcp {
+            return UInt16(reply[i + 6]) << 8 | UInt16(reply[i + 7])
+        }
+    }
+    return nil
+}
+
+func ddcSet(_ av: CFTypeRef, _ vcp: UInt8, _ value: UInt16) -> Bool {
+    ddcWrite(av, [0x84, 0x03, vcp, UInt8(value >> 8), UInt8(value & 0xFF)])
+}
+
+/// DDC power on every monitor whose input is the Mac's. Monitors showing another host
+/// are left alone (a Dell ignores standby from an input it isn't showing anyway).
+func ddcPower(on: Bool) {
+    let want: UInt16 = on ? 1 : 4
+    for (i, av) in avServices().enumerated() {
+        guard let input = ddcGet(av, vcpInput) else { log("ddc: display \(i): no reply"); continue }
+        guard macInputs.contains(input & 0xFF) else { continue }
+        if let p = ddcGet(av, vcpPower), p & 0xFF == want { continue }
+        let ok = ddcSet(av, vcpPower, want)
+        log("ddc: display \(i) \(on ? "on" : "standby")\(ok ? "" : " failed")")
+    }
+}
+
 
 // ---- options -----------------------------------------------------------------
 
@@ -53,6 +135,17 @@ do {
         case "--core": if let v = args.next() { coreFixed = inet_addr(v) }
         case "--left-serial": if let v = args.next(), let n = UInt32(v) { serials[UInt8(KVM_MON_LEFT.rawValue)] = n }
         case "--right-serial": if let v = args.next(), let n = UInt32(v) { serials[UInt8(KVM_MON_RIGHT.rawValue)] = n }
+        case "--ddc-list":  // each external display's input and power, over DDC
+            for (i, av) in avServices().enumerated() {
+                let hex = { (v: UInt16?) in v.map { String(format: "%02X", $0) } ?? "no reply" }
+                print("display \(i): input \(hex(ddcGet(av, vcpInput))), power \(hex(ddcGet(av, vcpPower)))")
+            }
+            exit(0)
+        case "--ddc":  // --ddc standby | on: the monitors showing the Mac
+            let v = args.next()
+            guard v == "standby" || v == "on" else { FileHandle.standardError.write("--ddc standby|on\n".data(using: .utf8)!); exit(2) }
+            ddcPower(on: v == "on")
+            exit(0)
         case "--list-displays":
             for d in onlineDisplays() {
                 let b = CGDisplayBounds(d)
@@ -74,6 +167,8 @@ func wakeDisplays() {
     log("displays: wake")
     var id: IOPMAssertionID = 0
     IOPMAssertionDeclareUserActivity("Deskstrate" as CFString, kIOPMUserActiveLocal, &id)
+    // A monitor in DDC standby stays dark until told otherwise.
+    ddcQueue.async { ddcPower(on: true) }
 }
 
 func displaysAsleep() -> Bool {
@@ -278,10 +373,10 @@ func onDisplays(_ b: [UInt8]) {
     lastDisplaysSeq = b[1]
     if wake { wakeDisplays(); return }
     log("displays: sleep (keyboard)")
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-    p.arguments = ["displaysleepnow"]
-    do { try p.run() } catch { log("displays: pmset failed: \(error)") }
+    // DDC standby only: the signal stays on, so the monitors go dark at once with no
+    // "No signal", and macOS doesn't see a display sleep (which would lock the Mac). The
+    // keyboard wakes them (KD wake -> wakeDisplays()).
+    ddcQueue.async { ddcPower(on: false) }
 }
 
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {

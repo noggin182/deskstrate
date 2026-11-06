@@ -2,6 +2,8 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <lowlevelmonitorconfigurationapi.h>
+#include <physicalmonitorenumerationapi.h>
 
 #include <vector>
 
@@ -43,16 +45,61 @@ void on_input_desktop(Fn fn) {
     CloseHandle(t);
 }
 
+constexpr BYTE kVcpInput = 0x60;
+constexpr BYTE kVcpPower = 0xD6;  // 1 on, 4 standby
+
+// The Dells' input codes (VCP 0x60) that are this PC: DisplayPort.
+bool is_pc_input(DWORD v) {
+    v &= 0xFF;
+    return v == 0x0F || v == 0x10;
+}
+
+// Sets DDC/CI power on every monitor whose input is this PC's. A monitor showing another
+// host is left alone: that host decides, and a Dell ignores standby from an input it isn't
+// showing anyway.
+void ddc_power_here(bool on) {
+    std::vector<HMONITOR> mons;
+    EnumDisplayMonitors(
+        nullptr, nullptr,
+        [](HMONITOR m, HDC, LPRECT, LPARAM p) -> BOOL {
+            reinterpret_cast<std::vector<HMONITOR> *>(p)->push_back(m);
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&mons));
+    const DWORD want = on ? 1 : 4;
+    for (HMONITOR m : mons) {
+        DWORD n = 0;
+        if (!GetNumberOfPhysicalMonitorsFromHMONITOR(m, &n) || n == 0) continue;
+        std::vector<PHYSICAL_MONITOR> pms(n);
+        if (!GetPhysicalMonitorsFromHMONITOR(m, n, pms.data())) continue;
+        for (PHYSICAL_MONITOR &pm : pms) {
+            DWORD input = 0, power = 0, max = 0;
+            if (!GetVCPFeatureAndVCPFeatureReply(pm.hPhysicalMonitor, kVcpInput, nullptr, &input, &max)) {
+                trace("ddc: %ls: no reply (%lu)", pm.szPhysicalMonitorDescription, GetLastError());
+                continue;
+            }
+            if (!is_pc_input(input)) continue;
+            if (GetVCPFeatureAndVCPFeatureReply(pm.hPhysicalMonitor, kVcpPower, nullptr, &power, &max) &&
+                (power & 0xFF) == want) {
+                continue;
+            }
+            if (SetVCPFeature(pm.hPhysicalMonitor, kVcpPower, want)) {
+                trace("ddc: %ls %s", pm.szPhysicalMonitorDescription, on ? "on" : "standby");
+            } else {
+                trace("ddc: %ls: set power failed (%lu)", pm.szPhysicalMonitorDescription, GetLastError());
+            }
+        }
+        DestroyPhysicalMonitors(n, pms.data());
+    }
+}
+
 }  // namespace
 
+// DDC standby only: the signal stays on, so the monitors go dark at once with no
+// "No signal", and Windows doesn't treat it as display sleep. The keyboard wakes them
+// (KD wake -> wake()).
 void sleep() {
-    on_input_desktop([] {
-        // DefWindowProc carries out SC_MONITORPOWER; a throwaway window on this desktop
-        // means no other app's window can stall it.
-        HWND w = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, nullptr, nullptr);
-        DefWindowProcW(w, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
-        if (w) DestroyWindow(w);
-    });
+    on_input_desktop([] { ddc_power_here(false); });
 }
 
 void volume(uint8_t kvm_volume) {
@@ -81,6 +128,8 @@ void wake() {
         in[1].mi.dx = -1;
         if (SendInput(2, in, sizeof in[0]) != 2) trace("SendInput failed: %lu", GetLastError());
         SetThreadExecutionState(ES_DISPLAY_REQUIRED);
+        // A monitor in DDC standby doesn't wake on input or signal: switch it on.
+        ddc_power_here(true);
     });
 }
 

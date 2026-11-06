@@ -7,8 +7,8 @@
 
 namespace displays {
 
-void sleep();                    // SC_MONITORPOWER 2
-void wake();                     // a 1 px mouse nudge (SC_MONITORPOWER -1 is unreliable)
+void sleep();                    // DDC standby (VCP D6 = 4) on the monitors showing this PC
+void wake();                     // a 1 px mouse nudge (SC_MONITORPOWER -1 is unreliable), then DDC on
 bool set_topology(uint8_t topo); // HOST_TOPO_EXTEND / HOST_TOPO_MIRROR (Duplicate); true if applied
 
 // Presses the media volume key for enum kvm_volume (up / down / mute), as the keyboard's

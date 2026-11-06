@@ -11,7 +11,7 @@ target_include_directories(deskstrate-host PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
     ${CMAKE_CURRENT_SOURCE_DIR}/../../components/kvm_proto/include)
 target_compile_definitions(deskstrate-host PRIVATE UNICODE _UNICODE _WIN32_WINNT=0x0A00)
-target_link_libraries(deskstrate-host PRIVATE ws2_32 shell32 ole32 user32 advapi32 wtsapi32)
+target_link_libraries(deskstrate-host PRIVATE ws2_32 shell32 ole32 user32 advapi32 wtsapi32 dxva2)
 if(MINGW)
     target_link_options(deskstrate-host PRIVATE -static)
 endif()
