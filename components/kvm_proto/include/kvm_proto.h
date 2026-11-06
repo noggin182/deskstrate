@@ -4,7 +4,7 @@
  *
  * The core is the source of truth; everyone else asks. UDP, KVM_PORT on every node,
  * and every datagram is 6 bytes: a 2-byte magic then 4 bytes (the state bytes, but
- * for VOLUME and SLEEP).
+ * for VOLUME and DISPLAYS).
  *
  *   "KS" STATE    core -> all. Broadcast on every change and every KVM_HEARTBEAT_MS,
  *                 and sent straight back to whoever sent a REQUEST.
@@ -16,9 +16,10 @@
  *                 on that host acts on it; the core ignores it. Broadcast because the
  *                 Mac's VPN keeps it from receiving unicast from the LAN. Not resent:
  *                 a lost one is a missed step (resending a mute toggle could undo it).
- *   "KZ" SLEEP    keyboard ESP -> hosts, broadcast. FF FF FF FF. Every daemon puts its
- *                 own displays to sleep (not the computer); the core ignores it. Sent a
- *                 few times, since sleeping twice is harmless.
+ *   "KD" DISPLAYS keyboard ESP -> hosts, broadcast. [enum kvm_displays, FF, FF, FF]:
+ *                 every daemon puts its own displays to sleep (not the computer) or
+ *                 wakes them; the core ignores it. Sent a few times, since doing it
+ *                 twice is harmless.
  *
  * A REQUEST is idempotent: a sender that doesn't see its change in a STATE simply sends
  * it again.
@@ -53,7 +54,12 @@ enum kvm_type {
     KVM_STATE   = 0x53,  /* 'S' */
     KVM_REQUEST = 0x52,  /* 'R' */
     KVM_VOLUME  = 0x56,  /* 'V' */
-    KVM_SLEEP   = 0x5A,  /* 'Z' */
+    KVM_DISPLAYS = 0x44, /* 'D' */
+};
+
+enum kvm_displays {
+    KVM_DISPLAYS_SLEEP = 0,
+    KVM_DISPLAYS_WAKE  = 1,
 };
 
 enum kvm_volume {

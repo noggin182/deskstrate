@@ -64,7 +64,7 @@ allow the firewall prompt on Private networks). `-Uninstall` removes either.
 
 The keyboard's Fn+knob (while the keyboard is on the Mac) presses the PC's volume
 keys, with Windows' usual on-screen indicator. Its Sleep key puts the displays to
-sleep (both hosts', wherever the keyboard is).
+sleep (both hosts', wherever the keyboard is), and the next key press wakes them.
 
 Logs: `%ProgramData%\Deskstrate\service.log` and `agent.log` (service), or
 `%LOCALAPPDATA%\Deskstrate\host.log` (standalone). Options `--no-topology` and
@@ -88,7 +88,8 @@ pass `--left-serial` / `--right-serial` (add them to `ProgramArguments` in
 local network: allow it, or it never hears the core.
 
 The keyboard's Fn+knob (while the keyboard is on the PC) changes the Mac's volume,
-and its Sleep key runs `pmset displaysleepnow` (the displays only, not the Mac).
+and its Sleep key runs `pmset displaysleepnow` (the displays only, not the Mac); the
+next key press wakes them.
 To get macOS's own volume steps and HUD, add `deskstrate-host` under System
 Settings > Privacy & Security > Accessibility; without that it sets the output's
 volume directly in 1/16 steps, with no HUD. An output with no software volume (some
