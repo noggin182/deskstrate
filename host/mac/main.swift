@@ -18,6 +18,7 @@
 //          --list-displays        print the online displays and their serials, then exit
 
 import AppKit
+import AudioToolbox  // kAudioHardwareServiceDeviceProperty_VirtualMainVolume
 import CoreAudio
 import CoreGraphics
 import Foundation
