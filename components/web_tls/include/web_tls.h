@@ -8,8 +8,10 @@
 // as an asset of the "tls" release:
 //   <ota_pull::kReleases>/download/tls/<name>.pem   leaf + intermediate, PEM
 // Like firmware updates, nothing is pushed into the board: it fetches that file itself
-// kFirstFetchMs after boot and every kFetchMs, and installs it only if it is a
-// certificate for its own key. A new certificate restarts the HTTPS server.
+// kFirstFetchMs after boot, every kFetchMs, and on the board's update doorbell (ota_pull,
+// which the tls workflow rings after publishing), at most once per kMinGapMs. It installs
+// it only if it is a certificate for its own key. A new certificate restarts the HTTPS
+// server.
 //
 // HTTPS (port 443) serves the same handlers as the plain server, plus:
 //   GET /api/tls       {"name","domain","https","cert":{"subject","issuer","not_after"}|null,
@@ -27,6 +29,7 @@ namespace web_tls {
 
 inline constexpr uint32_t kFirstFetchMs = 30 * 1000;
 inline constexpr uint32_t kFetchMs = 12 * 60 * 60 * 1000;
+inline constexpr uint32_t kMinGapMs = 60 * 1000;  // between fetches, doorbell or not
 inline constexpr int kUriHandlers = 2;  // handlers start() adds to each server
 
 // Registers the app's own handlers on a server. Called for the HTTPS server each time it

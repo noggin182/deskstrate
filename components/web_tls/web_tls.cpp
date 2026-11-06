@@ -257,8 +257,15 @@ void fetch_once(char *buf, size_t len) {
     set_fetch_result("installed, valid until %s", info.not_after);
 }
 
+TaskHandle_t fetch_handle = nullptr;
+
+// A doorbell (ota_pull) wakes the fetch task early. Called from ota_pull's task.
+void doorbell() {
+    if (fetch_handle) xTaskNotifyGive(fetch_handle);
+}
+
 void fetch_task(void *) {
-    vTaskDelay(pdMS_TO_TICKS(kFirstFetchMs));
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kFirstFetchMs));  // a doorbell cuts this short
     for (;;) {
         std::unique_ptr<char[]> buf(new (std::nothrow) char[kCertMax]);
         if (buf) {
@@ -267,7 +274,11 @@ void fetch_task(void *) {
             set_fetch_result("out of memory");
         }
         buf.reset();
-        vTaskDelay(pdMS_TO_TICKS(kFetchMs));
+        // At most one fetch per kMinGapMs, however often the doorbell rings; then wait for
+        // the next poll or a doorbell, whichever comes first.
+        vTaskDelay(pdMS_TO_TICKS(kMinGapMs));
+        ulTaskNotifyTake(pdTRUE, 0);  // drop rings that arrived during the gap
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kFetchMs - kMinGapMs));
     }
 }
 
@@ -343,7 +354,8 @@ esp_err_t start(const char *name, httpd_handle_t http, RegisterFn register_fn) {
     }
     buf.reset();
 
-    if (xTaskCreate(fetch_task, "web_tls", 8192, nullptr, 3, nullptr) != pdPASS) return ESP_ERR_NO_MEM;
+    if (xTaskCreate(fetch_task, "web_tls", 8192, nullptr, 3, &fetch_handle) != pdPASS) return ESP_ERR_NO_MEM;
+    ota_pull::on_doorbell(doorbell);
     return ESP_OK;
 }
 
