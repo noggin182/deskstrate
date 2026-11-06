@@ -264,7 +264,8 @@ def main():
             "layouts": {"keymap": kle_rows(layout["layout"])},
         }
         path = HERE / f"q3_max_{variant}_deskstrate.json"
-        path.write_text(json.dumps(definition, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        # ASCII only (\u21c4 for ⇄): usevia reads the file as Latin-1, which garbles raw UTF-8 labels.
+        path.write_text(json.dumps(definition, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
         print(f"{path.name}: {layout_name}, {len(layout['layout'])} keys")
 
 
