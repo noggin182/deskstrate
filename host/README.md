@@ -63,8 +63,10 @@ powershell -ExecutionPolicy Bypass -File host\windows\install.ps1 -Exe host\wind
 allow the firewall prompt on Private networks). `-Uninstall` removes either.
 
 The keyboard's Fn+knob (while the keyboard is on the Mac) presses the PC's volume
-keys, with Windows' usual on-screen indicator. Its Sleep key puts the displays to
-sleep (both hosts', wherever the keyboard is), and the next key press wakes them.
+keys, with Windows' usual on-screen indicator. Its Sleep key puts the monitors
+showing the PC into DDC/CI standby (VCP D6 = 4, so they don't flash "No signal") and then
+the displays to sleep (both hosts', wherever the keyboard is); the next key press, or
+Windows waking the displays, switches DDC back on.
 
 Logs: `%ProgramData%\Deskstrate\service.log` and `agent.log` (service), or
 `%LOCALAPPDATA%\Deskstrate\host.log` (standalone). Options `--no-topology` and
@@ -92,8 +94,11 @@ while running it by hand from Terminal does, check System Settings > Privacy & S
 Local Network.)
 
 The keyboard's Fn+knob (while the keyboard is on the PC) changes the Mac's volume,
-and its Sleep key runs `pmset displaysleepnow` (the displays only, not the Mac); the
-next key press wakes them.
+and its Sleep key puts the monitors showing the Mac into DDC standby, then runs `pmset
+displaysleepnow` (the displays only, not the Mac); the next key press wakes them (and
+switches DDC back on). `deskstrate-host --ddc-list` shows each external display's input and
+power over DDC; `--ddc standby` / `--ddc on` try it by hand. DDC on Apple Silicon uses the
+private IOAVService calls, as MonitorControl does.
 To get macOS's own volume steps and HUD, add `deskstrate-host` under System
 Settings > Privacy & Security > Accessibility; without that it sets the output's
 volume directly in 1/16 steps, with no HUD. An output with no software volume (some

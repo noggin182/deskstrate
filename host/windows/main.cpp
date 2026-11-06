@@ -249,6 +249,11 @@ void on_display_state(DWORD value) {  // GUID_CONSOLE_DISPLAY_STATE: 0 off, 1 on
     if (on == g_displays_on) return;
     g_displays_on = on;
     trace("displays: %s", on ? "on" : "off");
+    // Windows woke the displays (mouse, keyboard...): a monitor the Sleep key put into DDC
+    // standby stays dark until it's told to come back.
+    if (on) {
+        if (g_mode == Mode::Service) agent::ddc_on(); else displays::ddc_power(true);
+    }
 }
 
 void on_power(WPARAM event) {
