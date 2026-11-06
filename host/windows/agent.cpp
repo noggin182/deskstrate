@@ -36,8 +36,7 @@ int run() {
                 displays::sleep();
             } else if (cmd == "wake") {
                 displays::wake();
-            } else if (cmd == "ddcon") {
-                displays::ddc_power(true);
+
             } else if (cmd == "extend") {
                 displays::set_topology(HOST_TOPO_EXTEND);
             } else if (cmd == "mirror") {
@@ -147,7 +146,6 @@ bool send(const char *cmd) {
 
 void sleep_displays() { send("sleep"); }
 void wake_displays() { send("wake"); }
-void ddc_on() { send("ddcon"); }
 bool set_topology(uint8_t topo) { return send(topo == HOST_TOPO_MIRROR ? "mirror" : "extend"); }
 void volume(uint8_t kvm_volume) {
     switch (kvm_volume) {

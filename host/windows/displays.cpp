@@ -5,7 +5,6 @@
 #include <lowlevelmonitorconfigurationapi.h>
 #include <physicalmonitorenumerationapi.h>
 
-#include <atomic>
 #include <vector>
 
 #include "host_policy.h"
@@ -57,9 +56,8 @@ bool is_pc_input(DWORD v) {
 
 // Sets DDC/CI power on every monitor whose input is this PC's. A monitor showing another
 // host is left alone: that host decides, and a Dell ignores standby from an input it isn't
-// showing anyway. Returns how many of this PC's monitors are now in that state.
-int ddc_power_here(bool on) {
-    int done = 0;
+// showing anyway.
+void ddc_power_here(bool on) {
     std::vector<HMONITOR> mons;
     EnumDisplayMonitors(
         nullptr, nullptr,
@@ -83,11 +81,9 @@ int ddc_power_here(bool on) {
             if (!is_pc_input(input)) continue;
             if (GetVCPFeatureAndVCPFeatureReply(pm.hPhysicalMonitor, kVcpPower, nullptr, &power, &max) &&
                 (power & 0xFF) == want) {
-                done++;
                 continue;
             }
             if (SetVCPFeature(pm.hPhysicalMonitor, kVcpPower, want)) {
-                done++;
                 trace("ddc: %ls %s", pm.szPhysicalMonitorDescription, on ? "on" : "standby");
             } else {
                 trace("ddc: %ls: set power failed (%lu)", pm.szPhysicalMonitorDescription, GetLastError());
@@ -95,63 +91,15 @@ int ddc_power_here(bool on) {
         }
         DestroyPhysicalMonitors(n, pms.data());
     }
-    return done;
-}
-
-// Bumped by every sleep and every DDC on, so a watcher from an older sleep stops.
-std::atomic<unsigned> g_ddc_gen{0};
-
-// After a DDC standby: the PC keeps sending a signal, so Windows doesn't see the displays
-// as off, and a monitor in DDC standby doesn't wake on its own. Watch for local input (a
-// mouse move, a key on another keyboard) and switch DDC back on. Input in the first second
-// is ignored: that's the Sleep key itself being let go.
-void watch_input_then_wake(unsigned gen) {
-    HANDLE t = CreateThread(
-        nullptr, 0,
-        [](LPVOID p) -> DWORD {
-            const unsigned gen = static_cast<unsigned>(reinterpret_cast<uintptr_t>(p));
-            const DWORD since = GetTickCount() + 1000;
-            while (g_ddc_gen == gen) {
-                ::Sleep(250);
-                LASTINPUTINFO li = {sizeof li};
-                if (GetLastInputInfo(&li) && (LONG)(li.dwTime - since) > 0) {
-                    unsigned expected = gen;
-                    if (g_ddc_gen.compare_exchange_strong(expected, gen + 1)) {
-                        trace("ddc: input, waking");
-                        on_input_desktop([] { ddc_power_here(true); });
-                    }
-                    break;
-                }
-            }
-            return 0;
-        },
-        reinterpret_cast<LPVOID>(static_cast<uintptr_t>(gen)), 0, nullptr);
-    if (t) CloseHandle(t);
 }
 
 }  // namespace
 
-void ddc_power(bool on) {
-    if (on) g_ddc_gen++;
-    on_input_desktop([on] { ddc_power_here(on); });
-}
-
+// DDC standby only: the signal stays on, so the monitors go dark at once with no
+// "No signal", and Windows doesn't treat it as display sleep. The keyboard wakes them
+// (KD wake -> wake()).
 void sleep() {
-    on_input_desktop([] {
-        // DDC standby leaves the signal on, so the monitors go dark at once instead of
-        // flashing "No signal" (which turning the display output off causes). Only when
-        // no monitor took it does Windows turn the displays off instead.
-        const unsigned gen = ++g_ddc_gen;
-        if (ddc_power_here(false) > 0) {
-            watch_input_then_wake(gen);
-            return;
-        }
-        // DefWindowProc carries out SC_MONITORPOWER; a throwaway window on this desktop
-        // means no other app's window can stall it.
-        HWND w = CreateWindowExW(0, L"STATIC", L"", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, nullptr, nullptr);
-        DefWindowProcW(w, WM_SYSCOMMAND, SC_MONITORPOWER, 2);
-        if (w) DestroyWindow(w);
-    });
+    on_input_desktop([] { ddc_power_here(false); });
 }
 
 void volume(uint8_t kvm_volume) {
@@ -180,9 +128,7 @@ void wake() {
         in[1].mi.dx = -1;
         if (SendInput(2, in, sizeof in[0]) != 2) trace("SendInput failed: %lu", GetLastError());
         SetThreadExecutionState(ES_DISPLAY_REQUIRED);
-        // A monitor in DDC standby doesn't wake on input or signal: switch it on. (If the
-        // displays were off too, this may be too early; the display-on event repeats it.)
-        g_ddc_gen++;
+        // A monitor in DDC standby doesn't wake on input or signal: switch it on.
         ddc_power_here(true);
     });
 }

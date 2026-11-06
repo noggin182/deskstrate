@@ -44,8 +44,6 @@ let vcpInput: UInt8 = 0x60
 let vcpPower: UInt8 = 0xD6  // 1 on, 4 standby
 let macInputs: Set<UInt16> = [0x1B]  // the Dells' USB-C input
 let ddcQueue = DispatchQueue(label: "ddc")
-// Bumped (on ddcQueue) by every sleep and every DDC on, so a watcher from an older sleep stops.
-var ddcGen = 0
 
 /// The external displays' AV services (one per display on a DCP).
 func avServices() -> [CFTypeRef] {
@@ -96,44 +94,18 @@ func ddcSet(_ av: CFTypeRef, _ vcp: UInt8, _ value: UInt16) -> Bool {
 }
 
 /// DDC power on every monitor whose input is the Mac's. Monitors showing another host
-/// are left alone (a Dell ignores standby from an input it isn't showing anyway). Returns
-/// how many of the Mac's monitors are now in that state.
-@discardableResult
-func ddcPower(on: Bool) -> Int {
-    if on { ddcGen += 1 }
+/// are left alone (a Dell ignores standby from an input it isn't showing anyway).
+func ddcPower(on: Bool) {
     let want: UInt16 = on ? 1 : 4
-    var done = 0
     for (i, av) in avServices().enumerated() {
         guard let input = ddcGet(av, vcpInput) else { log("ddc: display \(i): no reply"); continue }
         guard macInputs.contains(input & 0xFF) else { continue }
-        if let p = ddcGet(av, vcpPower), p & 0xFF == want { done += 1; continue }
+        if let p = ddcGet(av, vcpPower), p & 0xFF == want { continue }
         let ok = ddcSet(av, vcpPower, want)
-        if ok { done += 1 }
         log("ddc: display \(i) \(on ? "on" : "standby")\(ok ? "" : " failed")")
     }
-    return done
 }
 
-
-/// After a DDC standby the Mac keeps sending a signal, so macOS doesn't see the displays
-/// as asleep, and a monitor in DDC standby doesn't wake on its own. Watch for local input
-/// (trackpad, another keyboard) and switch DDC back on. Input in the first second is
-/// ignored: that's the Sleep key being let go.
-func watchInputThenWake(gen: Int) {
-    let since = Date().addingTimeInterval(1)
-    func check() {
-        guard ddcGen == gen else { return }
-        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState,
-                                                           eventType: CGEventType(rawValue: ~0)!)
-        if Date().addingTimeInterval(-idle) > since {
-            log("ddc: input, waking")
-            ddcPower(on: true)
-        } else {
-            ddcQueue.asyncAfter(deadline: .now() + 0.25, execute: check)
-        }
-    }
-    ddcQueue.asyncAfter(deadline: .now() + 0.25, execute: check)
-}
 
 // ---- options -----------------------------------------------------------------
 
@@ -195,8 +167,7 @@ func wakeDisplays() {
     log("displays: wake")
     var id: IOPMAssertionID = 0
     IOPMAssertionDeclareUserActivity("Deskstrate" as CFString, kIOPMUserActiveLocal, &id)
-    // A monitor in DDC standby stays dark until told otherwise. If the displays were
-    // asleep this may be too early; the displays-on change below repeats it.
+    // A monitor in DDC standby stays dark until told otherwise.
     ddcQueue.async { ddcPower(on: true) }
 }
 
@@ -402,20 +373,10 @@ func onDisplays(_ b: [UInt8]) {
     lastDisplaysSeq = b[1]
     if wake { wakeDisplays(); return }
     log("displays: sleep (keyboard)")
-    ddcQueue.async {
-        // DDC standby leaves the signal on: the monitors go dark at once, with no
-        // "No signal" and no display sleep (which would also lock the Mac). Only when no
-        // monitor took it does the Mac sleep its displays instead.
-        ddcGen += 1
-        if ddcPower(on: false) > 0 {
-            watchInputThenWake(gen: ddcGen)
-            return
-        }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-        p.arguments = ["displaysleepnow"]
-        do { try p.run() } catch { log("displays: pmset failed: \(error)") }
-    }
+    // DDC standby only: the signal stays on, so the monitors go dark at once with no
+    // "No signal", and macOS doesn't see a display sleep (which would lock the Mac). The
+    // keyboard wakes them (KD wake -> wakeDisplays()).
+    ddcQueue.async { ddcPower(on: false) }
 }
 
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
@@ -433,7 +394,6 @@ func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
 func onDisplaysChanged(on: Bool) {
     displaysOn = on
     log("displays: \(on ? "on" : "off")")
-    if on { ddcQueue.async { ddcPower(on: true) } }
 }
 
 // ---- main ----------------------------------------------------------------------

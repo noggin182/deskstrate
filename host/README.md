@@ -64,10 +64,10 @@ allow the firewall prompt on Private networks). `-Uninstall` removes either.
 
 The keyboard's Fn+knob (while the keyboard is on the Mac) presses the PC's volume
 keys, with Windows' usual on-screen indicator. Its Sleep key puts the monitors
-showing the PC into DDC/CI standby (VCP D6 = 4). The signal stays on, so there's no
-"No signal" flash; Windows only turns the displays off itself if no monitor took the DDC
-command. The next key press, a switch to the PC, or any local input (after the first
-second) switches DDC back on.
+showing the PC into DDC/CI standby (VCP D6 = 4). DDC only: the signal stays on, so
+there's no "No signal" flash and Windows doesn't see a display sleep. The keyboard's next
+key press (a KD wake broadcast, so it reaches both hosts even in split mode) or a switch to
+the PC switches DDC back on.
 
 Logs: `%ProgramData%\Deskstrate\service.log` and `agent.log` (service), or
 `%LOCALAPPDATA%\Deskstrate\host.log` (standalone). Options `--no-topology` and
@@ -95,10 +95,9 @@ while running it by hand from Terminal does, check System Settings > Privacy & S
 Local Network.)
 
 The keyboard's Fn+knob (while the keyboard is on the PC) changes the Mac's volume,
-and its Sleep key puts the monitors showing the Mac into DDC standby (the signal stays
-on: no "No signal", and no display sleep, which would lock the Mac); only if no monitor
-took it does it run `pmset displaysleepnow`. The next key press, a switch to the Mac, or
-any local input (after the first second) switches DDC back on. `deskstrate-host --ddc-list` shows each external display's input and
+and its Sleep key puts the monitors showing the Mac into DDC standby only (the signal stays
+on: no "No signal", and no display sleep, which would lock the Mac). The keyboard's next
+key press (KD wake) or a switch to the Mac switches DDC back on. `deskstrate-host --ddc-list` shows each external display's input and
 power over DDC; `--ddc standby` / `--ddc on` try it by hand. DDC on Apple Silicon uses the
 private IOAVService calls, as MonitorControl does.
 To get macOS's own volume steps and HUD, add `deskstrate-host` under System
