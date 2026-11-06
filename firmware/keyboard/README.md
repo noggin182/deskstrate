@@ -32,6 +32,15 @@ builds both and uploads the `.bin` files as an artifact. `build.sh` also patches
 Keychron's config: it scans only 9 of the RGB drivers' 12 phases, which leaves the Tab row
 dark, so the build scans all 12.
 
+It also patches `quantum/via.c` so that flashing keeps your keymap and macros. Stock VIA
+stamps the EEPROM with the build date and resets the keymap and macros at boot when it
+doesn't match, so every new build wiped them. `build.sh` uses the fixed
+`VIA_EEPROM_DATE` instead. Bump it only when the stored layout changes (layer or macro
+sizes, or a new `KEYCHRON_COMMIT` that moves things); that resets the keymap and macros
+once. Keep a VIA Save + Load backup anyway: the settings live in one flash sector, and
+losing power while QMK rewrites it (it erases the sector when its write log fills, often
+right after a macro save) still resets everything.
+
 To flash: unplug, set the mode switch to Cable, hold Esc (or the reset button under the
 space bar) while plugging in, then flash the `.bin` with QMK Toolbox or
 `dfu-util -a 0 -d 0483:df11 -s 0x08000000:leave -D <file>.bin`. The STM32 bootloader
