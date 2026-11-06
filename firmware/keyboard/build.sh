@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the Deskstrate keymap for the Keychron Q3 Max on top of Keychron's QMK fork.
-#   firmware/keyboard/build.sh [ansi_encoder|iso_encoder ...]   (default: both)
+#   firmware/keyboard/build.sh   (the UK ISO + encoder board, the only one in use)
 # Needs the QMK build environment: QMK MSYS on Windows, or arm-none-eabi-gcc, dfu-util
 # and `pip install qmk` elsewhere. Images land in out/.
 set -euo pipefail
@@ -11,8 +11,7 @@ KEYCHRON_COMMIT=57e682caa0a821e6de1b589e6f983f266151ab02
 
 here=$(cd "$(dirname "$0")" && pwd)
 qmk_dir=$here/.qmk
-variants=("$@")
-[ ${#variants[@]} -gt 0 ] || variants=(ansi_encoder iso_encoder)
+variants=(iso_encoder)
 
 if [ "$(git -C "$qmk_dir" rev-parse HEAD 2>/dev/null)" != "$KEYCHRON_COMMIT" ]; then
     rm -rf "$qmk_dir"

@@ -48,7 +48,7 @@ jobs:
       - name: Build
         run: |
           firmware/keyboard/build.sh
-          cp firmware/keyboard/via/*.json firmware/keyboard/out/
+          cp firmware/keyboard/via/q3_max_iso_encoder_deskstrate.json firmware/keyboard/out/
       - uses: actions/upload-artifact@v4
         with:
           name: keyboard-${{ github.sha }}
