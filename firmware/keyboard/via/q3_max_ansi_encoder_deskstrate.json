@@ -243,39 +243,74 @@
       "shortName": "Bat"
     },
     {
-      "name": "KVM: all to PC / split: keyboard to left screen",
-      "title": "KVM: all to PC / split: keyboard to left screen",
-      "shortName": "KVM\u2190"
+      "name": "KVM: everything to PC",
+      "title": "KVM: everything to PC",
+      "shortName": "\u21c4PC"
     },
     {
-      "name": "KVM: all to Mac / split: keyboard to right screen",
-      "title": "KVM: all to Mac / split: keyboard to right screen",
-      "shortName": "KVM\u2192"
+      "name": "KVM: everything to Mac",
+      "title": "KVM: everything to Mac",
+      "shortName": "\u21c4Mac"
     },
     {
-      "name": "KVM: enter / leave split",
-      "title": "KVM: enter / leave split",
-      "shortName": "Split"
+      "name": "KVM: split, PC left + Mac right, keyboard on PC",
+      "title": "KVM: split, PC left + Mac right, keyboard on PC",
+      "shortName": "PC+Mac"
     },
     {
-      "name": "KVM: swap monitors",
-      "title": "KVM: swap monitors",
-      "shortName": "Swap"
+      "name": "KVM: split, Mac left + PC right, keyboard on Mac",
+      "title": "KVM: split, Mac left + PC right, keyboard on Mac",
+      "shortName": "Mac+PC"
     },
     {
-      "name": "KVM: other host volume up",
-      "title": "KVM: other host volume up",
-      "shortName": "OVol+"
+      "name": "KVM: left monitor to PC",
+      "title": "KVM: left monitor to PC",
+      "shortName": "L\u21c4PC"
     },
     {
-      "name": "KVM: other host volume down",
-      "title": "KVM: other host volume down",
-      "shortName": "OVol-"
+      "name": "KVM: left monitor to Mac",
+      "title": "KVM: left monitor to Mac",
+      "shortName": "L\u21c4Mac"
     },
     {
-      "name": "KVM: other host mute",
-      "title": "KVM: other host mute",
-      "shortName": "OMute"
+      "name": "KVM: left monitor to guest",
+      "title": "KVM: left monitor to guest",
+      "shortName": "L\u21c4Gst"
+    },
+    {
+      "name": "KVM: right monitor to PC",
+      "title": "KVM: right monitor to PC",
+      "shortName": "R\u21c4PC"
+    },
+    {
+      "name": "KVM: right monitor to Mac",
+      "title": "KVM: right monitor to Mac",
+      "shortName": "R\u21c4Mac"
+    },
+    {
+      "name": "KVM: right monitor to guest",
+      "title": "KVM: right monitor to guest",
+      "shortName": "R\u21c4Gst"
+    },
+    {
+      "name": "KVM: keyboard/mouse hub to PC",
+      "title": "KVM: keyboard/mouse hub to PC",
+      "shortName": "KB\u21c4PC"
+    },
+    {
+      "name": "KVM: keyboard/mouse hub to Mac",
+      "title": "KVM: keyboard/mouse hub to Mac",
+      "shortName": "KB\u21c4Mac"
+    },
+    {
+      "name": "KVM: media hub to PC",
+      "title": "KVM: media hub to PC",
+      "shortName": "Med\u21c4PC"
+    },
+    {
+      "name": "KVM: media hub to Mac",
+      "title": "KVM: media hub to Mac",
+      "shortName": "Med\u21c4Mac"
     }
   ],
   "layouts": {
