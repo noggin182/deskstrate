@@ -4,7 +4,8 @@
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
 // extend or mirror the two Dells, and wake the displays when a monitor comes back to the
 // Mac or the keyboard moves to it. A KV VOLUME message for the Mac changes its volume
-// (the keyboard's Fn+knob while the keyboard is on the PC). It only ever sends the core
+// (the keyboard's Fn+knob while the keyboard is on the PC), and a KD DISPLAYS (the keyboard's
+// Sleep key, then its next key press) sleeps or wakes the displays. It only ever sends the core
 // an empty REQUEST, to get a STATE.
 //
 // Mirroring as in the VERIFIED test (PROJECT_KNOWLEDGE.md §3): CGConfigureDisplayMirrorOfDisplay
@@ -267,6 +268,22 @@ func onVolume(_ b: [UInt8]) {
     if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
 }
 
+// KD DISPLAYS [enum kvm_displays, seq, FF, FF]: the keyboard's Sleep key sleeps the displays
+// (not the Mac), and the key press after it wakes them. The ESP sends each command three
+// times with the same seq in case one is lost: act on a seq once.
+var lastDisplaysSeq: UInt8?
+func onDisplays(_ b: [UInt8]) {
+    let wake = b[0] == UInt8(KVM_DISPLAYS_WAKE.rawValue)
+    guard wake || b[0] == UInt8(KVM_DISPLAYS_SLEEP.rawValue), b[1] != lastDisplaysSeq else { return }
+    lastDisplaysSeq = b[1]
+    if wake { wakeDisplays(); return }
+    log("displays: sleep (keyboard)")
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+    p.arguments = ["displaysleepnow"]
+    do { try p.run() } catch { log("displays: pmset failed: \(error)") }
+}
+
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
     var msg = kvm_msg_t()
     guard let base = buf.baseAddress else { return }
@@ -274,6 +291,8 @@ func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
         onState([msg.b.0, msg.b.1, msg.b.2, msg.b.3], from: from)
     } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_VOLUME.rawValue), &msg) != 0 {
         onVolume([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
+    } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_DISPLAYS.rawValue), &msg) != 0 {
+        onDisplays([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
     }
 }
 

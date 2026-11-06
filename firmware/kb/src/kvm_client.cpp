@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "esp_log.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -58,6 +59,26 @@ void send_volume_locked(uint8_t host, uint8_t vol) {
     const uint8_t b[KVM_SLOTS] = {host, vol, KVM_UNKNOWN, KVM_UNKNOWN};
     const kvm_msg_t msg = kvm_msg(KVM_VOLUME, b);
     sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
+}
+
+// Call WITHOUT the mutex: it sleeps between copies. DISPLAYS is broadcast for the same
+// reason as VOLUME (the Mac's VPN), three times 30 ms apart since a broadcast over Wi-Fi
+// can be lost. Each command has its own seq, so the daemons act once per command.
+void send_displays(uint8_t what) {
+    static uint8_t seq = esp_random() % KVM_UNKNOWN;  // so a reboot doesn't repeat the daemons' last seq
+    sockaddr_in to = {};
+    to.sin_family = AF_INET;
+    to.sin_port = htons(KVM_PORT);
+    to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    const uint8_t b[KVM_SLOTS] = {what, seq++, KVM_UNKNOWN, KVM_UNKNOWN};
+    if (seq == KVM_UNKNOWN) seq = 0;
+    const kvm_msg_t msg = kvm_msg(KVM_DISPLAYS, b);
+    for (int i = 0; i < 3; i++) {
+        if (i) vTaskDelay(pdMS_TO_TICKS(30));
+        if (sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to) < 0) {
+            ESP_LOGW(TAG, "displays: send failed (errno %d)", errno);
+        }
+    }
 }
 
 // Call with mutex held.
@@ -184,6 +205,12 @@ void action(uint8_t act) {
         case KB_ACT_OTHER_VOLU: vol = KVM_VOL_UP; break;
         case KB_ACT_OTHER_VOLD: vol = KVM_VOL_DOWN; break;
         case KB_ACT_OTHER_MUTE: vol = KVM_VOL_MUTE; break;
+        case KB_ACT_SLEEP:
+        case KB_ACT_WAKE:
+            ESP_LOGI(TAG, "displays: %s both hosts'", act == KB_ACT_SLEEP ? "sleep" : "wake");
+            xSemaphoreGive(mutex);
+            send_displays(act == KB_ACT_SLEEP ? KVM_DISPLAYS_SLEEP : KVM_DISPLAYS_WAKE);
+            return;
         default: ESP_LOGW(TAG, "unknown action %u", act); break;
     }
     if (vol) {

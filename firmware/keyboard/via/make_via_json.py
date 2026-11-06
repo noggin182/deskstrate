@@ -195,6 +195,7 @@ DESKSTRATE_KEYS = [
     ("KVM: other host volume up", "OVol+"),
     ("KVM: other host volume down", "OVol-"),
     ("KVM: other host mute", "OMute"),
+    ("KVM: lights off, sleep both hosts' displays", "Sleep"),
 ]
 
 

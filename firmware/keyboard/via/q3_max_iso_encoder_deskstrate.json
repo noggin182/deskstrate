@@ -276,6 +276,11 @@
       "name": "KVM: other host mute",
       "title": "KVM: other host mute",
       "shortName": "OMute"
+    },
+    {
+      "name": "KVM: lights off, sleep both hosts' displays",
+      "title": "KVM: lights off, sleep both hosts' displays",
+      "shortName": "Sleep"
     }
   ],
   "layouts": {
