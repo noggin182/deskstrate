@@ -28,7 +28,7 @@ Text the ESP sends comes straight back as "echo: ...", to test the link both way
 ## Build and flash
 
 `./build.sh` builds the UK (ISO) board only. CI (`keyboard.yml`)
-builds both; pushes to `main` put the `.bin` files and VIA JSON on the `keyboard` release. `build.sh` also patches one line of
+builds it too; pushes to `main` put the `.bin` and VIA JSON on the `keyboard` release. `build.sh` also patches one line of
 Keychron's config: it scans only 9 of the RGB drivers' 12 phases, which leaves the Tab row
 dark, so the build scans all 12.
 

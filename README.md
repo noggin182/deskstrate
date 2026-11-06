@@ -78,7 +78,7 @@ when all is well.
 | Workflow | File | Runs when | Produces |
 | --- | --- | --- | --- |
 | Firmware: core, deck, kb (release + OTA) | `firmware.yml` | core, deck, kb or `components/` change | On `main`: a `build-<run>.<attempt>` release, then rings the doorbells |
-| Keyboard (QMK) | `keyboard.yml` | `firmware/keyboard` or `kb_link_proto` change | On `main`: the `.bin` files and VIA JSON on the `keyboard` prerelease |
+| Keyboard (QMK) | `keyboard.yml` | `firmware/keyboard` or `kb_link_proto` change | On `main`: the `.bin` and VIA JSON on the `keyboard` prerelease |
 | Host daemons: Windows, Mac | `host.yml` | `host/` or `kvm_proto` change | Policy tests; the daemons as run artifacts |
 | TLS certificates (renew) | `tls.yml` | weekly, or a `tls/*.csr` changes on `main` | Certificates on the `tls` prerelease |
 
