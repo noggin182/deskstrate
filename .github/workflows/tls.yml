@@ -77,6 +77,9 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           if [ -z "$DESEC_TOKEN" ]; then echo "::error::repo secret DESEC_TOKEN is not set"; exit 1; fi
+          # A token pasted with a trailing newline or space makes Go reject the Authorization header.
+          DESEC_TOKEN=$(printf '%s' "$DESEC_TOKEN" | tr -d '[:space:]')
+          export DESEC_TOKEN
           server=https://acme-v02.api.letsencrypt.org/directory
           [ "$STAGING" = true ] && server=https://acme-staging-v02.api.letsencrypt.org/directory
           csrs=(tls/*.csr)
@@ -104,8 +107,11 @@ jobs:
             fi
 
             echo "::group::$board: renewing ($reason)"
+            # A fixed wait instead of lego's propagation check: deSEC's anycast servers can
+            # take minutes to all serve a new record, and the check passes as soon as one does,
+            # so Let's Encrypt's other vantage points still saw NXDOMAIN.
             if lego --accept-tos --email "$ACME_EMAIL" --server "$server" \
-                 --dns desec --csr "$csr" --path "lego-$board" run; then
+                 --dns desec --dns.propagation-wait 5m --csr "$csr" --path "lego-$board" run; then
               crt=$(ls lego-"$board"/certificates/*.crt | grep -v '\.issuer\.crt$' | head -n1)
               cp "$crt" "out/$board.pem"  # leaf + intermediate
               openssl x509 -in "out/$board.pem" -noout -subject -issuer -enddate
