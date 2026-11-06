@@ -27,13 +27,26 @@ static const uint8_t kvm_actions[DESKSTRATE_KEYS_END - KVM_LEFT] = {
     [KVM_SLEEP - KVM_LEFT]      = KB_ACT_SLEEP,
 };
 
-// KVM_SLEEP turns the lighting off without saving that and sleeps both hosts' displays.
-// The next key press always turns the lighting back on and wakes both hosts' displays,
-// then goes to the host as usual. A lighting toggle as that press is left to turn the
-// lighting on itself.
+// KVM_SLEEP turns the lighting off without saving that and, once every key is let go
+// (so releasing Fn and the key doesn't count as activity on the host), sleeps both hosts'
+// displays. The next key press always turns the lighting back on and wakes both hosts'
+// displays, then goes to the host as usual. A lighting toggle as that press is left to
+// turn the lighting on itself.
 static bool rgb_off_for_sleep = false;
+static bool sleep_pending     = false;  // Sleep pressed, waiting for all keys up
+
+static bool any_key_down(void) {
+    for (uint8_t r = 0; r < MATRIX_ROWS; r++) {
+        if (matrix_get_row(r)) return true;
+    }
+    return false;
+}
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (record->event.pressed && sleep_pending && keycode != KVM_SLEEP) {
+        sleep_pending = false;  // another key before Sleep took effect: cancel it
+        rgb_matrix_enable_noeeprom();
+    }
     if (record->event.pressed && rgb_off_for_sleep && keycode != KVM_SLEEP) {
         rgb_off_for_sleep = false;
         if (keycode != QK_UNDERGLOW_TOGGLE && keycode != QK_RGB_MATRIX_TOGGLE) rgb_matrix_enable_noeeprom();
@@ -43,9 +56,10 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         if (record->event.pressed) {
             if (keycode == KVM_SLEEP) {
                 rgb_matrix_disable_noeeprom();
-                rgb_off_for_sleep = true;
+                sleep_pending = true;  // sent from matrix_scan_user once all keys are up
+            } else {
+                kb_link_send_kvm_action(kvm_actions[keycode - KVM_LEFT]);
             }
-            kb_link_send_kvm_action(kvm_actions[keycode - KVM_LEFT]);
         }
         return false;
     }
@@ -92,6 +106,12 @@ bool process_detected_host_os_user(os_variant_t os) {
 
 void matrix_scan_user(void) {
     kb_link_task();
+
+    if (sleep_pending && !any_key_down()) {
+        sleep_pending     = false;
+        rgb_off_for_sleep = true;
+        kb_link_send_kvm_action(KB_ACT_SLEEP);
+    }
 
     static transport_t last = TRANSPORT_NONE;
     transport_t        now  = get_transport();
