@@ -36,7 +36,6 @@ int run() {
                 displays::sleep();
             } else if (cmd == "wake") {
                 displays::wake();
-
             } else if (cmd == "extend") {
                 displays::set_topology(HOST_TOPO_EXTEND);
             } else if (cmd == "mirror") {
