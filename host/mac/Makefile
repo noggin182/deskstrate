@@ -28,6 +28,7 @@ $(BIN): main.swift Bridging.h ../common/host_policy.h $(ROOT)/components/kvm_pro
 install: $(BIN)
 	-launchctl bootout $(LABEL) 2>/dev/null && sleep 1
 	mkdir -p "$(APP_DIR)" "$(HOME)/Library/Logs/Deskstrate" "$(HOME)/Library/LaunchAgents"
+	rm -f "$(APP_DIR)/deskstrate-host"  # a new file: overwriting a signed binary in place can get it killed at launch
 	cp $(BIN) "$(APP_DIR)/deskstrate-host"
 	sed "s|@HOME@|$(HOME)|g" com.deskstrate.host.plist > "$(AGENT)"
 	launchctl bootstrap gui/$(shell id -u) "$(AGENT)"
