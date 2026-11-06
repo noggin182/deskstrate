@@ -29,6 +29,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    # Normally ~4 min. A stalled package mirror once held a run for 50 min; fail instead.
+    timeout-minutes: 15
     permissions:
       contents: write  # update the keyboard release (main only)
     steps:
@@ -38,8 +40,13 @@ jobs:
           python-version: "3.12"
       - name: Install the QMK toolchain
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util
+          # The runner's apt mirror sometimes stalls a download for minutes before apt
+          # gives up on it: time out fast and retry instead. --no-install-recommends skips
+          # libstdc++-arm-none-eabi-newlib (463 MB), which QMK doesn't use.
+          apt_opts="-o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o Acquire::Retries=5"
+          sudo apt-get update -q $apt_opts
+          sudo apt-get install -y -q --no-install-recommends $apt_opts \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi dfu-util
           pip install qmk
       - uses: actions/cache@v4
         with:
