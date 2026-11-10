@@ -59,12 +59,13 @@ Target everything_to(uint8_t host) {
     return t;
 }
 
-Target split(uint8_t left, uint8_t right, uint8_t hubs) {
+Target split(uint8_t left, uint8_t right) {
+    // The media hub stays with the left screen; the keyboard goes to the right one.
     Target t;
     t.b[KVM_MON_LEFT] = host_input(left, KVM_MON_LEFT);
     t.b[KVM_MON_RIGHT] = host_input(right, KVM_MON_RIGHT);
-    t.b[KVM_HUB_HID] = hubs;
-    t.b[KVM_HUB_MEDIA] = hubs;
+    t.b[KVM_HUB_HID] = right;
+    t.b[KVM_HUB_MEDIA] = left;
     return t;
 }
 
@@ -77,20 +78,20 @@ Target plan_side(const View &view, bool left) {
 
 Target plan_leave_split(const View &view) {
     if (!is_split(view)) return Target{};
-    // Everything follows the keyboard; a guest can't fill both screens.
-    uint8_t host = view.b[KVM_HUB_HID];
-    if (!is_pc_or_mac(host)) host = view.b[KVM_HUB_MEDIA];
+    // Everything follows the media hub, else the keyboard; a guest can't fill both screens.
+    uint8_t host = view.b[KVM_HUB_MEDIA];
+    if (!is_pc_or_mac(host)) host = view.b[KVM_HUB_HID];
     if (!is_pc_or_mac(host)) host = kPc;
     return everything_to(host);
 }
 
 Target plan_toggle_split(const View &view) {
     if (is_split(view)) return plan_leave_split(view);
-    const uint8_t left = view.b[KVM_MON_LEFT];
-    if (left == KVM_UNKNOWN) return Target{};
-    // The left monitor and both hubs stay; the right monitor gets the other host.
-    Target t;
-    t.b[KVM_MON_RIGHT] = host_input(kvm_mon_host(left) == KVM_HOST_PC ? kMac : kPc, KVM_MON_RIGHT);
+    const uint8_t left = monitor_host(view, KVM_MON_LEFT);
+    if (left == kNoHost) return Target{};
+    // The left monitor stays; the right monitor gets the other host, as in split().
+    Target t = split(left, left == kPc ? kMac : kPc);
+    t.b[KVM_MON_LEFT] = KVM_UNKNOWN;
     return t;
 }
 

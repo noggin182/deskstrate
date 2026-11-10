@@ -55,7 +55,7 @@ back the same way.
 | --- | --- | --- |
 | KVM_LEFT | Everything to the PC; in split mode, keyboard/mouse to the left screen's host (the deck's bottom-left key) | Fn+Left |
 | KVM_RIGHT | Everything to the Mac; in split mode, keyboard/mouse to the right screen's host (the deck's bottom-right key) | Fn+Right |
-| KVM_SPLIT | Enter split (left monitor and both hubs stay, the right monitor gets the other host) or leave it (everything follows the keyboard) | Fn+Up |
+| KVM_SPLIT | Enter split (the left monitor stays and keeps the media hub; the right monitor and the keyboard/mouse hub go to the other host) or leave it (everything follows the media hub) | Fn+Up |
 | KVM_SWAP | Swap the monitors; the media hub stays with its screen | Fn+Down |
 | KVM_OTHER_VOLD / VOLU | Volume down / up on whichever of PC and Mac doesn't have the keyboard | Fn+knob turn |
 | KVM_OTHER_MUTE | Mute toggle on that host | Fn+knob press |

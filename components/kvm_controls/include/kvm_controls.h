@@ -6,9 +6,11 @@
 //   plan_side          deck bottom-left/right, keyboard Fn+Left/Right: everything to the
 //                      PC / Mac; in split mode only the HID hub moves, to the left /
 //                      right screen's host
-//   plan_leave_split   deck top-right tap: everything follows the HID hub's host
+//   plan_leave_split   deck top-right tap: everything follows the media hub's host
+//                      (else the HID hub's, else the PC)
 //   plan_toggle_split  keyboard Fn+Up: leave split as above, or enter it keeping the left
-//                      monitor and both hubs, with the right monitor on the other host
+//                      monitor, with the right monitor and the HID hub on the other host
+//                      and the media hub on the left monitor's host (as split())
 //   plan_swap          deck menu Swap: the monitors swap inputs, hubs stay
 //   plan_swap_media    keyboard Fn+Down: as plan_swap, and the media hub follows its screen
 //   other_host         keyboard Fn+knob: the PC or Mac that doesn't have the HID hub
@@ -51,8 +53,8 @@ uint8_t host_input(uint8_t host, uint8_t mon_id);
 bool is_split(const View &view);
 
 Target everything_to(uint8_t host);
-// Monitors to left / right, both hubs to hubs.
-Target split(uint8_t left, uint8_t right, uint8_t hubs);
+// Monitors to left / right; the media hub to left's host, the HID hub to right's.
+Target split(uint8_t left, uint8_t right);
 
 // left: the left-hand key (PC / left screen), else the right-hand one (Mac / right screen).
 Target plan_side(const View &view, bool left);
