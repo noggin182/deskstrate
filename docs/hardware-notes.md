@@ -36,7 +36,8 @@ wiring and protocols live with their code (`firmware/*/README.md`, `kvm_proto.h`
 - DDC through the HDMI tap works with nothing on HDMI pin 18 (+5 V): the core has read
   both monitors through bare taps since 2026-10-26.
 - Scaler is MStar (VCP C8 low byte 0x05). On DDC, 0x49 is its ISP/flash port and 0x59
-  its debug port: never write to either.
+  its debug port: never write to either. A backup of the Dells' firmware is kept on
+  Matt's PC, deliberately not in this repo.
 - If both Dells say "no USB signal" on the Mac input while the Mac still sees them
   (seen once after a power blip), power-cycle the Belkin dock, then the monitors' mains.
   Deskstrate isn't involved.
@@ -101,5 +102,4 @@ wiring and protocols live with their code (`firmware/*/README.md`, `kvm_proto.h`
 | Pi Zero W or Arduino Uno R4 WiFi as the core | ESP32-S3 chosen for shared code with the deck and OTA |
 | Ethernet core (T-ETH-Lite, ESP32-POE-ISO) | Wi-Fi is fine where the core sits |
 | HMAC-authenticated binary protocol | Chose a LAN-only, unauthenticated 6-byte ASCII protocol (`kvm_proto.h`) |
-| Read-only backup of the Dells' MStar firmware | Risk with no payoff |
 | Harvesting the switches' USB audio chips for desk audio | A switched hub attaches to one host only; bought a mixer instead |
