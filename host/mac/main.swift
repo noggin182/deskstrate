@@ -3,10 +3,10 @@
 //
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
 // extend or mirror the two Dells, and wake the displays when a monitor comes back to the
-// Mac or the keyboard moves to it. A KV VOLUME message for the Mac changes its volume
-// (the keyboard's Fn+knob while the keyboard is on the PC), and a KD DISPLAYS (the keyboard's
-// Sleep key, then its next key press) sleeps or wakes the displays. It only ever sends the core
-// an empty REQUEST, to get a STATE.
+// Mac or the keyboard moves to it, and DDC standby / on for the monitors showing the Mac
+// while the desk is asleep / awake (standby in STATE). A KV VOLUME message for the Mac
+// changes its volume (the keyboard's Fn+knob while the keyboard is on the PC). It only ever
+// sends the core an empty REQUEST, to get a STATE.
 //
 // Mirroring as in the VERIFIED test (PROJECT_KNOWLEDGE.md §3): CGConfigureDisplayMirrorOfDisplay
 // mirrors the hidden Dell onto the visible one; it fails (CGError 1014) while the displays
@@ -27,11 +27,11 @@ import IOKit
 import IOKit.pwr_mgt
 
 // ---- DDC/CI (Apple Silicon) ------------------------------------------------------
-// The Sleep key puts the monitors showing the Mac into DDC standby (VCP 0xD6 = 4) before
-// sleeping the displays, so they go dark at once instead of showing "No signal", and
-// switches them back on (0xD6 = 1) on wake: a monitor in DDC standby doesn't wake on its
-// own when the signal comes back. Apple Silicon has no public DDC API; this uses the
-// IOAVService calls that MonitorControl, m1ddc and BetterDisplay use.
+// While the desk is asleep (standby in STATE) the monitors showing the Mac go to DDC
+// standby (VCP 0xD6 = 4), and back on (0xD6 = 1) when it wakes. DDC only: the signal stays
+// on, so there's no "No signal", and macOS doesn't see a display sleep (which would lock
+// the Mac). Apple Silicon has no public DDC API; this uses the IOAVService calls that
+// MonitorControl, m1ddc and BetterDisplay use.
 
 @_silgen_name("IOAVServiceCreateWithService")
 func IOAVServiceCreateWithService(_ allocator: CFAllocator?, _ service: io_service_t) -> Unmanaged<CFTypeRef>?
@@ -167,8 +167,6 @@ func wakeDisplays() {
     log("displays: wake")
     var id: IOPMAssertionID = 0
     IOPMAssertionDeclareUserActivity("Deskstrate" as CFString, kIOPMUserActiveLocal, &id)
-    // A monitor in DDC standby stays dark until told otherwise.
-    ddcQueue.async { ddcPower(on: true) }
 }
 
 func displaysAsleep() -> Bool {
@@ -265,7 +263,7 @@ func askForState() {
 
 func monName(_ b: UInt8) -> String {
     if b == UInt8(KVM_UNKNOWN) { return "--" }
-    if kvm_mon_standby(b) != 0 { return "standby" }
+    if kvm_mon_standby(b) != 0 { return "asleep" }
     switch UInt32(kvm_mon_host(b)) {
     case KVM_HOST_PC.rawValue: return "PC"
     case KVM_HOST_MAC.rawValue: return "Mac"
@@ -289,6 +287,10 @@ func onState(_ b: [UInt8], from: in_addr_t) {
         applyTopology(act.topology, onto: act.mirror_mon, hiding: act.hidden_mon)
     }
     if act.wake_displays != 0 { wakeDisplays() }
+    if act.power != 0 {
+        let on = act.power == UInt8(HOST_POWER_ON.rawValue)
+        ddcQueue.async { ddcPower(on: on) }
+    }
 }
 
 // ---- volume (the keyboard's Fn+knob while the keyboard is on the PC) -----------------
@@ -363,22 +365,6 @@ func onVolume(_ b: [UInt8]) {
     if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
 }
 
-// KD DISPLAYS [enum kvm_displays, seq, FF, FF]: the keyboard's Sleep key sleeps the displays
-// (not the Mac), and the key press after it wakes them. The ESP sends each command three
-// times with the same seq in case one is lost: act on a seq once.
-var lastDisplaysSeq: UInt8?
-func onDisplays(_ b: [UInt8]) {
-    let wake = b[0] == UInt8(KVM_DISPLAYS_WAKE.rawValue)
-    guard wake || b[0] == UInt8(KVM_DISPLAYS_SLEEP.rawValue), b[1] != lastDisplaysSeq else { return }
-    lastDisplaysSeq = b[1]
-    if wake { wakeDisplays(); return }
-    log("displays: sleep (keyboard)")
-    // DDC standby only: the signal stays on, so the monitors go dark at once with no
-    // "No signal", and macOS doesn't see a display sleep (which would lock the Mac). The
-    // keyboard wakes them (KD wake -> wakeDisplays()).
-    ddcQueue.async { ddcPower(on: false) }
-}
-
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
     var msg = kvm_msg_t()
     guard let base = buf.baseAddress else { return }
@@ -386,8 +372,6 @@ func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
         onState([msg.b.0, msg.b.1, msg.b.2, msg.b.3], from: from)
     } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_VOLUME.rawValue), &msg) != 0 {
         onVolume([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
-    } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_DISPLAYS.rawValue), &msg) != 0 {
-        onDisplays([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
     }
 }
 

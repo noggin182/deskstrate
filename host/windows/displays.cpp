@@ -95,11 +95,10 @@ void ddc_power_here(bool on) {
 
 }  // namespace
 
-// DDC standby only: the signal stays on, so the monitors go dark at once with no
-// "No signal", and Windows doesn't treat it as display sleep. The keyboard wakes them
-// (KD wake -> wake()).
-void sleep() {
-    on_input_desktop([] { ddc_power_here(false); });
+// DDC only: the signal stays on, so standby goes dark at once with no "No signal", and
+// Windows doesn't treat it as display sleep.
+void monitor_power(bool on) {
+    on_input_desktop([on] { ddc_power_here(on); });
 }
 
 void volume(uint8_t kvm_volume) {
@@ -128,8 +127,6 @@ void wake() {
         in[1].mi.dx = -1;
         if (SendInput(2, in, sizeof in[0]) != 2) trace("SendInput failed: %lu", GetLastError());
         SetThreadExecutionState(ES_DISPLAY_REQUIRED);
-        // A monitor in DDC standby doesn't wake on input or signal: switch it on.
-        ddc_power_here(true);
     });
 }
 

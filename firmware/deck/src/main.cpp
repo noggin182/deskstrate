@@ -48,11 +48,14 @@
 #define MENU_IDLE_MS 20000
 // NeoKey frame period.
 #define NEOKEY_FRAME_MS 30
-// While the keyboard's Sleep has the monitors in standby: the TFT backlight's duty
+// While the desk is asleep (standby in the core's STATE): the TFT backlight's duty
 // (of 255) and the NeoKeys' share of their usual brightness. Fades take DIM_FADE_MS.
+// After asking to sleep or wake, the deck shows that for up to DESK_EXPECT_MS until a
+// STATE agrees, so it doesn't flick back while the core catches up.
 #define DIM_BACKLIGHT_DUTY 8
 #define DIM_NEOKEY_DIVISOR 8
 #define DIM_FADE_MS 400
+#define DESK_EXPECT_MS 2000
 
 static lv_disp_drv_t disp_drv;
 
@@ -1152,8 +1155,16 @@ extern "C" void app_main(void) {
     TickType_t last_core_state = xTaskGetTickCount();
     TickType_t last_key = xTaskGetTickCount();
     TickType_t last_ping = 0;
-    // The keyboard's Sleep key dims the backlight and NeoKeys; its wake, or a deck key, restores them.
+    // The desk asleep dims the backlight and NeoKeys; any deck key press wakes it.
     bool dimmed = false;
+    int8_t expect = -1;  // asleep (1) or awake (0) just asked for; -1 none
+    TickType_t expect_at = 0;
+    auto ask_desk = [&](bool asleep) {
+        const uint8_t sleep_req[KVM_SLOTS] = KVM_SLEEP_REQUEST, wake_req[KVM_SLOTS] = KVM_WAKE_REQUEST;
+        network_send_kvm_request(asleep ? sleep_req : wake_req);
+        expect = asleep;
+        expect_at = xTaskGetTickCount();
+    };
     float neokey_scale = 1.0f;  // eases between 1 and 1/DIM_NEOKEY_DIVISOR
 
     while (true) {
@@ -1173,14 +1184,8 @@ extern "C" void app_main(void) {
         }
         if (newly_pressed) last_key = xTaskGetTickCount();
 
-        uint8_t displays;
-        bool dim = dimmed;
-        if (network_take_displays(&displays)) dim = displays == KVM_DISPLAYS_SLEEP;
-        if (newly_pressed) dim = false;
-        if (dim != dimmed) {
-            dimmed = dim;
-            backlight_fade(dimmed ? DIM_BACKLIGHT_DUTY : 255);
-        }
+        // A key pressed while the desk is asleep wakes it, and still does its job.
+        if (newly_pressed && (expect == 1 || (expect < 0 && core_seen && kvm_asleep(view.b)))) ask_desk(false);
 
         controls::Event events[controls::kKeyCount];
         const uint8_t event_count = gestures.update(pressed, now_ms, menu::is_open(), events);
@@ -1194,6 +1199,10 @@ extern "C" void app_main(void) {
                     case menu::Command::Monitor:
                     case menu::Command::Usb: request_slot(r.a, r.b, view); break;
                     case menu::Command::Swap: request_target(controls::plan_swap(view), view); break;
+                    case menu::Command::Sleep:
+                        menu::close();
+                        ask_desk(true);
+                        break;
                     case menu::Command::Lights:
                         settings.light_level = r.a;
                         save_settings(settings);
@@ -1236,6 +1245,15 @@ extern "C" void app_main(void) {
         if ((!core_seen || core_silent) && xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(STATE_PING_MS)) {
             last_ping = xTaskGetTickCount();
             network_send_kvm_request(controls::View{}.b);  // all 0xFF: just a STATE
+        }
+        const bool asleep = core_seen && !core_silent && kvm_asleep(view.b);
+        if (expect >= 0 && (asleep == (expect == 1) || xTaskGetTickCount() - expect_at >= pdMS_TO_TICKS(DESK_EXPECT_MS))) {
+            expect = -1;
+        }
+        const bool dim = expect >= 0 ? expect == 1 : asleep;
+        if (dim != dimmed) {
+            dimmed = dim;
+            backlight_fade(dimmed ? DIM_BACKLIGHT_DUTY : 255);
         }
         show_waiting(!core_seen ? Waiting::ForCore : (core_silent ? Waiting::LostCore : Waiting::Hidden));
         update_ota_panel();

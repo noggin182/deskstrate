@@ -15,6 +15,7 @@ enum Item : uint8_t {
     kKeyboard,
     kMedia,
     kSwap,
+    kSleep,
     kLights,
     kDebugCode,
     kExit,
@@ -22,7 +23,7 @@ enum Item : uint8_t {
 };
 
 const char *const kItemNames[kItemCount] = {
-    "Left", "Right", "Keyboard", "Media", "Swap screens", "Key lights", "Debug code", "Exit",
+    "Left", "Right", "Keyboard", "Media", "Swap screens", "Sleep", "Key lights", "Debug code", "Exit",
 };
 
 constexpr lv_coord_t kRowY = 30;
@@ -206,6 +207,7 @@ Result key(controls::Key key, const controls::View &view, const Settings &settin
             break;
         }
         case kSwap: r.command = Command::Swap; break;
+        case kSleep: r.command = Command::Sleep; break;
         case kLights: r = {Command::Lights, static_cast<uint8_t>((settings.light_level + 1) % kLightLevels), 0}; break;
         case kDebugCode: r = {Command::DebugCode, static_cast<uint8_t>(!settings.debug_code), 0}; break;
         case kExit: r.command = Command::Close; break;

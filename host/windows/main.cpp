@@ -2,9 +2,10 @@
 //
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
 // extend or duplicate the displays, and wake them when a monitor comes back to the PC or
-// the keyboard moves to it. A KV VOLUME message for the PC presses its volume keys (the
-// keyboard's Fn+knob while the keyboard is on the Mac), and a KD DISPLAYS (the keyboard's
-// Sleep key, then its next key press) sleeps or wakes the displays. It only ever sends the core an empty REQUEST, to get a STATE.
+// the keyboard moves to it, and DDC standby / on for the monitors showing the PC while the
+// desk is asleep / awake (standby in STATE). A KV VOLUME message for the PC presses its
+// volume keys (the keyboard's Fn+knob while the keyboard is on the Mac). It only ever
+// sends the core an empty REQUEST, to get a STATE.
 //
 // One exe, three ways to run:
 //   --service    the normal install: a LocalSystem service started at boot, so it works
@@ -130,6 +131,10 @@ void wake_displays() {
     if (g_mode == Mode::Service) agent::wake_displays(); else displays::wake();
 }
 
+void monitor_power(bool on) {
+    if (g_mode == Mode::Service) agent::monitor_power(on); else displays::monitor_power(on);
+}
+
 void set_topology(uint8_t topo) {
     if (!(g_mode == Mode::Service ? agent::set_topology(topo) : displays::set_topology(topo))) {
         trace("topology: not applied");
@@ -161,7 +166,7 @@ void ask_for_state() {
 
 const char *mon_name(uint8_t b) {
     if (b == KVM_UNKNOWN) return "--";
-    if (kvm_mon_standby(b)) return "standby";
+    if (kvm_mon_standby(b)) return "asleep";
     switch (kvm_mon_host(b)) {
         case KVM_HOST_PC: return "PC";
         case KVM_HOST_MAC: return "Mac";
@@ -185,6 +190,7 @@ void on_state(const uint8_t b[KVM_SLOTS], const sockaddr_in &from) {
     const host_actions_t act = host_policy_on_state(&g_policy, b);
     if (act.set_topology && g_topology_enabled) set_topology(act.topology);
     if (act.wake_displays) wake_displays();
+    if (act.power) monitor_power(act.power == HOST_POWER_ON);
 
     wchar_t tip[64];
     swprintf(tip, 64, L"left %hs, right %hs", mon_name(b[KVM_MON_LEFT]), mon_name(b[KVM_MON_RIGHT]));
@@ -199,27 +205,10 @@ void on_volume(const uint8_t b[KVM_SLOTS]) {
     if (g_mode == Mode::Service) agent::volume(b[1]); else displays::volume(b[1]);
 }
 
-// The keyboard's Sleep key (and the key press after it), broadcast by the keyboard's ESP to
-// both hosts: [enum kvm_displays, seq, FF, FF]. It sends each command three times with the
-// same seq in case one is lost: act on a seq once.
-void on_displays(const uint8_t b[KVM_SLOTS]) {
-    static int last_seq = -1;
-    if (b[0] != KVM_DISPLAYS_SLEEP && b[0] != KVM_DISPLAYS_WAKE) return;
-    if (b[1] == last_seq) return;
-    last_seq = b[1];
-    if (b[0] == KVM_DISPLAYS_SLEEP) {
-        trace("displays: sleep (keyboard)");
-        if (g_mode == Mode::Service) agent::sleep_displays(); else displays::sleep();
-    } else if (b[0] == KVM_DISPLAYS_WAKE) {
-        wake_displays();
-    }
-}
-
 void on_datagram(const uint8_t *buf, int n, const sockaddr_in &from) {
     kvm_msg_t msg;
     if (kvm_decode(buf, n, KVM_STATE, &msg)) on_state(msg.b, from);
     else if (kvm_decode(buf, n, KVM_VOLUME, &msg)) on_volume(msg.b);
-    else if (kvm_decode(buf, n, KVM_DISPLAYS, &msg)) on_displays(msg.b);
 }
 
 void on_socket() {

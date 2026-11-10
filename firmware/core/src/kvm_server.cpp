@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "ddc.h"
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,6 +23,21 @@ int sock = -1;
 uint8_t last[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};  // last STATE sent
 bool sent_once = false;
 TickType_t last_sent = 0;
+
+// The desk's sleep, reported as STATE's standby bit (kvm_proto.h). Kept in RTC memory so an OTA or a crash doesn't
+// wake the desk; a power cycle starts awake.
+constexpr uint32_t kAsleepMagic = 0x5A5EE9A5;
+RTC_NOINIT_ATTR uint32_t asleep_magic;
+RTC_NOINIT_ATTR bool asleep_flag;
+bool asleep() { return asleep_magic == kAsleepMagic && asleep_flag; }
+void set_asleep(bool on) {
+    if (on != asleep()) ESP_LOGI(TAG, "desk %s", on ? "asleep" : "awake");
+    asleep_flag = on;
+    asleep_magic = kAsleepMagic;
+}
+bool woke = false;                      // the desk just woke: wake a guest's monitor once
+TickType_t guest_power_at[monitors::kCount] = {};
+constexpr uint32_t kGuestPowerRetryMs = 5000;
 
 // Which monitors:: index (DDC bus) is the left/right monitor, by EDID serial.
 // Until a serial has been read, falls back to bus order, but never to a bus already
@@ -63,7 +79,7 @@ void snapshot(uint8_t b[KVM_SLOTS]) {
     for (uint8_t id = KVM_MON_LEFT; id <= KVM_MON_RIGHT; id++) {
         const int i = monitor_index(id);
         const monitors::State m = i >= 0 ? monitors::get(i) : monitors::State{};
-        b[id] = m.online ? host_of_input(m.input) | (m.power == ddc::kPowerStandby ? KVM_STANDBY : 0) : KVM_UNKNOWN;
+        b[id] = m.online ? host_of_input(m.input) | (asleep() ? KVM_STANDBY : 0) : KVM_UNKNOWN;
     }
     for (int h = 0; h < hubs::kCount; h++) {
         const hubs::State s = hubs::get(h);
@@ -99,7 +115,7 @@ void publish_state() {
 }
 
 void apply_mon(uint8_t mon_id, uint8_t want) {
-    const uint8_t host = want & KVM_HOST_MASK;  // bit 7 (standby): power isn't changed yet
+    const uint8_t host = want & KVM_HOST_MASK;  // bit 7 (standby) is handle_request's
     if (want == KVM_UNKNOWN || host == KVM_HOST_KEEP) return;
     const uint8_t input = input_of_host(host);
     if (!input) {
@@ -114,6 +130,28 @@ void apply_mon(uint8_t mon_id, uint8_t want) {
     esp_err_t err = m.power == ddc::kPowerStandby ? monitors::set_power(i, ddc::kPowerOn) : ESP_OK;
     if (err == ESP_OK) err = monitors::set_input(i, input);
     if (err != ESP_OK) ESP_LOGW(TAG, "monitor %u: switch failed: %s", mon_id, esp_err_to_name(err));
+}
+
+// A monitor showing HDMI (a guest) has no daemon to follow the flag, and HDMI is the
+// input the core's DDC reaches, so the core does it: standby while asleep (retried every
+// kGuestPowerRetryMs), and on once when the desk wakes.
+void guest_power() {
+    const bool wake = woke;
+    woke = false;
+    for (int i = 0; i < monitors::kCount; i++) {
+        const monitors::State m = monitors::get(i);
+        if (!m.online || m.input != ddc::kInputHdmi) continue;
+        uint8_t want = 0;
+        if (asleep() && m.power != ddc::kPowerStandby) want = ddc::kPowerStandby;
+        if (wake && m.power == ddc::kPowerStandby) want = ddc::kPowerOn;
+        if (!want) continue;
+        const TickType_t now = xTaskGetTickCount();
+        if (!wake && guest_power_at[i] && now - guest_power_at[i] < pdMS_TO_TICKS(kGuestPowerRetryMs)) continue;
+        guest_power_at[i] = now;
+        ESP_LOGI(TAG, "DDC%d (HDMI): %s", i + 1, want == ddc::kPowerOn ? "on" : "standby");
+        const esp_err_t err = monitors::set_power(i, want);
+        if (err != ESP_OK) ESP_LOGW(TAG, "DDC%d: power failed: %s", i + 1, esp_err_to_name(err));
+    }
 }
 
 void apply_hub(int hub, uint8_t port) {
@@ -132,9 +170,17 @@ void handle_request(const kvm_msg_t &req, const sockaddr_in &from) {
     char ip[16];
     inet_ntoa_r(from.sin_addr, ip, sizeof ip);
     ESP_LOGI(TAG, "REQUEST %02X %02X %02X %02X from %s", req.b[0], req.b[1], req.b[2], req.b[3], ip);
+    const int sleep = kvm_request_sleep(req.b);
+    if (sleep >= 0) {
+        if (!sleep && asleep()) woke = true;
+        set_asleep(sleep);
+        for (auto &t : guest_power_at) t = 0;  // act on the change straight away
+    }
     apply_mon(KVM_MON_LEFT, req.b[KVM_MON_LEFT]);
     apply_mon(KVM_MON_RIGHT, req.b[KVM_MON_RIGHT]);
     for (int h = 0; h < hubs::kCount; h++) apply_hub(h, req.b[KVM_HUB_HID + h]);
+
+    guest_power();
 
     // Broadcast any change, then send the current STATE straight back so the requester
     // sees its answer (or that nothing changed) without waiting for a heartbeat.
@@ -151,6 +197,7 @@ void server_task(void *) {
         kvm_msg_t req;
         if (n > 0 && kvm_decode(buf, n, KVM_REQUEST, &req)) handle_request(req, from);
         // Anything else is our own STATE broadcast echoed back, or not for us.
+        guest_power();
         publish_state();
     }
 }

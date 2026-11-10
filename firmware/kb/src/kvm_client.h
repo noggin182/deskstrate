@@ -2,7 +2,8 @@
 // core's address from its STATE broadcasts, and turns the keyboard's KVM keys into
 // requests to it (with components/kvm_controls, the deck's rules), resending every
 // kResendMs until a STATE shows them (for at most kGiveUpMs). The volume keys become a
-// KV broadcast to the other host's daemon instead. Each new STATE also goes to the
+// KV broadcast to the other host's daemon instead; Sleep and the key after it ask the core
+// to put the desk to sleep and wake it (kvm_proto.h, asleep). Each new STATE also goes to the
 // keyboard (kb_link::send_kvm_state).
 #pragma once
 

@@ -31,9 +31,12 @@ int run() {
         while ((eol = pending.find('\n')) != std::string::npos) {
             const std::string cmd = pending.substr(0, eol);
             pending.erase(0, eol + 1);
-            trace("agent: %s", cmd.c_str());
-            if (cmd == "sleep") {
-                displays::sleep();
+            // monitors-* comes every few seconds; ddc_power_here logs what it changes.
+            if (cmd.rfind("monitors-", 0) != 0) trace("agent: %s", cmd.c_str());
+            if (cmd == "monitors-standby") {
+                displays::monitor_power(false);
+            } else if (cmd == "monitors-on") {
+                displays::monitor_power(true);
             } else if (cmd == "wake") {
                 displays::wake();
             } else if (cmd == "extend") {
@@ -143,7 +146,7 @@ bool send(const char *cmd) {
 
 }  // namespace
 
-void sleep_displays() { send("sleep"); }
+void monitor_power(bool on) { send(on ? "monitors-on" : "monitors-standby"); }
 void wake_displays() { send("wake"); }
 bool set_topology(uint8_t topo) { return send(topo == HOST_TOPO_MIRROR ? "mirror" : "extend"); }
 void volume(uint8_t kvm_volume) {

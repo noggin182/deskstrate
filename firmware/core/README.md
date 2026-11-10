@@ -33,15 +33,22 @@ is marked offline.
 The core binds `KVM_PORT` (18200) and broadcasts a 6-byte `STATE` ("KS" + 4 bytes:
 left monitor, right monitor, HID hub, media hub) on every change and every 2 s
 (`KVM_HEARTBEAT_MS`). A monitor byte is the host on it (0 PC/DP, 1 Mac/USB-C,
-3 guest/HDMI, 0xF unreadable) with bit 7 set in standby; a hub byte is its port (0-3);
+3 guest/HDMI, 0xF unreadable) with bit 7 set while the desk is asleep; a hub byte is its port (0-3);
 0xFF is not connected. Monitors are left/right by EDID serial.
 
 A `REQUEST` ("KR" + 4 bytes) is the state wanted; 0xFF bytes, and a monitor nibble of
 0xF, are left alone. The core switches whatever differs, skips what's already there or
 not connected, and sends its current `STATE` straight back to the requester (as well as
 broadcasting any change). So `KR FF FF FF FF` just asks for a `STATE`, and a repeated
-request is harmless. A monitor in standby is woken to switch it; otherwise the core
-doesn't change monitor power (standby is reported, not requested).
+request is harmless. A monitor in standby is woken to switch it.
+
+Bit 7 is the desk's sleep, as asked for, not the monitors' power read back: a request
+with bit 7 on a monitor byte (`KR 8F 8F FF FF`) puts the desk to sleep, and any other
+request that isn't all 0xFF wakes it. The core can't put a monitor showing DP or USB-C
+into standby (a Dell ignores it from HDMI, where the core's DDC comes in), so the PC and
+Mac daemons do that for their own input. The core does it for a monitor showing HDMI:
+standby while asleep, and on once when the desk wakes. The flag survives an OTA or crash
+(RTC memory) but not a power cut.
 
 Unauthenticated: treat it as bench-only on a trusted LAN.
 

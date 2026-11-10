@@ -10,9 +10,18 @@ A small program on each host that follows the core's `STATE` broadcasts
 | No monitor on my input | Leave the layout alone |
 | A monitor comes (back) to my input, awake | Wake my displays |
 | The keyboard (HID hub) moves to me | Wake my displays |
+| The desk is asleep (standby in `STATE`) | DDC standby (VCP D6 = 4) on the monitors showing my input |
+| The desk is awake | DDC on (D6 = 1) on the monitors showing my input |
 
-A monitor in standby on my input keeps its place in the layout. The core reports
-standby but never asks for it, so display sleep is left to each host.
+A monitor in standby on my input keeps its place in the layout. The desk's sleep is
+held by the core (the keyboard's Sleep key or the deck's menu asks for it, and any other
+request or key press wakes it), but only the host can do the DDC for its own input: the
+core's DDC comes in over HDMI, which a Dell ignores for standby unless HDMI is showing.
+The power rule is followed on every `STATE` (at most every third, about 6 s, while
+nothing changes), not only when it changes. DDC only: the signal stays on, so there's no
+"No signal" and the OS doesn't see a display sleep (which would lock the Mac). It assumes
+the hosts never turn their displays off themselves: a monitor without a signal would be
+switched back on to show "No signal".
 
 The rules live in one place, `common/host_policy.h` (C++, used by both
 daemons), with tests in `common/test_host_policy.cpp`:
@@ -63,11 +72,7 @@ powershell -ExecutionPolicy Bypass -File host\windows\install.ps1 -Exe host\wind
 allow the firewall prompt on Private networks). `-Uninstall` removes either.
 
 The keyboard's Fn+knob (while the keyboard is on the Mac) presses the PC's volume
-keys, with Windows' usual on-screen indicator. Its Sleep key puts the monitors
-showing the PC into DDC/CI standby (VCP D6 = 4). DDC only: the signal stays on, so
-there's no "No signal" flash and Windows doesn't see a display sleep. The keyboard's next
-key press (a KD wake broadcast, so it reaches both hosts even in split mode) or a switch to
-the PC switches DDC back on.
+keys, with Windows' usual on-screen indicator. DDC goes through dxva2, in the agent.
 
 Logs: `%ProgramData%\Deskstrate\service.log` and `agent.log` (service), or
 `%LOCALAPPDATA%\Deskstrate\host.log` (standalone). Options `--no-topology` and
@@ -95,9 +100,7 @@ while running it by hand from Terminal does, check System Settings > Privacy & S
 Local Network.)
 
 The keyboard's Fn+knob (while the keyboard is on the PC) changes the Mac's volume,
-and its Sleep key puts the monitors showing the Mac into DDC standby only (the signal stays
-on: no "No signal", and no display sleep, which would lock the Mac). The keyboard's next
-key press (KD wake) or a switch to the Mac switches DDC back on. `deskstrate-host --ddc-list` shows each external display's input and
+and it follows the desk's sleep over DDC (above). `deskstrate-host --ddc-list` shows each external display's input and
 power over DDC; `--ddc standby` / `--ddc on` try it by hand. DDC on Apple Silicon uses the
 private IOAVService calls, as MonitorControl does.
 To get macOS's own volume steps and HUD, add `deskstrate-host` under System

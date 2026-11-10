@@ -12,8 +12,8 @@ int run();  // agent side: --agent
 
 // Service side. Starts an agent in the active console session if none is running there
 // (first use, after it died, or after a session change), then hands it the command.
-void sleep_displays();
-void wake_displays();
+void monitor_power(bool on);      // displays::monitor_power
+void wake_displays();             // displays::wake
 bool set_topology(uint8_t topo);  // true once handed over: the agent logs the outcome
 void volume(uint8_t kvm_volume);  // displays::volume
 void stop();                      // ends the agent, e.g. when the console session changes

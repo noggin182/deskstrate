@@ -49,8 +49,8 @@ static void test_side() {
     EXPECT(plan_side(v(MAC, PC, 0, 1), true), X, X, 1, X);
     EXPECT(plan_side(v(GUEST, PC, 0, 0), true), X, X, 2, X);
     EXPECT(plan_side(v(PC, GUEST, 0, 0), false), X, X, 3, X);
-    // A monitor in standby isn't split.
-    EXPECT(plan_side(v(PC, MAC | SB, 0, 0), false), MAC, MAC, 1, 1);
+    // Standby (the desk asleep) doesn't hide a monitor's host.
+    EXPECT(plan_side(v(PC | SB, MAC | SB, 0, 0), false), X, X, 1, X);
 }
 
 static void test_toggle_split() {
@@ -72,7 +72,7 @@ static void test_toggle_split() {
 
 static void test_swap() {
     EXPECT(plan_swap(v(PC, MAC, 0, 0)), MAC, PC, X, X);
-    CHECK(is_empty(plan_swap(v(PC, MAC | SB, 0, 0))));
+    EXPECT(plan_swap(v(PC | SB, MAC | SB, 0, 0)), MAC, PC, X, X);
     CHECK(is_empty(plan_swap(View{})));
     // The media hub stays with its screen.
     EXPECT(plan_swap_media(v(PC, MAC, 0, 0)), MAC, PC, X, 1);  // was on the left (PC): left is now Mac
