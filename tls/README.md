@@ -34,9 +34,9 @@ every 12 hours, and installs it only if it matches its own key.
 
 ## Adding a board (or after its key changes)
 
-A local build in an existing checkout keeps its old `sdkconfig.s3_mini`, which doesn't pick
+A local build in an existing checkout keeps its old `sdkconfig.<env>` (`s3_mini` for the core, `xiao_s3` for the kb), which doesn't pick
 up the new HTTPS settings from `sdkconfig.defaults`. If it fails to compile `web_tls.cpp`,
-delete `firmware/<board>/sdkconfig.s3_mini` and build again. The Wi-Fi credentials and OTA
+delete that `firmware/<board>/sdkconfig.<env>` and build again. The Wi-Fi credentials and OTA
 token are already stored in the board's NVS, so they don't need re-entering.
 
 Flash firmware with `web_tls`, then save its CSR here and push to `main`:

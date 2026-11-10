@@ -53,7 +53,7 @@ for bench work with nothing on RX. To wake it on the bench, jumper D0 to 3V3.
 
 Identify the board by MAC first (see CLAUDE.md), then build once with the Wi-Fi
 credentials set (menuconfig, Deskstrate Wi-Fi; they stay in the gitignored
-`sdkconfig.s3_mini` and are stored in NVS):
+`sdkconfig.xiao_s3` and are stored in NVS):
 
 ```
 pio run -d firmware/kb -t menuconfig

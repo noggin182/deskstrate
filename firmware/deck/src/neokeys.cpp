@@ -12,7 +12,6 @@ using controls::Key;
 
 // NeoPixel index for each controls::Key. The chain runs through the left wing (D5
 // top, D6 bottom) and then the right wing (D10 top, D11 bottom).
-// TODO: unverified on the hardware; swap entries here if a key lights the wrong colour.
 constexpr uint8_t kPixelForKey[controls::kKeyCount] = {0, 2, 1, 3};
 
 constexpr uint32_t kFlashMs = 180;

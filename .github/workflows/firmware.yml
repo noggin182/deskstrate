@@ -238,3 +238,16 @@ jobs:
             sleep 2
           done
           python3 tools/doorbell.py "${{ vars.DOORBELL_HOST || 'deskstrate.nogsnet.com' }}" 18210 18211 18212
+
+      - name: Prune old releases
+        # Every release carries all three images, so only the latest is needed for OTA.
+        # Keep the newest 10 build-* releases (and their tags) for reference.
+        if: steps.release.outcome == 'success'
+        continue-on-error: true
+        run: |
+          gh release list --limit 1000 --json tagName,createdAt \
+            --jq '[.[] | select(.tagName | startswith("build-"))] | sort_by(.createdAt) | reverse | .[10:] | .[].tagName' |
+          while read -r tag; do
+            echo "deleting $tag"
+            gh release delete "$tag" --cleanup-tag --yes
+          done

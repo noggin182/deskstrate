@@ -1,4 +1,4 @@
-// Web page and JSON for deskstrate-kb (http://deskstrate-kb.local/), plus mDNS.
+// Web page and JSON for deskstrate-kb (https://kb.deskstrate.nogsnet.com/), plus mDNS.
 //   GET  /            hello page: version, Wi-Fi, keyboard link, last lines from it
 //   GET  /api/status  the same as JSON
 //   POST /api/kb      body (up to 32 characters) goes to the keyboard, which echoes it

@@ -95,8 +95,3 @@ esp_err_t wifi_sta_start(const char *hostname) {
 bool wifi_sta_connected() {
     return events && (xEventGroupGetBits(events) & kConnectedBit);
 }
-
-bool wifi_sta_wait_connected(TickType_t timeout) {
-    if (!events) return false;
-    return xEventGroupWaitBits(events, kConnectedBit, pdFALSE, pdTRUE, timeout) & kConnectedBit;
-}

@@ -11,20 +11,22 @@ COM number alone.
 | Core (S3 Mini, `deskstrate`, 192.168.4.44) | `firmware/core` | `ac:27:6e:cb:3f:54` | COM15 |
 | Deck (Feather ESP32-S3 TFT) | `firmware/deck` | `f4:12:fa:59:79:bc` | COM8 |
 | Bench S3 Mini (`esp-bench`) | `firmware/bench` (was `swd_dump`, hub SWD on GPIO1/GPIO2) | `ac:27:6e:cb:2c:d8` | COM16 |
-| Keyboard: XIAO ESP32S3 Plus (`deskstrate-kb`, external antenna, 16MB flash) | `firmware/kb` | `44:b1:76:ae:9c:28` | COM18 |
+| Keyboard: XIAO ESP32S3 Plus (`deskstrate-kb`, 192.168.4.108, external antenna, 16MB flash) | `firmware/kb` | `44:b1:76:ae:9c:28` | COM18 |
 | Spare S3 Super Mini (HW-747; WS2812 on GPIO48, BAT LED blinks with no battery) | `firmware/kb` (was the keyboard's) | `d4:05:92:4b:67:d0` | COM17 |
 
 - Find the ports: `Get-CimInstance Win32_PnPEntity | ? Name -match 'COM\d+'`.
 - Read a MAC: `esptool.py --port COMx --after watchdog_reset read_mac`. A board on
   Wi-Fi also shows up in `arp -a`.
 - Pass the port explicitly when uploading:
-  `pio run -d firmware/<project> -t upload --upload-port COMx`.
-- Wi-Fi credentials (core and deck) and the core's OTA token live in each board's NVS.
+  `pio run -d firmware/<project> -t upload --upload-port COMx`. PlatformIO envs (and so
+  each gitignored `sdkconfig.<env>`): core and bench `s3_mini`, kb `xiao_s3`, deck
+  `adafruit_feather_esp32s3_tft`.
+- Wi-Fi credentials (core, deck and kb) and the core's OTA token live in each board's NVS.
   A build with them blank in its gitignored `sdkconfig.*` (as on a fresh PC, or in CI)
   keeps using the stored ones, so it is safe to flash a board that has run before. A
   brand-new board, or one whose NVS was erased, needs one build with them set; the user
   enters those themselves via `-t menuconfig` (Deskstrate Wi-Fi / Deskstrate core).
-- Both boards normally update themselves from GitHub releases of `main` (see
+- The core, deck and kb normally update themselves from GitHub releases of `main` (see
   Deployment in README.md). To push a bench build to the core over Wi-Fi instead: `POST https://core.deskstrate.nogsnet.com/api/ota` with
   `Authorization: Bearer <CONFIG_DESKSTRATE_OTA_TOKEN from sdkconfig.s3_mini>`. Never
   print the token or the Wi-Fi credentials. Once a board has HTTPS up, port 80 answers

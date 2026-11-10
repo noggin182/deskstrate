@@ -5,10 +5,12 @@ switches both monitors over DDC/CI and both USB hubs over SWD, and serves the
 deck and host daemons over UDP (`kvm_proto`, port 18200). Hostname:
 `deskstrate`.
 
-Status: joins Wi-Fi, polls both monitors (DDC/CI) and both hubs (SWD), serves a
-bench web UI at `https://core.deskstrate.nogsnet.com/` (`http://deskstrate.local/` redirects there) (recent log at `/api/log`), runs the `kvm_proto` UDP server and
-takes updates over Wi-Fi. Presets/switching logic and protocol authentication
-follow.
+It joins Wi-Fi, polls both monitors (DDC/CI) and both hubs (SWD), switches them on
+request, holds the desk's sleep, and serves a web UI at
+`https://core.deskstrate.nogsnet.com/` (`http://deskstrate.local/` redirects there;
+recent log at `/api/log`). It updates itself from GitHub releases. `kvm_proto` and the
+web API are unauthenticated by design (apart from the OTA push): keep the core on the
+trusted LAN and never forward their ports.
 
 ## Missing hardware
 
@@ -72,13 +74,18 @@ a build with them blank, like CI's, keeps the stored ones. So a new board needs
 one USB flash of a build with both set, and nothing after that does.
 
 CI (`.github/workflows/firmware.yml`) builds core, deck and kb whenever their
-sources change and keeps their images as artifacts. Those
-images carry no secrets.
+sources change and publishes them as a release. Those images carry no secrets.
 
 ## OTA
 
-Build (or take `firmware.bin` from a CI run), then post the app image to the
-core with the token (`CONFIG_DESKSTRATE_OTA_TOKEN`, menuconfig: Deskstrate core):
+Normally the core updates itself from GitHub releases (doorbell on UDP 18210, or
+hourly; see Deployment in the top README and `components/ota_pull`). `GET /api/ota`
+shows the running slot, version, build time, state, whether a push token is set
+(`auth`), and the last release check under `pull`. A local `-dirty` build is only
+replaced by a doorbell, never by the hourly poll.
+
+Bench only: to try a local build without a release, post the app image to the core
+with the token (`CONFIG_DESKSTRATE_OTA_TOKEN`, menuconfig: Deskstrate core):
 
 ```
 pio run -d firmware/core
@@ -86,8 +93,7 @@ curl -H "Authorization: Bearer $TOKEN" --data-binary @firmware/core/.pio/build/s
 ```
 
 It is written to the spare slot, checked (image header, chip, SHA-256) and the
-core reboots into it. `GET /api/ota` shows the running slot, version (git
-describe), build time, state and whether a token is set (`auth`).
+core reboots into it.
 
 Rollback is on: a new image boots in pending-verify and marks itself valid once
 Wi-Fi has an IP and the web server is up. If it can't within 60 s, or crashes
@@ -96,12 +102,6 @@ the air; a new bootloader or partition table needs USB.
 
 Uploads need the token: 401 without it, 403 if the core has none stored. The
 rest of the web API is still unauthenticated, so keep the core LAN-only.
-
-That is the push path, for the bench. Normally the core updates itself from
-GitHub releases (doorbell on UDP 18210, or hourly; see Deployment in the top
-README and `components/ota_pull`). `GET /api/ota` shows the last check under
-`pull`. A local `-dirty` build is only replaced by a doorbell, never by the
-hourly poll.
 
 ## Pins
 

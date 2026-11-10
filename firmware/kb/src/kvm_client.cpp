@@ -143,13 +143,6 @@ esp_err_t start() {
     return ESP_OK;
 }
 
-void request(const uint8_t b[4]) {
-    if (!mutex || sock < 0) return;
-    xSemaphoreTake(mutex, portMAX_DELAY);
-    request_locked(b);
-    xSemaphoreGive(mutex);
-}
-
 void action(uint8_t act) {
     if (!mutex || sock < 0) return;
     using namespace kvm_controls;
