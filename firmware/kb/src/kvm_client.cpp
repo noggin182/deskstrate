@@ -79,8 +79,7 @@ void check_pending_locked() {
     }
     const TickType_t now = xTaskGetTickCount();
     if (now - asked_at >= pdMS_TO_TICKS(kGiveUpMs)) {
-        ESP_LOGW(TAG, "request %02X %02X %02X %02X not shown after %u sends", wanted[0], wanted[1], wanted[2],
-                 wanted[3], sends);
+        ESP_LOGW(TAG, "request %.4s not shown after %u sends", reinterpret_cast<const char *>(wanted), sends);
         pending = false;
     } else if (now - sent_at >= pdMS_TO_TICKS(kResendMs)) {
         send_locked();
@@ -191,13 +190,13 @@ void action(uint8_t act) {
     if (vol) {
         const uint8_t host = other_host(view);
         if (host != kNoHost) {
-            ESP_LOGI(TAG, "volume %u to %s", vol, host == kPc ? "PC" : "Mac");
+            ESP_LOGI(TAG, "volume %c to %s", vol, host == kPc ? "PC" : "Mac");
             send_volume_locked(host, vol);
         } else {
             ESP_LOGI(TAG, "volume: keyboard isn't on the PC or Mac");
         }
     } else if (!is_empty(t)) {
-        ESP_LOGI(TAG, "action %u: request %02X %02X %02X %02X", act, t.b[0], t.b[1], t.b[2], t.b[3]);
+        ESP_LOGI(TAG, "action %u: request %.4s", act, reinterpret_cast<const char *>(t.b));
         request_locked(t.b);
     } else {
         ESP_LOGI(TAG, "action %u: nothing to do", act);

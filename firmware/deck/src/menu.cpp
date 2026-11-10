@@ -70,8 +70,10 @@ uint8_t next_input(uint8_t mon) {
     return KVM_HOST_PC;  // from HDMI or unknown
 }
 
+// The next hub byte: PC, Mac, guest 1, guest 2, PC...
 uint8_t next_host(uint8_t host) {
-    return host < controls::kGuest2 ? host + 1 : controls::kPc;
+    const uint8_t port = kvm_hub_port(host);
+    return kvm_hub_byte(port < 3 ? port + 1 : 0);
 }
 
 void highlight() {

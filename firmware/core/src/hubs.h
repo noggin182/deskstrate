@@ -9,7 +9,7 @@
 namespace hubs {
 
 inline constexpr int kCount = 2;
-inline constexpr uint8_t kUnknown = 0xFF;  // == KVM_UNKNOWN
+inline constexpr uint8_t kUnknown = 0xFF;  // no port (kvm_hub_byte() makes it KVM_UNKNOWN)
 
 struct State {
     bool online = false;       // SWD connected and the status word read back

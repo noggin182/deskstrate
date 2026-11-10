@@ -31,7 +31,7 @@ c++ -std=c++17 -I components/kvm_proto/include -I host/common host/common/test_h
 ```
 
 The daemons only listen. The one thing they send is an empty `REQUEST`
-(`KR FF FF FF FF`), broadcast until a `STATE` comes back so they find the core
+(`KR----`), broadcast until a `STATE` comes back so they find the core
 without waiting for its heartbeat; `--core <ipv4>` sends it to that address
 instead.
 

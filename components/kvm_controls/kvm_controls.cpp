@@ -38,8 +38,8 @@ uint8_t host_input(uint8_t host, uint8_t mon_id) {
     switch (host) {
         case kPc: return KVM_HOST_PC;
         case kMac: return KVM_HOST_MAC;
-        case kGuest1: return mon_id == KVM_MON_LEFT ? static_cast<uint8_t>(KVM_HOST_GUEST) : KVM_UNKNOWN;
-        case kGuest2: return mon_id == KVM_MON_RIGHT ? static_cast<uint8_t>(KVM_HOST_GUEST) : KVM_UNKNOWN;
+        case kGuest1: return mon_id == KVM_MON_LEFT ? static_cast<uint8_t>(KVM_HOST_GUEST) : static_cast<uint8_t>(KVM_UNKNOWN);
+        case kGuest2: return mon_id == KVM_MON_RIGHT ? static_cast<uint8_t>(KVM_HOST_GUEST) : static_cast<uint8_t>(KVM_UNKNOWN);
     }
     return KVM_UNKNOWN;
 }

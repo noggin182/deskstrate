@@ -39,7 +39,7 @@ bool core_known = false;
 uint8_t latest_state[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
 bool state_fresh = false;
 
-// The state asked for and not yet seen in a STATE (0xFF = nothing asked). UDP can drop
+// The state asked for and not yet seen in a STATE ('-' = nothing asked). UDP can drop
 // a request, so it's sent again every kResendMs until a STATE shows it, for kGiveUpMs.
 // A REQUEST is the state wanted, so a repeat that arrives after all changes nothing.
 constexpr uint32_t kResendMs = 300;
@@ -75,9 +75,8 @@ void check_pending_locked() {
     }
     const TickType_t now = xTaskGetTickCount();
     if (now - asked_at >= pdMS_TO_TICKS(kGiveUpMs)) {
-        ESP_LOGW(TAG, "Request %02X %02X %02X %02X not shown after %u sends; state %02X %02X %02X %02X",
-                 wanted[0], wanted[1], wanted[2], wanted[3], sends,
-                 latest_state[0], latest_state[1], latest_state[2], latest_state[3]);
+        ESP_LOGW(TAG, "Request %.4s not shown after %u sends; state %.4s", reinterpret_cast<const char *>(wanted),
+                 sends, reinterpret_cast<const char *>(latest_state));
         pending = false;
         return;
     }
@@ -299,7 +298,7 @@ esp_err_t network_send_kvm_request(const uint8_t want[KVM_SLOTS]) {
         sent_at = asked_at;
         ++sends;
     }
-    // A request of all 0xFF changes nothing: it just asks the core for a STATE.
+    // A request of all '-' changes nothing: it just asks the core for a STATE.
     const bool sent = send_request_locked(asks ? wanted : want);
     const int send_errno = errno;
     xSemaphoreGive(kvm_mutex);

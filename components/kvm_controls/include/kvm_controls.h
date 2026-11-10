@@ -20,19 +20,25 @@
 
 namespace kvm_controls {
 
-// Hosts by hub port number (a kvm_proto hub byte). Each guest is cabled to one
-// monitor's HDMI: guest 1 (port 2) to the left, guest 2 (port 3) to the right.
-enum Host : uint8_t { kPc = 0, kMac = 1, kGuest1 = 2, kGuest2 = 3, kNoHost = KVM_UNKNOWN };
+// Hosts as kvm_proto hub bytes. Each guest is cabled to one monitor's HDMI: guest 1
+// (port 2) to the left, guest 2 (port 3) to the right.
+enum Host : uint8_t {
+    kPc = KVM_HOST_PC,
+    kMac = KVM_HOST_MAC,
+    kGuest1 = KVM_HUB_GUEST1,
+    kGuest2 = KVM_HUB_GUEST2,
+    kNoHost = KVM_UNKNOWN,
+};
 
-// The core's 4 STATE bytes, by enum kvm_slot (0xFF = not connected).
+// The core's 4 STATE bytes, by enum kvm_slot ('-' = not connected).
 struct View {
     uint8_t b[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
 };
 
-// What to ask the core for: REQUEST bytes, 0xFF = leave alone.
+// What to ask the core for: REQUEST bytes, '-' = leave alone.
 using Target = View;
 
-// True if the target changes nothing (every byte 0xFF).
+// True if the target changes nothing (every byte '-').
 bool is_empty(const Target &t);
 
 // Host (enum Host) shown by monitor mon_id, or kNoHost (unknown). Standby doesn't hide

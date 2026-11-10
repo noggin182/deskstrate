@@ -21,8 +21,8 @@ static View v(uint8_t l, uint8_t r, uint8_t hid, uint8_t media) {
 
 static void expect(const Target &got, const View &want, const char *what, int line) {
     if (memcmp(got.b, want.b, KVM_SLOTS) != 0) {
-        fprintf(stderr, "line %d %s: got %02X %02X %02X %02X, want %02X %02X %02X %02X\n", line, what, got.b[0],
-                got.b[1], got.b[2], got.b[3], want.b[0], want.b[1], want.b[2], want.b[3]);
+        fprintf(stderr, "line %d %s: got %.4s, want %.4s\n", line, what, reinterpret_cast<const char *>(got.b),
+                reinterpret_cast<const char *>(want.b));
         failures++;
     }
 }
@@ -36,58 +36,60 @@ static void expect(const Target &got, const View &want, const char *what, int li
     } while (0)
 
 constexpr uint8_t PC = KVM_HOST_PC, MAC = KVM_HOST_MAC, GUEST = KVM_HOST_GUEST, SB = KVM_STANDBY, X = KVM_UNKNOWN;
+// Hub bytes.
+constexpr uint8_t HP = kPc, HM = kMac, G1 = kGuest1, G2 = kGuest2;
 
 static void test_side() {
     // Not split: everything to PC / Mac.
-    EXPECT(plan_side(v(MAC, MAC, 1, 1), true), PC, PC, 0, 0);
-    EXPECT(plan_side(v(PC, PC, 0, 0), false), MAC, MAC, 1, 1);
+    EXPECT(plan_side(v(MAC, MAC, HM, HM), true), PC, PC, HP, HP);
+    EXPECT(plan_side(v(PC, PC, HP, HP), false), MAC, MAC, HM, HM);
     // No state yet: still the not-split meaning.
-    EXPECT(plan_side(View{}, true), PC, PC, 0, 0);
+    EXPECT(plan_side(View{}, true), PC, PC, HP, HP);
     // Split: only the HID hub, to that screen's host.
-    EXPECT(plan_side(v(PC, MAC, 0, 0), false), X, X, 1, X);
-    EXPECT(plan_side(v(MAC, PC, 0, 1), false), X, X, 0, X);
-    EXPECT(plan_side(v(MAC, PC, 0, 1), true), X, X, 1, X);
-    EXPECT(plan_side(v(GUEST, PC, 0, 0), true), X, X, 2, X);
-    EXPECT(plan_side(v(PC, GUEST, 0, 0), false), X, X, 3, X);
+    EXPECT(plan_side(v(PC, MAC, HP, HP), false), X, X, HM, X);
+    EXPECT(plan_side(v(MAC, PC, HP, HM), false), X, X, HP, X);
+    EXPECT(plan_side(v(MAC, PC, HP, HM), true), X, X, HM, X);
+    EXPECT(plan_side(v(GUEST, PC, HP, HP), true), X, X, G1, X);
+    EXPECT(plan_side(v(PC, GUEST, HP, HP), false), X, X, G2, X);
     // Standby (the desk asleep) doesn't hide a monitor's host.
-    EXPECT(plan_side(v(PC | SB, MAC | SB, 0, 0), false), X, X, 1, X);
+    EXPECT(plan_side(v(PC | SB, MAC | SB, HP, HP), false), X, X, HM, X);
 }
 
 static void test_toggle_split() {
     // Enter: left and hubs stay, right gets the other host.
-    EXPECT(plan_toggle_split(v(PC, PC, 0, 0)), X, MAC, X, X);
-    EXPECT(plan_toggle_split(v(MAC, MAC, 1, 1)), X, PC, X, X);
-    EXPECT(plan_toggle_split(v(MAC, MAC, 0, 1)), X, PC, X, X);
-    EXPECT(plan_toggle_split(v(GUEST, X, 2, 2)), X, PC, X, X);
+    EXPECT(plan_toggle_split(v(PC, PC, HP, HP)), X, MAC, X, X);
+    EXPECT(plan_toggle_split(v(MAC, MAC, HM, HM)), X, PC, X, X);
+    EXPECT(plan_toggle_split(v(MAC, MAC, HP, HM)), X, PC, X, X);
+    EXPECT(plan_toggle_split(v(GUEST, X, G1, G1)), X, PC, X, X);
     // Nothing known: nothing.
     CHECK(is_empty(plan_toggle_split(View{})));
     // Leave: everything follows the HID hub, else the media hub, else the PC.
-    EXPECT(plan_toggle_split(v(PC, MAC, 1, 0)), MAC, MAC, 1, 1);
-    EXPECT(plan_toggle_split(v(MAC, PC, 0, 1)), PC, PC, 0, 0);
-    EXPECT(plan_toggle_split(v(GUEST, MAC, 2, 1)), MAC, MAC, 1, 1);
-    EXPECT(plan_toggle_split(v(GUEST, GUEST, 2, 3)), PC, PC, 0, 0);
-    EXPECT(plan_leave_split(v(PC, MAC, 1, 0)), MAC, MAC, 1, 1);
-    CHECK(is_empty(plan_leave_split(v(PC, PC, 0, 0))));
+    EXPECT(plan_toggle_split(v(PC, MAC, HM, HP)), MAC, MAC, HM, HM);
+    EXPECT(plan_toggle_split(v(MAC, PC, HP, HM)), PC, PC, HP, HP);
+    EXPECT(plan_toggle_split(v(GUEST, MAC, G1, HM)), MAC, MAC, HM, HM);
+    EXPECT(plan_toggle_split(v(GUEST, GUEST, G1, G2)), PC, PC, HP, HP);
+    EXPECT(plan_leave_split(v(PC, MAC, HM, HP)), MAC, MAC, HM, HM);
+    CHECK(is_empty(plan_leave_split(v(PC, PC, HP, HP))));
 }
 
 static void test_swap() {
-    EXPECT(plan_swap(v(PC, MAC, 0, 0)), MAC, PC, X, X);
-    EXPECT(plan_swap(v(PC | SB, MAC | SB, 0, 0)), MAC, PC, X, X);
+    EXPECT(plan_swap(v(PC, MAC, HP, HP)), MAC, PC, X, X);
+    EXPECT(plan_swap(v(PC | SB, MAC | SB, HP, HP)), MAC, PC, X, X);
     CHECK(is_empty(plan_swap(View{})));
     // The media hub stays with its screen.
-    EXPECT(plan_swap_media(v(PC, MAC, 0, 0)), MAC, PC, X, 1);  // was on the left (PC): left is now Mac
-    EXPECT(plan_swap_media(v(PC, MAC, 0, 1)), MAC, PC, X, 0);  // was on the right (Mac): right is now PC
-    EXPECT(plan_swap_media(v(PC, MAC, 1, 2)), MAC, PC, X, X);  // on a guest no screen shows: stays
-    EXPECT(plan_swap_media(v(GUEST, PC, 0, 0)), PC, GUEST, X, 3);  // right now shows guest 2
-    EXPECT(plan_swap_media(v(GUEST, PC, 0, 2)), PC, GUEST, X, 0);  // left now shows the PC
-    EXPECT(plan_swap_media(v(PC, PC, 0, 0)), PC, PC, X, X);  // not split: nothing moves
-    CHECK(is_empty(plan_swap_media(v(PC, X, 0, 0))));
+    EXPECT(plan_swap_media(v(PC, MAC, HP, HP)), MAC, PC, X, HM);  // was on the left (PC): left is now Mac
+    EXPECT(plan_swap_media(v(PC, MAC, HP, HM)), MAC, PC, X, HP);  // was on the right (Mac): right is now PC
+    EXPECT(plan_swap_media(v(PC, MAC, HM, G1)), MAC, PC, X, X);  // on a guest no screen shows: stays
+    EXPECT(plan_swap_media(v(GUEST, PC, HP, HP)), PC, GUEST, X, G2);  // right now shows guest 2
+    EXPECT(plan_swap_media(v(GUEST, PC, HP, G1)), PC, GUEST, X, HP);  // left now shows the PC
+    EXPECT(plan_swap_media(v(PC, PC, HP, HP)), PC, PC, X, X);  // not split: nothing moves
+    CHECK(is_empty(plan_swap_media(v(PC, X, HP, HP))));
 }
 
 static void test_other_host() {
-    CHECK(other_host(v(PC, PC, 0, 0)) == kMac);
-    CHECK(other_host(v(PC, PC, 1, 0)) == kPc);
-    CHECK(other_host(v(PC, PC, 2, 0)) == kNoHost);
+    CHECK(other_host(v(PC, PC, HP, HP)) == kMac);
+    CHECK(other_host(v(PC, PC, HM, HP)) == kPc);
+    CHECK(other_host(v(PC, PC, G1, HP)) == kNoHost);
     CHECK(other_host(View{}) == kNoHost);
 }
 

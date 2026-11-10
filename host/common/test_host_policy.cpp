@@ -1,6 +1,7 @@
 /* Tests for host_policy.h. Run: c++ -std=c++17 -I components/kvm_proto/include -I host/common host/common/test_host_policy.cpp && ./a.out */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "host_policy.h"
 
@@ -125,17 +126,40 @@ static void test_keyboard(void) {
 }
 
 static void test_wire(void) {
-    const uint8_t want[KVM_SLOTS] = {0x00, 0xFF, 0xFF, 0xFF};
+    const uint8_t want[KVM_SLOTS] = {PC, NC, NC, NC};
     const kvm_msg_t m = kvm_msg(KVM_REQUEST, want);
     uint8_t raw[KVM_MSG_LEN];
     memcpy(raw, &m, sizeof raw);
-    CHECK(raw[0] == 'K' && raw[1] == 'R' && raw[2] == 0x00 && raw[5] == 0xFF);
+    CHECK(memcmp(raw, "KRP---", KVM_MSG_LEN) == 0);
     kvm_msg_t out;
     CHECK(kvm_decode(raw, KVM_MSG_LEN, KVM_REQUEST, &out));
     CHECK(!kvm_decode(raw, KVM_MSG_LEN, KVM_STATE, &out));
     CHECK(!kvm_decode(raw, KVM_MSG_LEN - 1, KVM_REQUEST, &out));
-    CHECK(kvm_mon_host(0x81) == MAC && kvm_mon_standby(0x81));
+    CHECK(kvm_mon_host('m') == MAC && kvm_mon_standby('m'));
+    CHECK(kvm_mon_host('X') == KVM_HOST_KEEP && !kvm_mon_standby('X'));
     CHECK(kvm_mon_host(NC) == KVM_HOST_KEEP && !kvm_mon_standby(NC));
+    CHECK(kvm_hub_port('P') == 0 && kvm_hub_port('M') == 1 && kvm_hub_port('1') == 2 && kvm_hub_port('2') == 3);
+    CHECK(kvm_hub_port(NC) > 3 && kvm_hub_byte(2) == '1' && kvm_hub_byte(0xFF) == NC);
+}
+
+/* Any byte outside the table drops the whole datagram. */
+static void test_valid(void) {
+    kvm_msg_t out;
+    const char *good[] = {"KSPPPP", "KSMMMM", "KSpmPM", "KSP-12", "KSxX--", "KSgG-M", "KR----", "KRxx--",
+                          "KRXX--", "KRP---", "KVP+--", "KVM---", "KVM/--"};
+    for (const char *g : good) {
+        CHECK(kvm_decode(g, KVM_MSG_LEN, (uint8_t)g[1], &out));
+    }
+    const char *bad[] = {"KSAPPP", "KSPP3P", "KSPPpP", "KSP?PP", "KS\xFFPPP", "KR0---", "KR--G-", "KR---x",
+                         "KVG+--", "KVPx--", "KVP+P-", "KVP+-?", "KXPPPP", "kSPPPP", "KS1PPP"};
+    for (const char *b : bad) {
+        if (kvm_decode(b, KVM_MSG_LEN, (uint8_t)b[1], &out)) {
+            fprintf(stderr, "accepted %.6s\n", b);
+            failures++;
+        }
+    }
+    /* A type the receiver didn't ask for is not a match either. */
+    CHECK(!kvm_decode("KVP+--", KVM_MSG_LEN, KVM_STATE, &out));
 }
 
 int main(void) {
@@ -145,6 +169,7 @@ int main(void) {
     test_requests();
     test_keyboard();
     test_wire();
+    test_valid();
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);
         return EXIT_FAILURE;

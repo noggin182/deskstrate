@@ -13,7 +13,7 @@ follow.
 ## Missing hardware
 
 Any of the two monitors and two hubs can be absent (not cabled, powered off, or
-not wired yet). It shows as "not connected" in the web UI, as 0xFF in `STATE`, and is retried
+not wired yet). It shows as "not connected" in the web UI, as `-` in `STATE`, and is retried
 every 15 s, so it is picked up when it appears without a reboot. Switching an
 absent device fails with HTTP 409 from the web API, and is skipped over UDP.
 
@@ -30,21 +30,24 @@ is marked offline.
 
 ## UDP (kvm_proto)
 
-The core binds `KVM_PORT` (18200) and broadcasts a 6-byte `STATE` ("KS" + 4 bytes:
-left monitor, right monitor, HID hub, media hub) on every change and every 2 s
-(`KVM_HEARTBEAT_MS`). A monitor byte is the host on it (0 PC/DP, 1 Mac/USB-C,
-3 guest/HDMI, 0xF unreadable) with bit 7 set while the desk is asleep; a hub byte is its port (0-3);
-0xFF is not connected. Monitors are left/right by EDID serial.
+The core binds `KVM_PORT` (18200) and broadcasts a 6-byte ASCII `STATE` ("KS" + 4
+bytes: left monitor, right monitor, HID hub, media hub) on every change and every 2 s
+(`KVM_HEARTBEAT_MS`), e.g. `KSPMPM`. A monitor byte is the host on it (`P` PC/DP, `M`
+Mac/USB-C, `G` guest/HDMI, `X` unreadable), lower case while the desk is asleep; a hub
+byte is its port (`P`, `M`, `1` guest 1, `2` guest 2); `-` is not connected. Monitors
+are left/right by EDID serial. The full table is in
+`components/kvm_proto/include/kvm_proto.h`; a datagram with any byte outside it is
+dropped whole.
 
-A `REQUEST` ("KR" + 4 bytes) is the state wanted; 0xFF bytes, and a monitor nibble of
-0xF, are left alone. The core switches whatever differs, skips what's already there or
-not connected, and sends its current `STATE` straight back to the requester (as well as
-broadcasting any change). So `KR FF FF FF FF` just asks for a `STATE`, and a repeated
-request is harmless. A monitor in standby is woken to switch it.
+A `REQUEST` ("KR" + 4 bytes) is the state wanted; `-` bytes, and a monitor `X`, are
+left alone. The core switches whatever differs, skips what's already there or not
+connected, and sends its current `STATE` straight back to the requester (as well as
+broadcasting any change). So `KR----` just asks for a `STATE`, and a repeated request
+is harmless. A monitor in standby is woken to switch it.
 
-Bit 7 is the desk's sleep, as asked for, not the monitors' power read back: a request
-with bit 7 on a monitor byte (`KR 8F 8F FF FF`) puts the desk to sleep, and any other
-request that isn't all 0xFF wakes it. The core can't put a monitor showing DP or USB-C
+Lower case is the desk's sleep, as asked for, not the monitors' power read back: a
+request with a lower-case monitor byte (`KRxx--`) puts the desk to sleep, and any other
+request that isn't `KR----` wakes it. The core can't put a monitor showing DP or USB-C
 into standby (a Dell ignores it from HDMI, where the core's DDC comes in), so the PC and
 Mac daemons do that for their own input. The core does it for a monitor showing HDMI:
 standby while asleep, and on once when the desk wakes. The flag survives an OTA or crash

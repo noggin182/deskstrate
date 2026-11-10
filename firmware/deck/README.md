@@ -44,7 +44,7 @@ sender of the last `STATE`, or broadcast until one has been seen). UDP can drop
 a packet, so the deck resends the request every 300 ms until a `STATE` shows it,
 for up to 3 s; a repeat is harmless because a request is the state wanted, not a
 step. Packets are unauthenticated. Until a `STATE` arrives (at boot, or after
-10 s of silence) it sends an empty request (`KR FF FF FF FF`) once a second; the
+10 s of silence) it sends an empty request (`KR----`) once a second; the
 core answers every request with its current `STATE`, so the screen fills in as
 soon as Wi-Fi is up.
 
@@ -119,7 +119,7 @@ A monitor or hub the core reports as not connected is left out of every
 request (the core would refuse it), and the menu shows it as `n/c`. On the
 screen a disconnected monitor is drawn dim with a cross, a monitor in standby
 with a power symbol, and a disconnected hub dim with `--` for its host and no
-routes to it. In the debug code they show as `-` (standby is `0`).
+routes to it. In the debug code they show as `-` (standby is lower case).
 
 In the menu (`src/menu.h`) top left is back, top right is select, and bottom
 left/right move up/down. Its items set each monitor's input (DP, USB-C, HDMI)
@@ -148,7 +148,9 @@ to an eighth of their level. Any deck key press wakes the desk, and still does w
 normally does.
 
 A debug code overlay (on by default; Debug code in the menu)
-covers the volume panel to make states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,
-Hub 2. Monitor input digits are DP=1, USB-C=2, HDMI=3; hub host digits are
-PC=1, Mac=2, Guest 3=3, Guest 4=4. For example, `2211` means both monitors
-are on USB-C and both hubs are assigned to PC.
+covers the volume panel to make states easy to report: it is the core's `STATE` bytes
+exactly as they come over the wire (`components/kvm_proto/include/kvm_proto.h`), ordered
+left monitor, right monitor, HID hub, media hub. Monitors are `P` (DP), `M` (USB-C),
+`G` (HDMI) or `X` (unreadable), lower case while the desk is asleep; hubs are `P`, `M`,
+`1` (guest 1) or `2` (guest 2); `-` is not connected. For example, `MMPP` means both
+monitors are on USB-C and both hubs are on the PC, and `mmPP` is the same asleep.
