@@ -243,10 +243,11 @@ void kb_link_send_kvm_action(uint8_t action) {
     kvm_send(action);
 }
 
-// kvm_proto.h: either monitor's byte in lower case ('p', 'm', 'g', 'x') means the desk is asleep.
+// kvm_proto.h: either monitor's byte in lower case ('p', 'm', 'g', 'x', or '~' for one
+// that isn't connected) means the desk is asleep.
 bool kb_link_desk_asleep(void) {
     for (uint8_t m = 0; m < 2; m++) {
-        if (core_state[m] >= 'a' && core_state[m] <= 'z') return true;
+        if ((core_state[m] >= 'a' && core_state[m] <= 'z') || core_state[m] == '~') return true;
     }
     return false;
 }

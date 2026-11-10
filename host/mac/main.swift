@@ -262,7 +262,7 @@ func askForState() {
 }
 
 func monName(_ b: UInt8) -> String {
-    if b == UInt8(KVM_UNKNOWN) { return "--" }
+    if kvm_mon_connected(b) == 0 { return "--" }
     if kvm_mon_standby(b) != 0 { return "asleep" }
     switch UInt32(kvm_mon_host(b)) {
     case KVM_HOST_PC.rawValue: return "PC"

@@ -104,7 +104,8 @@ A monitor or hub the core reports as not connected is left out of every
 request (the core would refuse it), and the menu shows it as `n/c`. On the
 screen a disconnected monitor is drawn dim with a cross, a monitor in standby
 with a power symbol, and a disconnected hub dim with `--` for its host and no
-routes to it. In the debug code they show as `-` (standby is lower case).
+routes to it. In the debug code a missing monitor is `^` (`~` while the desk is asleep)
+and a missing hub `-`.
 
 In the menu (`src/menu.h`) top left is back, top right is select, and bottom
 left/right move up/down. Its items set each monitor's input (DP, USB-C, HDMI)
@@ -137,6 +138,7 @@ covers the volume panel to make states easy to report: it is the core's `STATE` 
 in a monospaced font (`src/font_mono_22.c`, JetBrains Mono),
 exactly as they come over the wire (`components/kvm_proto/include/kvm_proto.h`), ordered
 left monitor, right monitor, HID hub, media hub. Monitors are `P` (DP), `M` (USB-C),
-`G` (HDMI) or `X` (unreadable), lower case while the desk is asleep; hubs are `P`, `M`,
-`1` (guest 1) or `2` (guest 2); `-` is not connected. For example, `MMPP` means both
+`G` (HDMI), `X` (unreadable) or `^` (not connected), lower case while the desk is asleep
+(`^` becomes `~`); hubs are `P`, `M`, `1` (guest 1) or `2` (guest 2), `-` if not
+connected. For example, `MMPP` means both
 monitors are on USB-C and both hubs are on the PC, and `mmPP` is the same asleep.

@@ -15,7 +15,7 @@ trusted LAN and never forward their ports.
 ## Missing hardware
 
 Any of the two monitors and two hubs can be absent (not cabled, powered off, or
-not wired yet). It shows as "not connected" in the web UI, as `-` in `STATE`, and is retried
+not wired yet). It shows as "not connected" in the web UI, as `^` (a monitor; `~` while the desk is asleep) or `-` (a hub) in `STATE`, and is retried
 every 15 s, so it is picked up when it appears without a reboot. Switching an
 absent device fails with HTTP 409 from the web API, and is skipped over UDP.
 
@@ -35,8 +35,9 @@ is marked offline.
 The core binds `KVM_PORT` (18200) and broadcasts a 6-byte ASCII `STATE` ("KS" + 4
 bytes: left monitor, right monitor, HID hub, media hub) on every change and every 2 s
 (`KVM_HEARTBEAT_MS`), e.g. `KSPMPM`. A monitor byte is the host on it (`P` PC/DP, `M`
-Mac/USB-C, `G` guest/HDMI, `X` unreadable), lower case while the desk is asleep; a hub
-byte is its port (`P`, `M`, `1` guest 1, `2` guest 2); `-` is not connected. Monitors
+Mac/USB-C, `G` guest/HDMI, `X` unreadable, `^` not connected), lower case while the
+desk is asleep (`^` becomes `~`, so the sleep shows even with both monitors off); a hub
+byte is its port (`P`, `M`, `1` guest 1, `2` guest 2) or `-` if not connected. Monitors
 are left/right by EDID serial. The full table is in
 `components/kvm_proto/include/kvm_proto.h`; a datagram with any byte outside it is
 dropped whole.

@@ -210,6 +210,7 @@ static bool same_host(HostId a, HostId b) {
 
 // kvm_proto <-> deck view. HostId is in hub port order (PC, Mac, Guest1, Guest2).
 static MonitorInput from_kvm_mon(uint8_t mon) {
+    if (!kvm_mon_connected(mon)) return MonitorInput::Disconnected;
     if (kvm_mon_standby(mon)) return MonitorInput::Standby;
     switch (kvm_mon_host(mon)) {
         case KVM_HOST_PC: return MonitorInput::DisplayPort;
@@ -246,7 +247,7 @@ static void request_target(const controls::Target &target, const controls::View 
     controls::Target want = target;
     bool any = false;
     for (uint8_t i = 0; i < KVM_SLOTS; ++i) {
-        if (view.b[i] == KVM_UNKNOWN) want.b[i] = KVM_UNKNOWN;
+        if (!kvm_connected(i, view.b[i])) want.b[i] = KVM_UNKNOWN;
         any |= want.b[i] != KVM_UNKNOWN;
     }
     if (!any) return;

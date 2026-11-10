@@ -22,9 +22,11 @@
  *   monitors  'P' PC (DisplayPort), 'M' Mac (USB-C), 'G' guest (HDMI),
  *             'X' input unreadable (STATE) / keep the input (REQUEST),
  *             lower case = standby (below): 'p' 'm' 'g' 'x'
+ *             STATE only: '^' not connected, '~' not connected and the desk asleep
+ *             ('^' | 0x20, like the letters); REQUEST only: '-' leave alone
  *   hubs      the selected port: 'P' PC (0), 'M' Mac (1), '1' guest 1 (2, on the left
- *             monitor's HDMI), '2' guest 2 (3, on the right monitor's HDMI)
- *   '-'       not connected in a STATE; leave alone in a REQUEST
+ *             monitor's HDMI), '2' guest 2 (3, on the right monitor's HDMI),
+ *             '-' not connected (STATE) / leave alone (REQUEST)
  * Any other byte, in any message type, makes kvm_decode() drop the whole datagram.
  *
  * Examples: everything on the PC = "KSPPPP", everything on the Mac = "KSMMMM", split and
@@ -33,7 +35,7 @@
  * Standby is the desk's sleep: what the core has been asked for, not the monitors' power
  * read back (the core's DDC comes in over HDMI, which a Dell ignores for standby unless
  * HDMI is showing, so it can't put a monitor showing DP or USB-C into standby). The core
- * lower-cases every connected monitor in STATE while the desk is asleep. A REQUEST with a
+ * lower-cases every monitor byte in STATE while the desk is asleep ('^' becomes '~'). A REQUEST with a
  * lower-case monitor byte puts the desk to sleep ("KRxx--": inputs kept); any other
  * REQUEST that isn't "KR----" wakes it ("KRXX--" just wakes), so asking for an input
  * wakes everything. Nobody acts on a change: every listener follows each STATE.
@@ -42,7 +44,6 @@
  *   core      the same for a monitor showing HDMI (a guest); it wakes one only when the
  *             desk wakes, since a guest that sends no signal would put it back to sleep
  *   deck, keyboard  dim their lights, and a key press wakes the desk
- * With neither monitor connected there is no byte to carry it, so the sleep doesn't show.
  *
  * No authentication: this trusts the LAN.
  */
@@ -91,8 +92,10 @@ enum kvm_host {
 enum {
     KVM_HUB_GUEST1 = '1',  /* hub byte, port 2: the guest on the left monitor's HDMI */
     KVM_HUB_GUEST2 = '2',  /* hub byte, port 3: the guest on the right monitor's HDMI */
-    KVM_UNKNOWN    = '-',  /* whole byte: not connected (STATE) / leave alone (REQUEST) */
+    KVM_UNKNOWN    = '-',  /* hub byte: not connected (STATE); any byte: leave alone (REQUEST) */
     KVM_STANDBY    = 0x20, /* monitor byte: lower case = the desk is asleep (STATE) / sleep it (REQUEST) */
+    KVM_MON_NC     = '^',  /* monitor byte, STATE only: not connected */
+    KVM_MON_NC_ASLEEP = '~',  /* monitor byte, STATE only: not connected, desk asleep (KVM_MON_NC | KVM_STANDBY) */
 };
 
 typedef struct {
@@ -111,13 +114,19 @@ static inline kvm_msg_t kvm_msg(uint8_t type, const uint8_t b[KVM_SLOTS]) {
     return m;
 }
 
-/* The host shown on a monitor (upper case), or KVM_HOST_KEEP if unknown or not connected. */
-static inline uint8_t kvm_mon_host(uint8_t b) {
-    return b == KVM_UNKNOWN ? (uint8_t)KVM_HOST_KEEP : (uint8_t)(b & ~KVM_STANDBY);
+/* A monitor byte for a monitor the core can see (not '^' / '~', nor '-'). */
+static inline int kvm_mon_connected(uint8_t b) {
+    return b != KVM_MON_NC && b != KVM_MON_NC_ASLEEP && b != KVM_UNKNOWN;
 }
 
+/* The host shown on a monitor (upper case), or KVM_HOST_KEEP if unknown or not connected. */
+static inline uint8_t kvm_mon_host(uint8_t b) {
+    return kvm_mon_connected(b) ? (uint8_t)(b & ~KVM_STANDBY) : (uint8_t)KVM_HOST_KEEP;
+}
+
+/* Lower case: the desk is asleep (STATE) / put it to sleep (REQUEST). */
 static inline int kvm_mon_standby(uint8_t b) {
-    return b >= 'a' && b <= 'z';
+    return (b >= 'a' && b <= 'z') || b == KVM_MON_NC_ASLEEP;
 }
 
 /* Hub byte <-> port number 0-3; kvm_hub_port() gives 0xFF for '-' or anything else. */
@@ -136,6 +145,11 @@ static inline uint8_t kvm_hub_byte(uint8_t port) {
     return port < 4 ? bytes[port] : (uint8_t)KVM_UNKNOWN;
 }
 
+/* A STATE slot the core can see: a monitor not '^' / '~', a hub not '-'. */
+static inline int kvm_connected(unsigned slot, uint8_t b) {
+    return slot <= KVM_MON_RIGHT ? kvm_mon_connected(b) : b != KVM_UNKNOWN;
+}
+
 /* True if every byte is valid for that message type (the table at the top). */
 static inline int kvm_valid(uint8_t type, const uint8_t b[KVM_SLOTS]) {
     if (type == KVM_VOLUME) {
@@ -145,7 +159,9 @@ static inline int kvm_valid(uint8_t type, const uint8_t b[KVM_SLOTS]) {
     }
     if (type != KVM_STATE && type != KVM_REQUEST) return 0;
     for (unsigned i = KVM_MON_LEFT; i <= KVM_MON_RIGHT; i++) {
-        if (b[i] == KVM_UNKNOWN) continue;
+        if (type == KVM_STATE && (b[i] == KVM_MON_NC || b[i] == KVM_MON_NC_ASLEEP)) continue;
+        if (type == KVM_REQUEST && b[i] == KVM_UNKNOWN) continue;
+        if (!kvm_mon_connected(b[i])) return 0;  /* '-' in a STATE, '^' / '~' in a REQUEST */
         switch (kvm_mon_host(b[i])) {
             case KVM_HOST_PC: case KVM_HOST_MAC: case KVM_HOST_GUEST: case KVM_HOST_KEEP: break;
             default: return 0;

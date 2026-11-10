@@ -18,7 +18,8 @@ static int failures = 0;
 #define MAC KVM_HOST_MAC
 #define GUEST KVM_HOST_GUEST
 #define SB KVM_STANDBY
-#define NC KVM_UNKNOWN
+#define NC KVM_UNKNOWN   /* hub not connected; leave alone in a REQUEST */
+#define MNC KVM_MON_NC   /* monitor not connected (STATE) */
 
 static host_actions_t feed(host_policy_t *p, uint8_t left, uint8_t right, uint8_t hid) {
     const uint8_t b[KVM_SLOTS] = {left, right, hid, hid};
@@ -48,7 +49,7 @@ static void test_topology(void) {
     CHECK(!a.set_topology);
     CHECK(a.wake_displays);                        /* a monitor came back to the PC */
 
-    a = feed(&pc, NC, PC, MAC);                    /* left monitor unplugged */
+    a = feed(&pc, MNC, PC, MAC);                   /* left monitor unplugged */
     CHECK(!a.set_topology);
     a = feed(&pc, GUEST, PC, MAC);                 /* guest on the left */
     CHECK(!a.set_topology && !a.wake_displays);
@@ -95,8 +96,12 @@ static void test_requests(void) {
     CHECK(kvm_request_sleep(sleep) == 1 && kvm_request_sleep(wake) == 0);
     CHECK(kvm_request_sleep(none) == -1 && kvm_request_sleep(hub) == 0);  /* any request wakes */
     const uint8_t asleep[KVM_SLOTS] = {PC | SB, MAC | SB, PC, PC}, awake[KVM_SLOTS] = {PC, MAC, PC, PC};
-    const uint8_t one_left[KVM_SLOTS] = {NC, MAC | SB, PC, PC};
+    const uint8_t one_left[KVM_SLOTS] = {MNC, MAC | SB, PC, PC};
     CHECK(kvm_asleep(asleep) && !kvm_asleep(awake) && kvm_asleep(one_left));
+    /* With neither monitor connected, '~' still carries the desk's sleep. */
+    const uint8_t none_asleep[KVM_SLOTS] = {MNC | SB, MNC | SB, PC, NC}, none_awake[KVM_SLOTS] = {MNC, MNC, PC, NC};
+    CHECK(kvm_asleep(none_asleep) && !kvm_asleep(none_awake));
+    CHECK(kvm_shows(none_asleep, sleep) && !kvm_shows(none_awake, sleep) && kvm_shows(none_awake, wake));
     CHECK(kvm_shows(asleep, sleep) && !kvm_shows(awake, sleep));
     CHECK(kvm_shows(awake, wake) && !kvm_shows(asleep, wake));
     CHECK(kvm_shows(awake, none) && kvm_shows(asleep, none));
@@ -137,7 +142,12 @@ static void test_wire(void) {
     CHECK(!kvm_decode(raw, KVM_MSG_LEN - 1, KVM_REQUEST, &out));
     CHECK(kvm_mon_host('m') == MAC && kvm_mon_standby('m'));
     CHECK(kvm_mon_host('X') == KVM_HOST_KEEP && !kvm_mon_standby('X'));
-    CHECK(kvm_mon_host(NC) == KVM_HOST_KEEP && !kvm_mon_standby(NC));
+    CHECK(kvm_mon_host(NC) == KVM_HOST_KEEP && !kvm_mon_standby(NC) && !kvm_mon_connected(NC));
+    CHECK(KVM_MON_NC_ASLEEP == (KVM_MON_NC | KVM_STANDBY));
+    CHECK(kvm_mon_host('^') == KVM_HOST_KEEP && !kvm_mon_standby('^') && !kvm_mon_connected('^'));
+    CHECK(kvm_mon_host('~') == KVM_HOST_KEEP && kvm_mon_standby('~') && !kvm_mon_connected('~'));
+    CHECK(kvm_mon_connected('P') && kvm_mon_connected('x'));
+    CHECK(kvm_connected(KVM_MON_LEFT, 'p') && !kvm_connected(KVM_MON_RIGHT, '~') && !kvm_connected(KVM_HUB_HID, NC));
     CHECK(kvm_hub_port('P') == 0 && kvm_hub_port('M') == 1 && kvm_hub_port('1') == 2 && kvm_hub_port('2') == 3);
     CHECK(kvm_hub_port(NC) > 3 && kvm_hub_byte(2) == '1' && kvm_hub_byte(0xFF) == NC);
 }
@@ -145,13 +155,14 @@ static void test_wire(void) {
 /* Any byte outside the table drops the whole datagram. */
 static void test_valid(void) {
     kvm_msg_t out;
-    const char *good[] = {"KSPPPP", "KSMMMM", "KSpmPM", "KSP-12", "KSxX--", "KSgG-M", "KR----", "KRxx--",
-                          "KRXX--", "KRP---", "KVP+--", "KVM---", "KVM/--"};
+    const char *good[] = {"KSPPPP", "KSMMMM", "KSpmPM", "KSP^12", "KSxX--", "KSgG-M", "KS^^--", "KS~~P-",
+                          "KS~mPM", "KR----", "KRxx--", "KRXX--", "KRP---", "KVP+--", "KVM---", "KVM/--"};
     for (const char *g : good) {
         CHECK(kvm_decode(g, KVM_MSG_LEN, (uint8_t)g[1], &out));
     }
     const char *bad[] = {"KSAPPP", "KSPP3P", "KSPPpP", "KSP?PP", "KS\xFFPPP", "KR0---", "KR--G-", "KR---x",
-                         "KVG+--", "KVPx--", "KVP+P-", "KVP+-?", "KXPPPP", "kSPPPP", "KS1PPP"};
+                         "KVG+--", "KVPx--", "KVP+P-", "KVP+-?", "KXPPPP", "kSPPPP", "KS1PPP",
+                         "KS-PPP", "KSP-PP", "KR^---", "KR-~--", "KSPP^P", "KSPP~-", "KS`PPP", "KS@PPP"};
     for (const char *b : bad) {
         if (kvm_decode(b, KVM_MSG_LEN, (uint8_t)b[1], &out)) {
             fprintf(stderr, "accepted %.6s\n", b);
