@@ -110,7 +110,7 @@ void handle_locked() {
 
 // TX is only driven while the keyboard is on USB. The STM32 runs from the keyboard's
 // 3.3 V rail, which is off with the switch at Off, so a TX idling high would push current
-// into an unpowered PA3 (there may be no series resistor). Off USB, TX is a floating input.
+// into an unpowered PA3 (there is no series resistor). Off USB, TX is a floating input.
 void set_tx_driven(bool on) {
     if (on) {
         uart_set_pin(kUart, kTx, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);

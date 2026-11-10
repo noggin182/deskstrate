@@ -3,7 +3,7 @@
  * the ESP32 inside it (firmware/kb). Plain C, shared by both: build.sh copies it into
  * the QMK keymap.
  *
- * Physical: two wires, 8N1 at KB_LINK_BAUD, 3.3 V, 1 kOhm in series on each.
+ * Physical: two wires, 8N1 at KB_LINK_BAUD, 3.3 V, wired direct (no series resistors).
  *   keyboard PB12 -> ESP RX   bit-banged by the STM32 (PB12 has no UART), received
  *                             by the ESP's hardware UART
  *   ESP TX -> keyboard PA3    ESP hardware UART, received by the STM32's USART2 (DMA)

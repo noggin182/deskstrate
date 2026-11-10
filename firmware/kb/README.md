@@ -29,8 +29,8 @@ Q3 Max, wired to the keyboard's STM32 (which runs `firmware/keyboard`). Hostname
 
 | XIAO ESP32S3 | Keyboard | |
 | --- | --- | --- |
-| D0 / GPIO1 (RX) | STM32 PB12, LQFP pin 33 | keyboard → ESP; 1 kΩ in series |
-| D1 / GPIO2 (TX) | STM32 PA3, LQFP pin 17 (USART2 RX) | ESP → keyboard; 1 kΩ in series |
+| D0 / GPIO1 (RX) | STM32 PB12, LQFP pin 33 | keyboard → ESP; direct, no resistor |
+| D1 / GPIO2 (TX) | STM32 PA3, LQFP pin 17 (USART2 RX) | ESP → keyboard; direct, no resistor |
 | 5V | TP4056 pin 5 (BAT), or the battery lead | through the XIAO's own regulator |
 | GND | GND | must be shared with the keyboard |
 
@@ -39,9 +39,12 @@ That level is how this board knows the keyboard is on USB, so RX must be an RTC 
 (0-21) and has a pull-down: a disconnected line reads as "off USB".
 
 The keyboard holds PB12 high only in cable mode with USB power, so the ESP sleeps on
-Bluetooth and 2.4 GHz too. Keep the 1 kΩ resistors: the XIAO runs from the battery but
-the STM32 from the keyboard's 3.3 V rail, which is off with the switch at Off, and the
-resistor limits what the XIAO's TX can push into an unpowered PA3.
+Bluetooth and 2.4 GHz too. Both wires are fitted without series resistors (enamelled
+wire straight to the pads). The XIAO runs from the battery but the STM32 from the
+keyboard's 3.3 V rail, which is off with the switch at Off, so the ESP only drives TX
+while the keyboard is on USB and leaves it a floating input otherwise
+(`set_tx_driven()` in `src/kb_link.cpp`): a TX idling high can't push current into an
+unpowered PA3.
 
 Pins and sleep are in menuconfig, Deskstrate keyboard. Turn sleep off
 for bench work with nothing on RX. To wake it on the bench, jumper D0 to 3V3.
