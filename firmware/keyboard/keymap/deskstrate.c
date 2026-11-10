@@ -29,7 +29,8 @@ static const uint8_t kvm_actions[DESKSTRATE_KEYS_END - KVM_LEFT] = {
 
 // The desk's sleep (kvm_proto.h, asleep) is the core's: KVM_SLEEP asks it to sleep, and
 // the lighting follows its STATE, off (not saved) while asleep, whoever put it to sleep.
-// While asleep, any key press asks it to wake, then goes to the host as usual. Each ask
+// While asleep, any key press asks it to wake, then goes to the host as usual; KVM_SLEEP
+// itself only wakes it, so it toggles. Each ask
 // sets the lighting straight away, and the STATE is only followed again once it agrees
 // (or after EXPECT_MS), so the lighting doesn't flicker back while the core catches up.
 #define EXPECT_MS 2000
@@ -54,7 +55,7 @@ static void ask_desk(bool asleep) {
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    if (record->event.pressed && keycode != KVM_SLEEP && (expect == 1 || (expect < 0 && kb_link_desk_asleep()))) {
+    if (record->event.pressed && (expect == 1 || (expect < 0 && kb_link_desk_asleep()))) {
         // A lighting toggle as the waking press is left to turn the lighting on itself.
         if (keycode == QK_UNDERGLOW_TOGGLE || keycode == QK_RGB_MATRIX_TOGGLE) {
             rgb_off_for_sleep = false;
@@ -62,6 +63,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
             sleep_lighting(false);
         }
         ask_desk(false);
+        if (keycode == KVM_SLEEP) return false;  // Sleep toggles: here it only wakes
     }
     if (keycode >= KVM_LEFT && keycode < DESKSTRATE_KEYS_END) {
         if (record->event.pressed) {
