@@ -86,7 +86,7 @@ exits. Needs the Xcode command line tools (`xcode-select --install`).
 ```
 make -C host/mac cert        # once: a signing certificate, so rebuilds keep Accessibility
 make -C host/mac install     # build, install to ~/Library/Application Support/Deskstrate, start
-host/mac/update.sh           # git pull, then make install: how to update it
+./mac-install.sh             # from the repo root: git pull, then make install
 make -C host/mac uninstall
 host/mac/build/deskstrate-host --list-displays   # serials, origins, mirroring
 ```
