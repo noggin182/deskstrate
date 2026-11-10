@@ -149,7 +149,7 @@ normally does.
 
 A debug code overlay (on by default; Debug code in the menu)
 covers the volume panel to make states easy to report: it is the core's `STATE` bytes,
-in a monospaced font (`src/font_mono_22.c`, Roboto Mono),
+in a monospaced font (`src/font_mono_22.c`, JetBrains Mono),
 exactly as they come over the wire (`components/kvm_proto/include/kvm_proto.h`), ordered
 left monitor, right monitor, HID hub, media hub. Monitors are `P` (DP), `M` (USB-C),
 `G` (HDMI) or `X` (unreadable), lower case while the desk is asleep; hubs are `P`, `M`,
