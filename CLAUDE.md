@@ -25,9 +25,11 @@ COM number alone.
   brand-new board, or one whose NVS was erased, needs one build with them set; the user
   enters those themselves via `-t menuconfig` (Deskstrate Wi-Fi / Deskstrate core).
 - Both boards normally update themselves from GitHub releases of `main` (see
-  Deployment in README.md). To push a bench build to the core over Wi-Fi instead: `POST /api/ota` with
+  Deployment in README.md). To push a bench build to the core over Wi-Fi instead: `POST https://core.deskstrate.nogsnet.com/api/ota` with
   `Authorization: Bearer <CONFIG_DESKSTRATE_OTA_TOKEN from sdkconfig.s3_mini>`. Never
-  print the token or the Wi-Fi credentials.
+  print the token or the Wi-Fi credentials. Once a board has HTTPS up, port 80 answers
+  everything with a 307 to `https://<core|kb>.deskstrate.nogsnet.com/...`: use that URL,
+  since `curl -L` drops the Authorization header when it follows a redirect to another host.
 
 ## ESP32-S3 USB Serial/JTAG quirks
 

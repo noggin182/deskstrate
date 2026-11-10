@@ -5,7 +5,7 @@ Q3 Max, wired to the keyboard's STM32 (which runs `firmware/keyboard`). Hostname
 
 - **Wi-Fi** as `deskstrate-kb`, same network and credentials mechanism as the core and
   deck (`components/wifi_sta`).
-- **Web page** at <http://deskstrate-kb.local/>: version, Wi-Fi signal, the keyboard's
+- **Web page** at <https://kb.deskstrate.nogsnet.com/> (port 80 redirects there once HTTPS is up): version, Wi-Fi signal, the keyboard's
   status (mode, host OS, layer, battery) and link counters, and the last text it sent.
   `GET /api/status` is the same as JSON; `POST /api/kb` sends its body (up to 32
   characters) to the keyboard, which echoes it back, so the page tests the link both ways.

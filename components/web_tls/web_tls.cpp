@@ -172,6 +172,29 @@ esp_err_t check_cert(const char *pem, CertInfo *info) {
 esp_err_t tls_get(httpd_req_t *req);
 esp_err_t csr_get(httpd_req_t *req);
 
+// Every request to the plain server is sent here while HTTPS is up (see uri_match).
+constexpr char kRedirectUri[] = "\x01redirect";  // can't collide with a real request URI
+constexpr httpd_method_t kRedirectMethods[] = {HTTP_GET, HTTP_HEAD, HTTP_POST, HTTP_PUT, HTTP_DELETE};
+
+esp_err_t redirect(httpd_req_t *req) {
+    char location[CONFIG_HTTPD_MAX_URI_LEN + 96];
+    snprintf(location, sizeof location, "https://%s.%s%s", board_name, CONFIG_DESKSTRATE_TLS_DOMAIN, req->uri);
+    httpd_resp_set_status(req, "307 Temporary Redirect");  // keeps the method and body (POST /api/ota)
+    httpd_resp_set_hdr(req, "Location", location);
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");  // so a board without HTTPS isn't skipped later
+    return httpd_resp_send(req, nullptr, 0);
+}
+
+esp_err_t register_redirect(httpd_handle_t server) {
+    static_assert(sizeof kRedirectMethods / sizeof kRedirectMethods[0] + kUriHandlers == kHttpUriHandlers);
+    for (const httpd_method_t m : kRedirectMethods) {
+        const httpd_uri_t u = {.uri = kRedirectUri, .method = m, .handler = redirect, .user_ctx = nullptr};
+        const esp_err_t err = httpd_register_uri_handler(server, &u);
+        if (err != ESP_OK) return err;
+    }
+    return ESP_OK;
+}
+
 esp_err_t register_own(httpd_handle_t server) {
     const httpd_uri_t uris[] = {
         {.uri = "/api/tls", .method = HTTP_GET, .handler = tls_get, .user_ctx = nullptr},
@@ -329,13 +352,21 @@ esp_err_t csr_get(httpd_req_t *req) {
 
 }  // namespace
 
+bool uri_match(const char *tmpl, const char *uri, size_t len) {
+    const bool is_redirect = strcmp(tmpl, kRedirectUri) == 0;
+    if (https_up) return is_redirect;
+    return !is_redirect && strlen(tmpl) == len && strncmp(tmpl, uri, len) == 0;
+}
+
 esp_err_t start(const char *name, httpd_handle_t http, RegisterFn register_fn) {
     board_name = name;
     app_register = register_fn;
     lock = xSemaphoreCreateMutex();
     if (!lock) return ESP_ERR_NO_MEM;
 
-    esp_err_t err = load_key();
+    esp_err_t err = register_redirect(http);
+    if (err != ESP_OK) return err;
+    err = load_key();
     if (err != ESP_OK) return err;
     err = register_own(http);
     if (err != ESP_OK) return err;

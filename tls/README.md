@@ -1,8 +1,10 @@
 # HTTPS certificates
 
-The core and kb serve their web UI over HTTPS on port 443 as well as plain HTTP on 80,
-with a Let's Encrypt certificate for `*.deskstrate.nogsnet.com`
-(`components/web_tls`). Each board makes its own key on first boot and keeps it in NVS.
+The core and kb serve their web UI over HTTPS on port 443, with a Let's Encrypt
+certificate for `*.deskstrate.nogsnet.com` (`components/web_tls`). Once HTTPS is up, plain
+HTTP on port 80 redirects every request (307, so POSTs keep their method and body) to
+`https://core.deskstrate.nogsnet.com/...` or `https://kb.deskstrate.nogsnet.com/...`. A board
+without a certificate, or whose HTTPS failed to start, serves everything on port 80 as before. Each board makes its own key on first boot and keeps it in NVS.
 Only its certificate signing request (CSR), which is public, comes here.
 
 `.github/workflows/tls.yml` turns each `<board>.csr` in this folder into a certificate,
@@ -40,8 +42,8 @@ token are already stored in the board's NVS, so they don't need re-entering.
 Flash firmware with `web_tls`, then save its CSR here and push to `main`:
 
 ```
-curl -o tls/core.csr http://deskstrate.local/api/tls/csr
-curl -o tls/kb.csr http://deskstrate-kb.local/api/tls/csr
+curl -L -o tls/core.csr http://deskstrate.local/api/tls/csr
+curl -L -o tls/kb.csr http://deskstrate-kb.local/api/tls/csr
 ```
 
 The push runs the workflow, which rings the board's doorbell once the certificate is

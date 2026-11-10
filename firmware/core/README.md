@@ -6,7 +6,7 @@ deck and host daemons over UDP (`kvm_proto`, port 18200). Hostname:
 `deskstrate`.
 
 Status: joins Wi-Fi, polls both monitors (DDC/CI) and both hubs (SWD), serves a
-bench web UI at `http://deskstrate.local/` (recent log at `/api/log`), runs the `kvm_proto` UDP server and
+bench web UI at `https://core.deskstrate.nogsnet.com/` (`http://deskstrate.local/` redirects there) (recent log at `/api/log`), runs the `kvm_proto` UDP server and
 takes updates over Wi-Fi. Presets/switching logic and protocol authentication
 follow.
 
@@ -82,7 +82,7 @@ core with the token (`CONFIG_DESKSTRATE_OTA_TOKEN`, menuconfig: Deskstrate core)
 
 ```
 pio run -d firmware/core
-curl -H "Authorization: Bearer $TOKEN" --data-binary @firmware/core/.pio/build/s3_mini/firmware.bin http://deskstrate.local/api/ota
+curl -H "Authorization: Bearer $TOKEN" --data-binary @firmware/core/.pio/build/s3_mini/firmware.bin https://core.deskstrate.nogsnet.com/api/ota
 ```
 
 It is written to the spare slot, checked (image header, chip, SHA-256) and the
