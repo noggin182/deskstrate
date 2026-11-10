@@ -21,7 +21,7 @@
 #include "lvgl.h"
 
 extern "C" {
-LV_FONT_DECLARE(font_mono_22);  // font_mono_22.c: JetBrains Mono, for the debug state code
+LV_FONT_DECLARE(font_mono_22);  // font_mono_22.c: Roboto Mono, for the debug state code
 }
 
 // Adafruit Feather ESP32-S3 TFT pinout
