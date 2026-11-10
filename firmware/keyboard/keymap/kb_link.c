@@ -32,7 +32,7 @@ static uint8_t  kvm_seq;
 static uint8_t  kvm_tries;
 static uint32_t kvm_sent_at;
 
-// The core's latest STATE, as the ESP passed it on (not used yet).
+// The core's latest STATE, as the ESP passed it on; unknown while the link is down.
 static uint8_t core_state[4] = {0xFF, 0xFF, 0xFF, 0xFF};
 
 // ---------------------------------------------------------------- TX: bit-banged on PB12
@@ -201,6 +201,7 @@ static void link_down(void) {
     up          = false;
     kvm_pending = false;
     kvm_queued  = 0;
+    memset(core_state, 0xFF, sizeof core_state);
     rx_stop();
     tx_line(false);  // low: the ESP's "keyboard off USB"
     palSetLineMode(B12, PAL_MODE_OUTPUT_PUSHPULL);
@@ -240,4 +241,12 @@ void kb_link_send_kvm_action(uint8_t action) {
         return;
     }
     kvm_send(action);
+}
+
+// kvm_proto.h: the standby bit (0x80) in either connected monitor's byte.
+bool kb_link_desk_asleep(void) {
+    for (uint8_t m = 0; m < 2; m++) {
+        if (core_state[m] != 0xFF && (core_state[m] & 0x80)) return true;
+    }
+    return false;
 }

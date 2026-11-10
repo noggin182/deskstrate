@@ -8,8 +8,11 @@
  *     A monitor in standby on my input keeps its place in the layout.
  *   - A monitor coming (back) to my input, awake, wakes my displays.
  *   - So does the keyboard (HID hub) moving to me.
- * Display power is otherwise left to the host: the core reports standby but doesn't ask
- * for it.
+ *   - Monitor power follows the desk's sleep (standby in STATE, kvm_proto.h): while the
+ *     desk is asleep, the monitors showing my input go to DDC standby; while it's awake,
+ *     back on. The core can't do it for my inputs. Asked on every STATE, not only on a
+ *     change, but at most every HOST_POWER_EVERY STATEs while the answer is the same
+ *     (the daemon skips a monitor already there).
  */
 #ifndef HOST_POLICY_H
 #define HOST_POLICY_H
@@ -20,6 +23,9 @@
 #include "kvm_proto.h"
 
 enum host_topology { HOST_TOPO_NONE = 0, HOST_TOPO_EXTEND = 1, HOST_TOPO_MIRROR = 2 };
+enum host_power { HOST_POWER_NONE = 0, HOST_POWER_STANDBY = 1, HOST_POWER_ON = 2 };
+
+#define HOST_POWER_EVERY 3u  /* STATEs: about 6 s at the 2 s heartbeat */
 
 typedef struct {
     uint8_t my_host;    /* enum kvm_host: KVM_HOST_PC or KVM_HOST_MAC (also my hub port) */
@@ -28,6 +34,8 @@ typedef struct {
     uint8_t keyboard;   /* the HID hub is on me */
     uint8_t topology;   /* enum host_topology last asked for (NONE until the first) */
     uint8_t mirror_mon; /* monitor slot mirrored onto, when topology is MIRROR */
+    uint8_t power;      /* enum host_power last asked for */
+    uint8_t power_wait; /* STATEs until it's asked again */
 } host_policy_t;
 
 typedef struct {
@@ -36,6 +44,7 @@ typedef struct {
     uint8_t topology;          /* enum host_topology: EXTEND or MIRROR */
     uint8_t mirror_mon;        /* MIRROR: the monitor slot to show everything on */
     uint8_t hidden_mon;        /* MIRROR: the other monitor (the one to hide) */
+    uint8_t power;             /* enum host_power: DDC standby / on for my input's monitors */
 } host_actions_t;
 
 static inline void host_policy_init(host_policy_t *p, uint8_t my_host) {
@@ -77,6 +86,16 @@ static inline host_actions_t host_policy_on_state(host_policy_t *p, const uint8_
         act.hidden_mon = mirror == KVM_MON_LEFT ? KVM_MON_RIGHT : KVM_MON_LEFT;
         p->topology = topo;
         p->mirror_mon = mirror;
+    }
+
+    if (assigned) {
+        const uint8_t power = kvm_asleep(b) ? HOST_POWER_STANDBY : HOST_POWER_ON;
+        if (power != p->power || p->power_wait == 0) {
+            act.power = power;
+            p->power = power;
+            p->power_wait = HOST_POWER_EVERY;
+        }
+        p->power_wait--;
     }
 
     p->visible = visible;

@@ -4,7 +4,6 @@
 #include <cstring>
 
 #include "esp_log.h"
-#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -61,26 +60,6 @@ void send_volume_locked(uint8_t host, uint8_t vol) {
     sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
 }
 
-// Call WITHOUT the mutex: it sleeps between copies. DISPLAYS is broadcast for the same
-// reason as VOLUME (the Mac's VPN), three times 30 ms apart since a broadcast over Wi-Fi
-// can be lost. Each command has its own seq, so the daemons act once per command.
-void send_displays(uint8_t what) {
-    static uint8_t seq = esp_random() % KVM_UNKNOWN;  // so a reboot doesn't repeat the daemons' last seq
-    sockaddr_in to = {};
-    to.sin_family = AF_INET;
-    to.sin_port = htons(KVM_PORT);
-    to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-    const uint8_t b[KVM_SLOTS] = {what, seq++, KVM_UNKNOWN, KVM_UNKNOWN};
-    if (seq == KVM_UNKNOWN) seq = 0;
-    const kvm_msg_t msg = kvm_msg(KVM_DISPLAYS, b);
-    for (int i = 0; i < 3; i++) {
-        if (i) vTaskDelay(pdMS_TO_TICKS(30));
-        if (sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to) < 0) {
-            ESP_LOGW(TAG, "displays: send failed (errno %d)", errno);
-        }
-    }
-}
-
 // Call with mutex held.
 void request_locked(const uint8_t b[KVM_SLOTS]) {
     memcpy(wanted, b, KVM_SLOTS);
@@ -90,20 +69,10 @@ void request_locked(const uint8_t b[KVM_SLOTS]) {
     send_locked();
 }
 
-// True once every byte asked for shows in the state (monitors: the host only).
-bool shows(const uint8_t s[KVM_SLOTS], const uint8_t want[KVM_SLOTS]) {
-    for (uint8_t i = 0; i < KVM_SLOTS; i++) {
-        if (want[i] == KVM_UNKNOWN) continue;
-        const bool mon = i == KVM_MON_LEFT || i == KVM_MON_RIGHT;
-        if (mon ? kvm_mon_host(s[i]) != kvm_mon_host(want[i]) : s[i] != want[i]) return false;
-    }
-    return true;
-}
-
 // Call with mutex held.
 void check_pending_locked() {
     if (!pending) return;
-    if (have_state && shows(latest, wanted)) {
+    if (have_state && kvm_shows(latest, wanted)) {
         ESP_LOGI(TAG, "request done after %u send(s)", sends);
         pending = false;
         return;
@@ -192,7 +161,9 @@ void action(uint8_t act) {
     if (have_state) memcpy(view.b, latest, KVM_SLOTS);
     if (pending) {
         for (uint8_t i = 0; i < KVM_SLOTS; i++) {
-            if (wanted[i] != KVM_UNKNOWN) view.b[i] = wanted[i];
+            const bool mon = i == KVM_MON_LEFT || i == KVM_MON_RIGHT;
+            if (wanted[i] == KVM_UNKNOWN || (mon && kvm_mon_host(wanted[i]) == KVM_HOST_KEEP)) continue;
+            view.b[i] = wanted[i];
         }
     }
     Target t;
@@ -205,12 +176,16 @@ void action(uint8_t act) {
         case KB_ACT_OTHER_VOLU: vol = KVM_VOL_UP; break;
         case KB_ACT_OTHER_VOLD: vol = KVM_VOL_DOWN; break;
         case KB_ACT_OTHER_MUTE: vol = KVM_VOL_MUTE; break;
-        case KB_ACT_SLEEP:
-        case KB_ACT_WAKE:
-            ESP_LOGI(TAG, "displays: %s both hosts'", act == KB_ACT_SLEEP ? "sleep" : "wake");
-            xSemaphoreGive(mutex);
-            send_displays(act == KB_ACT_SLEEP ? KVM_DISPLAYS_SLEEP : KVM_DISPLAYS_WAKE);
-            return;
+        case KB_ACT_SLEEP: {
+            const uint8_t req[KVM_SLOTS] = KVM_SLEEP_REQUEST;
+            memcpy(t.b, req, KVM_SLOTS);
+            break;
+        }
+        case KB_ACT_WAKE: {
+            const uint8_t req[KVM_SLOTS] = KVM_WAKE_REQUEST;
+            memcpy(t.b, req, KVM_SLOTS);
+            break;
+        }
         default: ESP_LOGW(TAG, "unknown action %u", act); break;
     }
     if (vol) {

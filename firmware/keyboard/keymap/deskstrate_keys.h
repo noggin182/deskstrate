@@ -15,7 +15,7 @@ enum deskstrate_keycodes {
     KVM_OTHER_VOLU,             // volume up on the host that doesn't have the keyboard
     KVM_OTHER_VOLD,             // volume down, same host
     KVM_OTHER_MUTE,             // mute toggle, same host
-    KVM_SLEEP,                  // RGB off and both hosts' displays to sleep
+    KVM_SLEEP,                  // put the desk to sleep (monitors to standby, lighting off)
     DESKSTRATE_KEYS_END,
 };
 

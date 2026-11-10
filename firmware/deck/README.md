@@ -123,8 +123,7 @@ routes to it. In the debug code they show as `-` (standby is `0`).
 
 In the menu (`src/menu.h`) top left is back, top right is select, and bottom
 left/right move up/down. Its items set each monitor's input (DP, USB-C, HDMI)
-and each hub's host (PC, Mac, Guest 3, Guest 4), swap the two screens, put both
-screens in standby, set the key light level (High, Low, Off), and show or
+and each hub's host (PC, Mac, Guest 3, Guest 4), swap the two screens, put the desk to sleep, set the key light level (High, Low, Off), and show or
 hide the debug state code below. Both settings are kept in NVS.
 The firmware version is shown at the bottom. The menu closes after 20 s without
 a key press.
@@ -143,10 +142,10 @@ the first `STATE` arrives all four breathe amber. Each press flashes its key
 white. Which NeoPixel sits under which key is set in `kPixelForKey` in
 `src/neokeys.cpp`.
 
-The keyboard's Sleep key also dims the deck: its `KD` sleep broadcast fades the
-TFT backlight to about 3% and the key lights to an eighth of their level. The
-keyboard's `KD` wake (its next key press), or a press on any deck key, brings
-them back. The deck key still does what it normally does.
+While the desk is asleep (standby in the core's `STATE`: the keyboard's Sleep key, or
+Sleep in the menu) the deck dims: the TFT backlight fades to about 3% and the key lights
+to an eighth of their level. Any deck key press wakes the desk, and still does what it
+normally does.
 
 A debug code overlay (on by default; Debug code in the menu)
 covers the volume panel to make states easy to report: its digits are ordered Monitor 1, Monitor 2, Hub 1,

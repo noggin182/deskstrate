@@ -68,6 +68,42 @@ static void test_standby(void) {
     CHECK(!a.wake_displays);
 }
 
+static void test_power(void) {
+    host_policy_t pc;
+    host_policy_init(&pc, PC);
+    host_actions_t a = feed(&pc, PC, MAC, PC);
+    CHECK(a.power == HOST_POWER_ON);               /* awake: make sure mine are on */
+    a = feed(&pc, PC, MAC, PC);
+    CHECK(a.power == HOST_POWER_NONE);             /* not every STATE... */
+    feed(&pc, PC, MAC, PC);
+    a = feed(&pc, PC, MAC, PC);
+    CHECK(a.power == HOST_POWER_ON);               /* ...but every HOST_POWER_EVERY */
+    a = feed(&pc, PC | SB, MAC | SB, PC);
+    CHECK(a.power == HOST_POWER_STANDBY);          /* asleep: straight away */
+    a = feed(&pc, PC | SB, MAC | SB, PC);
+    CHECK(a.power == HOST_POWER_NONE);
+    a = feed(&pc, PC, MAC, PC);
+    CHECK(a.power == HOST_POWER_ON && a.wake_displays);  /* woken */
+    a = feed(&pc, MAC | SB, MAC | SB, MAC);
+    CHECK(a.power == HOST_POWER_NONE);             /* nothing on my input */
+}
+
+static void test_requests(void) {
+    const uint8_t sleep[KVM_SLOTS] = KVM_SLEEP_REQUEST, wake[KVM_SLOTS] = KVM_WAKE_REQUEST;
+    const uint8_t none[KVM_SLOTS] = {NC, NC, NC, NC}, hub[KVM_SLOTS] = {NC, NC, MAC, NC};
+    CHECK(kvm_request_sleep(sleep) == 1 && kvm_request_sleep(wake) == 0);
+    CHECK(kvm_request_sleep(none) == -1 && kvm_request_sleep(hub) == 0);  /* any request wakes */
+    const uint8_t asleep[KVM_SLOTS] = {PC | SB, MAC | SB, PC, PC}, awake[KVM_SLOTS] = {PC, MAC, PC, PC};
+    const uint8_t one_left[KVM_SLOTS] = {NC, MAC | SB, PC, PC};
+    CHECK(kvm_asleep(asleep) && !kvm_asleep(awake) && kvm_asleep(one_left));
+    CHECK(kvm_shows(asleep, sleep) && !kvm_shows(awake, sleep));
+    CHECK(kvm_shows(awake, wake) && !kvm_shows(asleep, wake));
+    CHECK(kvm_shows(awake, none) && kvm_shows(asleep, none));
+    CHECK(!kvm_shows(awake, hub));
+    const uint8_t to_pc[KVM_SLOTS] = {PC, PC, PC, PC};
+    CHECK(!kvm_shows(awake, to_pc) && !kvm_shows(asleep, to_pc));
+}
+
 static void test_keyboard(void) {
     host_policy_t pc, mac;
     host_policy_init(&pc, PC);
@@ -105,6 +141,8 @@ static void test_wire(void) {
 int main(void) {
     test_topology();
     test_standby();
+    test_power();
+    test_requests();
     test_keyboard();
     test_wire();
     if (failures) {

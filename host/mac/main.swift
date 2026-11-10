@@ -3,10 +3,10 @@
 //
 // Listens for the core's STATE broadcasts on KVM_PORT and follows host/common/host_policy.h:
 // extend or mirror the two Dells, and wake the displays when a monitor comes back to the
-// Mac or the keyboard moves to it. A KV VOLUME message for the Mac changes its volume
-// (the keyboard's Fn+knob while the keyboard is on the PC), and a KD DISPLAYS (the keyboard's
-// Sleep key, then its next key press) sleeps or wakes the displays. It only ever sends the core
-// an empty REQUEST, to get a STATE.
+// Mac or the keyboard moves to it, and DDC standby / on for the monitors showing the Mac
+// while the desk is asleep / awake (standby in STATE). A KV VOLUME message for the Mac
+// changes its volume (the keyboard's Fn+knob while the keyboard is on the PC). It only ever
+// sends the core an empty REQUEST, to get a STATE.
 //
 // Mirroring as in the VERIFIED test (PROJECT_KNOWLEDGE.md §3): CGConfigureDisplayMirrorOfDisplay
 // mirrors the hidden Dell onto the visible one; it fails (CGError 1014) while the displays
@@ -23,7 +23,89 @@ import AudioToolbox  // kAudioHardwareServiceDeviceProperty_VirtualMainVolume
 import CoreAudio
 import CoreGraphics
 import Foundation
+import IOKit
 import IOKit.pwr_mgt
+
+// ---- DDC/CI (Apple Silicon) ------------------------------------------------------
+// While the desk is asleep (standby in STATE) the monitors showing the Mac go to DDC
+// standby (VCP 0xD6 = 4), and back on (0xD6 = 1) when it wakes. DDC only: the signal stays
+// on, so there's no "No signal", and macOS doesn't see a display sleep (which would lock
+// the Mac). Apple Silicon has no public DDC API; this uses the IOAVService calls that
+// MonitorControl, m1ddc and BetterDisplay use.
+
+@_silgen_name("IOAVServiceCreateWithService")
+func IOAVServiceCreateWithService(_ allocator: CFAllocator?, _ service: io_service_t) -> Unmanaged<CFTypeRef>?
+@_silgen_name("IOAVServiceReadI2C")
+func IOAVServiceReadI2C(_ service: CFTypeRef, _ chip: UInt32, _ offset: UInt32, _ buf: UnsafeMutableRawPointer, _ size: UInt32) -> IOReturn
+@_silgen_name("IOAVServiceWriteI2C")
+func IOAVServiceWriteI2C(_ service: CFTypeRef, _ chip: UInt32, _ offset: UInt32, _ buf: UnsafeMutableRawPointer, _ size: UInt32) -> IOReturn
+
+let vcpInput: UInt8 = 0x60
+let vcpPower: UInt8 = 0xD6  // 1 on, 4 standby
+let macInputs: Set<UInt16> = [0x1B]  // the Dells' USB-C input
+let ddcQueue = DispatchQueue(label: "ddc")
+
+/// The external displays' AV services (one per display on a DCP).
+func avServices() -> [CFTypeRef] {
+    var out: [CFTypeRef] = []
+    var iter: io_iterator_t = 0
+    guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("DCPAVServiceProxy"), &iter) == KERN_SUCCESS else { return out }
+    defer { IOObjectRelease(iter) }
+    var s = IOIteratorNext(iter)
+    while s != 0 {
+        let loc = IORegistryEntryCreateCFProperty(s, "Location" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? String
+        if loc == "External", let av = IOAVServiceCreateWithService(kCFAllocatorDefault, s) {
+            out.append(av.takeRetainedValue())
+        }
+        IOObjectRelease(s)
+        s = IOIteratorNext(iter)
+    }
+    return out
+}
+
+func ddcWrite(_ av: CFTypeRef, _ body: [UInt8]) -> Bool {
+    var packet = body
+    packet.append(body.reduce(UInt8(0x6E ^ 0x51), ^))  // checksum: dest 0x6E, source 0x51
+    var ok = false
+    for _ in 0..<2 {  // as MonitorControl does: a single write is sometimes dropped
+        usleep(10_000)
+        if IOAVServiceWriteI2C(av, 0x37, 0x51, &packet, UInt32(packet.count)) == kIOReturnSuccess { ok = true }
+    }
+    return ok
+}
+
+/// The current value of a VCP feature, or nil if the monitor didn't answer.
+func ddcGet(_ av: CFTypeRef, _ vcp: UInt8) -> UInt16? {
+    for _ in 0..<3 {
+        guard ddcWrite(av, [0x82, 0x01, vcp]) else { continue }
+        usleep(40_000)
+        var reply = [UInt8](repeating: 0, count: 12)
+        guard IOAVServiceReadI2C(av, 0x37, 0x51, &reply, UInt32(reply.count)) == kIOReturnSuccess else { continue }
+        // [0x6E, 0x88, 0x02 (VCP reply), result, vcp, type, max hi, max lo, cur hi, cur lo, checksum]
+        for i in 0...(reply.count - 8) where reply[i] == 0x02 && reply[i + 1] == 0x00 && reply[i + 2] == vcp {
+            return UInt16(reply[i + 6]) << 8 | UInt16(reply[i + 7])
+        }
+    }
+    return nil
+}
+
+func ddcSet(_ av: CFTypeRef, _ vcp: UInt8, _ value: UInt16) -> Bool {
+    ddcWrite(av, [0x84, 0x03, vcp, UInt8(value >> 8), UInt8(value & 0xFF)])
+}
+
+/// DDC power on every monitor whose input is the Mac's. Monitors showing another host
+/// are left alone (a Dell ignores standby from an input it isn't showing anyway).
+func ddcPower(on: Bool) {
+    let want: UInt16 = on ? 1 : 4
+    for (i, av) in avServices().enumerated() {
+        guard let input = ddcGet(av, vcpInput) else { log("ddc: display \(i): no reply"); continue }
+        guard macInputs.contains(input & 0xFF) else { continue }
+        if let p = ddcGet(av, vcpPower), p & 0xFF == want { continue }
+        let ok = ddcSet(av, vcpPower, want)
+        log("ddc: display \(i) \(on ? "on" : "standby")\(ok ? "" : " failed")")
+    }
+}
+
 
 // ---- options -----------------------------------------------------------------
 
@@ -53,6 +135,17 @@ do {
         case "--core": if let v = args.next() { coreFixed = inet_addr(v) }
         case "--left-serial": if let v = args.next(), let n = UInt32(v) { serials[UInt8(KVM_MON_LEFT.rawValue)] = n }
         case "--right-serial": if let v = args.next(), let n = UInt32(v) { serials[UInt8(KVM_MON_RIGHT.rawValue)] = n }
+        case "--ddc-list":  // each external display's input and power, over DDC
+            for (i, av) in avServices().enumerated() {
+                let hex = { (v: UInt16?) in v.map { String(format: "%02X", $0) } ?? "no reply" }
+                print("display \(i): input \(hex(ddcGet(av, vcpInput))), power \(hex(ddcGet(av, vcpPower)))")
+            }
+            exit(0)
+        case "--ddc":  // --ddc standby | on: the monitors showing the Mac
+            let v = args.next()
+            guard v == "standby" || v == "on" else { FileHandle.standardError.write("--ddc standby|on\n".data(using: .utf8)!); exit(2) }
+            ddcPower(on: v == "on")
+            exit(0)
         case "--list-displays":
             for d in onlineDisplays() {
                 let b = CGDisplayBounds(d)
@@ -170,7 +263,7 @@ func askForState() {
 
 func monName(_ b: UInt8) -> String {
     if b == UInt8(KVM_UNKNOWN) { return "--" }
-    if kvm_mon_standby(b) != 0 { return "standby" }
+    if kvm_mon_standby(b) != 0 { return "asleep" }
     switch UInt32(kvm_mon_host(b)) {
     case KVM_HOST_PC.rawValue: return "PC"
     case KVM_HOST_MAC.rawValue: return "Mac"
@@ -194,6 +287,10 @@ func onState(_ b: [UInt8], from: in_addr_t) {
         applyTopology(act.topology, onto: act.mirror_mon, hiding: act.hidden_mon)
     }
     if act.wake_displays != 0 { wakeDisplays() }
+    if act.power != 0 {
+        let on = act.power == UInt8(HOST_POWER_ON.rawValue)
+        ddcQueue.async { ddcPower(on: on) }
+    }
 }
 
 // ---- volume (the keyboard's Fn+knob while the keyboard is on the PC) -----------------
@@ -268,22 +365,6 @@ func onVolume(_ b: [UInt8]) {
     if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
 }
 
-// KD DISPLAYS [enum kvm_displays, seq, FF, FF]: the keyboard's Sleep key sleeps the displays
-// (not the Mac), and the key press after it wakes them. The ESP sends each command three
-// times with the same seq in case one is lost: act on a seq once.
-var lastDisplaysSeq: UInt8?
-func onDisplays(_ b: [UInt8]) {
-    let wake = b[0] == UInt8(KVM_DISPLAYS_WAKE.rawValue)
-    guard wake || b[0] == UInt8(KVM_DISPLAYS_SLEEP.rawValue), b[1] != lastDisplaysSeq else { return }
-    lastDisplaysSeq = b[1]
-    if wake { wakeDisplays(); return }
-    log("displays: sleep (keyboard)")
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-    p.arguments = ["displaysleepnow"]
-    do { try p.run() } catch { log("displays: pmset failed: \(error)") }
-}
-
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
     var msg = kvm_msg_t()
     guard let base = buf.baseAddress else { return }
@@ -291,8 +372,6 @@ func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
         onState([msg.b.0, msg.b.1, msg.b.2, msg.b.3], from: from)
     } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_VOLUME.rawValue), &msg) != 0 {
         onVolume([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
-    } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_DISPLAYS.rawValue), &msg) != 0 {
-        onDisplays([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
     }
 }
 

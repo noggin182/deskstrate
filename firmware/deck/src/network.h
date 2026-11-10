@@ -14,10 +14,6 @@ esp_err_t network_broadcast_update(const char *json_message);
 // True if a STATE from the core arrived since the last call; copies its 4 bytes into out.
 bool network_take_kvm_state(uint8_t out[KVM_SLOTS]);
 
-// True if the keyboard's Sleep key sent a DISPLAYS since the last call (each one once,
-// though it's broadcast 3 times); what = enum kvm_displays.
-bool network_take_displays(uint8_t *what);
-
 // Asks the core for a state (REQUEST bytes, 0xFF = leave alone): to the sender of the last
 // STATE, or broadcast until one has been seen. Resent until a STATE shows it (up to 3 s);
 // a new request adds to one still in flight. All 0xFF just asks for a STATE.

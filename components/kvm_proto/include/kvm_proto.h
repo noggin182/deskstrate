@@ -4,11 +4,11 @@
  *
  * The core is the source of truth; everyone else asks. UDP, KVM_PORT on every node,
  * and every datagram is 6 bytes: a 2-byte magic then 4 bytes (the state bytes, but
- * for VOLUME and DISPLAYS).
+ * for VOLUME).
  *
  *   "KS" STATE    core -> all. Broadcast on every change and every KVM_HEARTBEAT_MS,
  *                 and sent straight back to whoever sent a REQUEST.
- *   "KR" REQUEST  deck/hosts -> core. The state wanted; 0xFF bytes are left alone, so
+ *   "KR" REQUEST  deck/keyboard/hosts -> core. The state wanted; 0xFF bytes are left alone, so
  *                 KR FF FF FF FF changes nothing and just asks for a STATE.
  *
  *   "KV" VOLUME   keyboard ESP -> hosts, broadcast. [host, action, 0xFF, 0xFF]: host
@@ -16,24 +16,34 @@
  *                 on that host acts on it; the core ignores it. Broadcast because the
  *                 Mac's VPN keeps it from receiving unicast from the LAN. Not resent:
  *                 a lost one is a missed step (resending a mute toggle could undo it).
- *   "KD" DISPLAYS keyboard ESP -> hosts, broadcast. [enum kvm_displays, seq, FF, FF]:
- *                 every daemon puts its own displays to sleep (not the computer) or
- *                 wakes them; the core ignores it. Each command is sent three times
- *                 with the same seq (0-254, new per command); act on a seq once.
  *
  * A REQUEST is idempotent: a sender that doesn't see its change in a STATE simply sends
  * it again.
  *
  * State bytes, indexed by enum kvm_slot:
- *   monitors  bits 0-3 = the host on it (enum kvm_host), bit 7 = standby, bits 4-6 = 0
+ *   monitors  bits 0-3 = the host on it (enum kvm_host), bit 7 = standby (below),
+ *             bits 4-6 = 0
  *   hubs      the selected port, 0-3 (0 PC, 1 Mac, 2 and 3 guests)
  *   0xFF      unknown (not connected) in a STATE; leave alone in a REQUEST
  *
  * Examples: everything on the PC = 00 00 00 00, everything on the Mac = 01 01 01 01,
  * a REQUEST of 00 FF FF FF moves only the left monitor to the PC.
  *
- * In a REQUEST a monitor's low nibble 0xF keeps its input, and bit 7 is ignored for now:
- * the core reports standby but doesn't change monitor power.
+ * In a REQUEST a monitor's low nibble 0xF keeps its input.
+ *
+ * Standby is the desk's sleep: what the core has been asked for, not the monitors' power
+ * read back (the core can't put a monitor showing DP or USB-C into standby: its DDC comes
+ * in over HDMI, which a Dell ignores for standby unless HDMI is showing). The core sets
+ * bit 7 on every connected monitor in STATE while the desk is asleep. A REQUEST with bit
+ * 7 set in a monitor byte puts the desk to sleep (KR 8F 8F FF FF: inputs kept); any other
+ * REQUEST that isn't all 0xFF wakes it (KR 0F 0F FF FF just wakes), so asking for an
+ * input wakes everything. Nobody acts on a change: every listener follows each STATE.
+ *   hosts     the monitors showing their input go to DDC standby while asleep and back
+ *             on while not (the core's DDC comes in over HDMI, which a Dell ignores for
+ *             standby unless HDMI is showing)
+ *   core      the same for a monitor showing HDMI (a guest); it wakes one only when the
+ *             desk wakes, since a guest that sends no signal would put it back to sleep
+ *   deck, keyboard  dim their lights, and a key press wakes the desk
  *
  * No authentication: this trusts the LAN.
  */
@@ -54,12 +64,6 @@ enum kvm_type {
     KVM_STATE   = 0x53,  /* 'S' */
     KVM_REQUEST = 0x52,  /* 'R' */
     KVM_VOLUME  = 0x56,  /* 'V' */
-    KVM_DISPLAYS = 0x44, /* 'D' */
-};
-
-enum kvm_displays {
-    KVM_DISPLAYS_SLEEP = 0,
-    KVM_DISPLAYS_WAKE  = 1,
 };
 
 enum kvm_volume {
@@ -83,7 +87,7 @@ enum kvm_host {
 };
 
 #define KVM_UNKNOWN    0xFFu  /* whole byte: unknown (STATE) / leave alone (REQUEST) */
-#define KVM_STANDBY    0x80u  /* monitor byte: in standby */
+#define KVM_STANDBY    0x80u  /* monitor byte: the desk is asleep (STATE) / sleep it (REQUEST) */
 #define KVM_HOST_MASK  0x0Fu  /* monitor byte: the host */
 #define KVM_HOST_KEEP  0x0Fu  /* monitor host nibble: unknown (STATE) / keep (REQUEST) */
 
@@ -117,6 +121,38 @@ static inline uint8_t kvm_mon_host(uint8_t b) {
 
 static inline int kvm_mon_standby(uint8_t b) {
     return b != KVM_UNKNOWN && (b & KVM_STANDBY) != 0;
+}
+
+/* STATE: the desk is asleep. */
+static inline int kvm_asleep(const uint8_t b[KVM_SLOTS]) {
+    return kvm_mon_standby(b[KVM_MON_LEFT]) || kvm_mon_standby(b[KVM_MON_RIGHT]);
+}
+
+/* REQUEST: 1 = sleep, 0 = wake, -1 = neither (all 0xFF, just asks for a STATE). */
+static inline int kvm_request_sleep(const uint8_t b[KVM_SLOTS]) {
+    int any = 0;
+    for (unsigned i = 0; i < KVM_SLOTS; i++) any |= b[i] != KVM_UNKNOWN;
+    if (!any) return -1;
+    return kvm_asleep(b);
+}
+
+/* REQUEST bytes for sleeping / waking the desk without moving anything. */
+#define KVM_SLEEP_REQUEST {KVM_STANDBY | KVM_HOST_KEEP, KVM_STANDBY | KVM_HOST_KEEP, KVM_UNKNOWN, KVM_UNKNOWN}
+#define KVM_WAKE_REQUEST  {KVM_HOST_KEEP, KVM_HOST_KEEP, KVM_UNKNOWN, KVM_UNKNOWN}
+
+/* True once a STATE shows everything a REQUEST asked for: each monitor's host (unless
+ * kept), each hub's port, and asleep or awake. */
+static inline int kvm_shows(const uint8_t state[KVM_SLOTS], const uint8_t want[KVM_SLOTS]) {
+    for (unsigned i = 0; i < KVM_SLOTS; i++) {
+        if (want[i] == KVM_UNKNOWN) continue;
+        if (i == KVM_MON_LEFT || i == KVM_MON_RIGHT) {
+            if (kvm_mon_host(want[i]) != KVM_HOST_KEEP && kvm_mon_host(state[i]) != kvm_mon_host(want[i])) return 0;
+        } else if (state[i] != want[i]) {
+            return 0;
+        }
+    }
+    const int sleep = kvm_request_sleep(want);
+    return sleep < 0 || kvm_asleep(state) == sleep;
 }
 
 #endif /* KVM_PROTO_H */

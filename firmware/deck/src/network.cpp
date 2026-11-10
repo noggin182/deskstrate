@@ -38,9 +38,6 @@ sockaddr_in core_addr = {};
 bool core_known = false;
 uint8_t latest_state[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
 bool state_fresh = false;
-// The keyboard's DISPLAYS broadcast (sent 3 times): the last one acted on, and one not yet taken.
-int displays_last_seq = -1;
-int displays_pending = -1;  // enum kvm_displays, or -1
 
 // The state asked for and not yet seen in a STATE (0xFF = nothing asked). UDP can drop
 // a request, so it's sent again every kResendMs until a STATE shows it, for kGiveUpMs.
@@ -67,21 +64,11 @@ bool send_request_locked(const uint8_t b[KVM_SLOTS]) {
     return sent == static_cast<ssize_t>(sizeof(msg));
 }
 
-// True once every byte asked for shows in state. Monitors compare only the host:
-// standby isn't asked for (the core doesn't change power).
-bool shows(const uint8_t state[KVM_SLOTS], const uint8_t want[KVM_SLOTS]) {
-    for (uint8_t i = 0; i < KVM_SLOTS; ++i) {
-        if (want[i] == KVM_UNKNOWN) continue;
-        const bool mon = i == KVM_MON_LEFT || i == KVM_MON_RIGHT;
-        if (mon ? kvm_mon_host(state[i]) != kvm_mon_host(want[i]) : state[i] != want[i]) return false;
-    }
-    return true;
-}
 
 // Call with kvm_mutex held: drops the request once a STATE shows it, else resends it.
 void check_pending_locked() {
     if (!pending) return;
-    if (shows(latest_state, wanted)) {
+    if (kvm_shows(latest_state, wanted)) {
         if (sends > 1) ESP_LOGI(TAG, "Request took %u sends", sends);
         pending = false;
         return;
@@ -109,8 +96,6 @@ void kvm_task(void *) {
         const int n = recvfrom(kvm_socket, buf, sizeof(buf), 0, reinterpret_cast<sockaddr *>(&from), &from_len);
         kvm_msg_t msg;
         const bool state = n > 0 && kvm_decode(buf, n, KVM_STATE, &msg);
-        kvm_msg_t displays;
-        const bool is_displays = !state && n > 0 && kvm_decode(buf, n, KVM_DISPLAYS, &displays);
 
         xSemaphoreTake(kvm_mutex, portMAX_DELAY);
         if (state) {
@@ -121,12 +106,6 @@ void kvm_task(void *) {
             }
             core_addr = from;
             core_known = true;
-        }
-        if (is_displays && displays.b[1] != displays_last_seq
-            && (displays.b[0] == KVM_DISPLAYS_SLEEP || displays.b[0] == KVM_DISPLAYS_WAKE)) {
-            displays_last_seq = displays.b[1];
-            displays_pending = displays.b[0];
-            ESP_LOGI(TAG, "Displays %s", displays.b[0] == KVM_DISPLAYS_SLEEP ? "sleep" : "wake");
         }
         check_pending_locked();
         xSemaphoreGive(kvm_mutex);
@@ -290,20 +269,6 @@ bool network_take_kvm_state(uint8_t out[KVM_SLOTS]) {
     if (fresh) {
         memcpy(out, latest_state, KVM_SLOTS);
         state_fresh = false;
-    }
-    xSemaphoreGive(kvm_mutex);
-    return fresh;
-}
-
-bool network_take_displays(uint8_t *what) {
-    if (kvm_mutex == nullptr) {
-        return false;
-    }
-    xSemaphoreTake(kvm_mutex, portMAX_DELAY);
-    const bool fresh = displays_pending >= 0;
-    if (fresh) {
-        *what = static_cast<uint8_t>(displays_pending);
-        displays_pending = -1;
     }
     xSemaphoreGive(kvm_mutex);
     return fresh;

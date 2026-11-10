@@ -35,7 +35,8 @@ using Target = View;
 // True if the target changes nothing (every byte 0xFF).
 bool is_empty(const Target &t);
 
-// Host (enum Host) shown by monitor mon_id, or kNoHost (standby, unknown).
+// Host (enum Host) shown by monitor mon_id, or kNoHost (unknown). Standby doesn't hide
+// it: the desk is asleep, and any request wakes it.
 uint8_t monitor_host(const View &view, uint8_t mon_id);
 // The monitor byte that shows host on monitor mon_id, or KVM_UNKNOWN if it can't
 // (a guest only exists on one monitor's HDMI).

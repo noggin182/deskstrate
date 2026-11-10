@@ -26,7 +26,6 @@ bool is_empty(const Target &t) {
 
 uint8_t monitor_host(const View &view, uint8_t mon_id) {
     const uint8_t b = view.b[mon_id];
-    if (kvm_mon_standby(b)) return kNoHost;
     switch (kvm_mon_host(b)) {
         case KVM_HOST_PC: return kPc;
         case KVM_HOST_MAC: return kMac;
