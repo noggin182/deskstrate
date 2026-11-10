@@ -165,7 +165,7 @@ void ask_for_state() {
 }
 
 const char *mon_name(uint8_t b) {
-    if (b == KVM_UNKNOWN) return "--";
+    if (!kvm_mon_connected(b)) return "--";
     if (kvm_mon_standby(b)) return "asleep";
     switch (kvm_mon_host(b)) {
         case KVM_HOST_PC: return "PC";

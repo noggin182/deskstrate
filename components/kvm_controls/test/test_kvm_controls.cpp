@@ -36,6 +36,8 @@ static void expect(const Target &got, const View &want, const char *what, int li
     } while (0)
 
 constexpr uint8_t PC = KVM_HOST_PC, MAC = KVM_HOST_MAC, GUEST = KVM_HOST_GUEST, SB = KVM_STANDBY, X = KVM_UNKNOWN;
+// A monitor the core can't see, in a STATE ('^', or '~' while the desk is asleep).
+constexpr uint8_t NC = KVM_MON_NC, NCS = KVM_MON_NC_ASLEEP;
 // Hub bytes.
 constexpr uint8_t HP = kPc, HM = kMac, G1 = kGuest1, G2 = kGuest2;
 
@@ -60,7 +62,8 @@ static void test_toggle_split() {
     EXPECT(plan_toggle_split(v(PC, PC, HP, HP)), X, MAC, HM, HP);
     EXPECT(plan_toggle_split(v(MAC, MAC, HM, HM)), X, PC, HP, HM);
     EXPECT(plan_toggle_split(v(MAC, MAC, HP, HP)), X, PC, HP, HM);
-    EXPECT(plan_toggle_split(v(GUEST, X, G1, G1)), X, PC, HP, G1);
+    EXPECT(plan_toggle_split(v(GUEST, NC, G1, G1)), X, PC, HP, G1);
+    EXPECT(plan_toggle_split(v(GUEST | SB, NCS, G1, G1)), X, PC, HP, G1);
     EXPECT(plan_toggle_split(v(PC | SB, PC | SB, HP, HP)), X, MAC, HM, HP);
     // Deck chords.
     EXPECT(split(kPc, kMac), PC, MAC, HM, HP);
@@ -90,7 +93,9 @@ static void test_swap() {
     EXPECT(plan_swap_media(v(GUEST, PC, HP, HP)), PC, GUEST, X, G2);  // right now shows guest 2
     EXPECT(plan_swap_media(v(GUEST, PC, HP, G1)), PC, GUEST, X, HP);  // left now shows the PC
     EXPECT(plan_swap_media(v(PC, PC, HP, HP)), PC, PC, X, X);  // not split: nothing moves
-    CHECK(is_empty(plan_swap_media(v(PC, X, HP, HP))));
+    CHECK(is_empty(plan_swap_media(v(PC, NC, HP, HP))));
+    CHECK(is_empty(plan_swap_media(v(PC | SB, NCS, HP, HP))));
+    CHECK(!is_split(v(PC, NC, HP, HP)) && monitor_host(v(NCS, PC, HP, HP), KVM_MON_LEFT) == kNoHost);
 }
 
 static void test_other_host() {

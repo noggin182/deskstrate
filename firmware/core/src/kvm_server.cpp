@@ -80,7 +80,7 @@ void snapshot(uint8_t b[KVM_SLOTS]) {
         const int i = monitor_index(id);
         const monitors::State m = i >= 0 ? monitors::get(i) : monitors::State{};
         const uint8_t standby = asleep() ? static_cast<uint8_t>(KVM_STANDBY) : 0;
-        b[id] = m.online ? static_cast<uint8_t>(host_of_input(m.input) | standby) : static_cast<uint8_t>(KVM_UNKNOWN);
+        b[id] = static_cast<uint8_t>((m.online ? host_of_input(m.input) : KVM_MON_NC) | standby);
     }
     for (int h = 0; h < hubs::kCount; h++) {
         const hubs::State s = hubs::get(h);

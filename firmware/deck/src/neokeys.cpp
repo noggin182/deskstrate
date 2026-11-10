@@ -168,7 +168,9 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
         case controls::kTopLeft:
         case controls::kTopRight: {
             const uint8_t mon = key == controls::kTopLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
-            if (kvm_mon_standby(scene.view.b[mon])) return standby_pattern(now_ms, mon * 1200);
+            if (kvm_mon_connected(scene.view.b[mon]) && kvm_mon_standby(scene.view.b[mon])) {
+                return standby_pattern(now_ms, mon * 1200);
+            }
             const uint8_t host = controls::monitor_host(scene.view, mon);
             // Monitor not connected (or its input unreadable): breathing red.
             if (host == controls::kNoHost) return missing_pattern(now_ms, mon * 900);

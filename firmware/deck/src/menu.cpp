@@ -35,6 +35,7 @@ lv_obj_t *values[kItemCount] = {};
 uint8_t selected = 0;
 
 const char *input_name(uint8_t mon) {
+    if (!kvm_mon_connected(mon)) return "n/c";
     if (kvm_mon_standby(mon)) return "Standby";
     switch (kvm_mon_host(mon)) {
         case KVM_HOST_PC: return "DP";
@@ -197,7 +198,7 @@ Result key(controls::Key key, const controls::View &view, const Settings &settin
         case kLeft:
         case kRight: {
             const uint8_t mon = selected == kLeft ? KVM_MON_LEFT : KVM_MON_RIGHT;
-            if (view.b[mon] == KVM_UNKNOWN) break;  // not connected
+            if (!kvm_mon_connected(view.b[mon])) break;  // not connected
             r = {Command::Monitor, mon, next_input(view.b[mon])};
             break;
         }
