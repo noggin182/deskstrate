@@ -31,8 +31,9 @@ and published as a release (`build-<run>.<attempt>`) with `manifest.txt`,
 doorbell, and the boards download and install their own image from the release
 over HTTPS. Nothing is pushed into the house: the doorbell is a UDP datagram
 starting with `DSUP` that only means "check now", and the boards only ever fetch
-from this repo's releases. They also poll hourly, so a missed ring only delays
-an update. A version that rolls back is never retried.
+from this repo's releases. They also poll hourly (5 minutes after a failed
+check, which shows red on the status LED), so a missed ring only delays an
+update. A version that rolls back is never retried.
 
 A rebuilt board's firmware version is the release name (`build-59.1`, as shown at
 `/api/ota`). A board whose sources didn't change keeps the image, and so the version,

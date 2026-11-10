@@ -14,9 +14,9 @@
 // its image, refuses it unless the image's project name matches its own, writes it to
 // the spare OTA slot and reboots into it. A version that rolled back is never retried.
 //
-// Checks happen kFirstPollMs after boot, then every kPollMs, and on a doorbell: a UDP
-// datagram to the board's port whose first bytes are kDoorbellMagic ("DSUP"). Nothing
-// else in it is read or trusted. Checks are at most one per kMinGapMs, so flooding the
+// Checks happen kFirstPollMs after boot, then every kPollMs (kRetryMs after a failed
+// check), and on a doorbell: a UDP datagram to the board's port whose first bytes are
+// kDoorbellMagic ("DSUP"). Nothing else in it is read or trusted. Checks are at most one per kMinGapMs, so flooding the
 // port costs one outbound GET a minute.
 //
 // A local build ("-dirty" version) is replaced by a doorbell but never by the poll, so
@@ -42,6 +42,7 @@ inline constexpr uint16_t kKbPort = 18212;
 
 inline constexpr uint32_t kFirstPollMs = 2 * 60 * 1000;
 inline constexpr uint32_t kPollMs = 60 * 60 * 1000;
+inline constexpr uint32_t kRetryMs = 5 * 60 * 1000;
 inline constexpr uint32_t kMinGapMs = 60 * 1000;
 inline constexpr uint32_t kConfirmTimeoutMs = 60 * 1000;
 

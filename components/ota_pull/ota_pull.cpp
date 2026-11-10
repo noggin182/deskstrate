@@ -38,6 +38,7 @@ Last last;
 SemaphoreHandle_t last_lock;
 
 std::atomic<DoorbellHook> doorbell_hook{nullptr};
+std::atomic<bool> last_ok{true};  // the last check's outcome, for the retry interval
 
 bool reached(TickType_t deadline) { return (int32_t)(xTaskGetTickCount() - deadline) >= 0; }
 
@@ -62,6 +63,7 @@ void set_progress(Phase phase, uint32_t bytes, uint32_t total, const char *versi
 
 void set_result(bool ok, const char *release, const char *fmt, ...) {
     status_led::set_fault(status_led::kFaultUpdate, !ok);
+    last_ok = ok;
     xSemaphoreTake(last_lock, portMAX_DELAY);
     va_list args;
     va_start(args, fmt);
@@ -242,7 +244,7 @@ void task(void *arg) {
     } else {
         timeval tv = {.tv_sec = 1, .tv_usec = 0};
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-        ESP_LOGI(TAG, "doorbell on UDP %u; polling %s hourly", port, kReleases);
+        ESP_LOGI(TAG, "doorbell on UDP %u; polling %s hourly (every 5 min after a failure)", port, kReleases);
     }
 
     TickType_t next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kFirstPollMs);
@@ -254,7 +256,9 @@ void task(void *arg) {
             status_led::set_activity(status_led::kDoorbell, false);
             rung = false;
             next_allowed = xTaskGetTickCount() + pdMS_TO_TICKS(kMinGapMs);
-            next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(kPollMs);
+            // A failed check (e.g. GitHub answering 504) retries sooner, so the LED
+            // doesn't stay red for an hour after the problem has gone.
+            next_poll = xTaskGetTickCount() + pdMS_TO_TICKS(last_ok ? kPollMs : kRetryMs);
         }
         if (sock < 0) {
             vTaskDelay(pdMS_TO_TICKS(1000));
