@@ -219,6 +219,10 @@ void restart_https(const char *pem, const CertInfo &info) {
     httpd_ssl_config_t cfg = HTTPD_SSL_CONFIG_DEFAULT();
     cfg.httpd.max_uri_handlers = 16;
     cfg.httpd.max_open_sockets = 3;  // ~40 KB of RAM each while open
+    // Browsers open several connections at once and keep them idle; without this a
+    // fourth is accepted and dropped at once (ERR_CONNECTION_RESET) instead of closing
+    // the oldest idle one.
+    cfg.httpd.lru_purge_enable = true;
     cfg.servercert = (const uint8_t *)pem;
     cfg.servercert_len = strlen(pem) + 1;
     cfg.prvtkey_pem = (const uint8_t *)key_pem;
