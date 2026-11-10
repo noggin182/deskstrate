@@ -255,7 +255,7 @@ func sendToCore(_ message: kvm_msg_t) {
     }
 }
 
-/// An empty REQUEST (all 0xFF) changes nothing: the core just answers with its STATE.
+/// An empty REQUEST ("KR----") changes nothing: the core just answers with its STATE.
 func askForState() {
     let none = [UInt8](repeating: UInt8(KVM_UNKNOWN), count: Int(KVM_SLOTS.rawValue))
     sendToCore(kvm_msg(UInt8(KVM_REQUEST.rawValue), none))
@@ -277,8 +277,8 @@ func onState(_ b: [UInt8], from: in_addr_t) {
     core = from
     lastState = Date()
     if first || b != state {
-        let hex = b.map { String(format: "%02X", $0) }.joined(separator: " ")
-        log("STATE \(hex) from \(String(cString: inet_ntoa(in_addr(s_addr: from)))): " +
+        let text = String(decoding: b, as: UTF8.self)  // kvm_decode let only ASCII through
+        log("STATE \(text) from \(String(cString: inet_ntoa(in_addr(s_addr: from)))): " +
             "left \(monName(b[Int(KVM_MON_LEFT.rawValue)])), right \(monName(b[Int(KVM_MON_RIGHT.rawValue)]))")
     }
     state = b
@@ -358,10 +358,10 @@ func setVolumeDirectly(_ action: UInt8) {
     if err != noErr { log("volume: set failed (\(err))") }
 }
 
-// KV VOLUME: [host, enum kvm_volume, FF, FF], broadcast by the keyboard's ESP.
+// KV VOLUME: [host, enum kvm_volume, '-', '-'] ("KVM+--"), broadcast by the keyboard's ESP.
 func onVolume(_ b: [UInt8]) {
     guard b[0] == UInt8(KVM_HOST_MAC.rawValue) else { return }
-    log("volume \(b[1])")
+    log("volume \(Character(UnicodeScalar(b[1])))")
     if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
 }
 

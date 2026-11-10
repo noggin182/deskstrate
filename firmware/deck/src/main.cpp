@@ -204,7 +204,7 @@ static bool same_host(HostId a, HostId b) {
     return a == b && a != HostId::None;
 }
 
-// kvm_proto <-> deck view. HostId is already in hub port order (PC, Mac, Guest1, Guest2).
+// kvm_proto <-> deck view. HostId is in hub port order (PC, Mac, Guest1, Guest2).
 static MonitorInput from_kvm_mon(uint8_t mon) {
     if (kvm_mon_standby(mon)) return MonitorInput::Standby;
     switch (kvm_mon_host(mon)) {
@@ -215,8 +215,9 @@ static MonitorInput from_kvm_mon(uint8_t mon) {
     return MonitorInput::Disconnected;  // the core can't see it
 }
 
-static HostId from_kvm_port(uint8_t port) {
-    return port <= controls::kGuest2 ? static_cast<HostId>(port) : HostId::None;
+static HostId from_kvm_hub(uint8_t b) {
+    const uint8_t port = kvm_hub_port(b);
+    return port <= 3 ? static_cast<HostId>(port) : HostId::None;
 }
 
 // Copies the core's STATE into the view. Returns true if anything visible changed.
@@ -224,8 +225,8 @@ static bool apply_core_state(const controls::View &core, KvmState &view) {
     KvmState next;
     next.monitor1_input = from_kvm_mon(core.b[KVM_MON_LEFT]);
     next.monitor2_input = from_kvm_mon(core.b[KVM_MON_RIGHT]);
-    next.hub1_host = from_kvm_port(core.b[KVM_HUB_HID]);
-    next.hub2_host = from_kvm_port(core.b[KVM_HUB_MEDIA]);
+    next.hub1_host = from_kvm_hub(core.b[KVM_HUB_HID]);
+    next.hub2_host = from_kvm_hub(core.b[KVM_HUB_MEDIA]);
 
     const bool changed = next.monitor1_input != view.monitor1_input
         || next.monitor2_input != view.monitor2_input
@@ -282,29 +283,15 @@ static void save_settings(const menu::Settings &settings) {
     nvs_close(nvs);
 }
 
-static char monitor_digit(MonitorInput input) {
-    switch (input) {
-        case MonitorInput::DisplayPort: return '1';
-        case MonitorInput::UsbC: return '2';
-        case MonitorInput::Hdmi: return '3';
-        case MonitorInput::Standby: return '0';
-        case MonitorInput::Disconnected: return '-';
-    }
-    return '?';
-}
-
-static char hub_digit(HostId host) {
-    return host == HostId::None ? '-' : static_cast<char>('1' + static_cast<uint8_t>(host));
-}
-
-static void update_state_code(const KvmState &state) {
-    char code[5] = {
-        monitor_digit(state.monitor1_input),
-        monitor_digit(state.monitor2_input),
-        hub_digit(state.hub1_host),
-        hub_digit(state.hub2_host),
-        '\0'
-    };
+// The debug code: the core's STATE bytes as they come over the wire (kvm_proto.h), e.g.
+// "PMPM", or "pmPM" while the desk is asleep. "----" until the first STATE.
+static void update_state_code(const uint8_t b[KVM_SLOTS]) {
+    static char shown[KVM_SLOTS + 1] = "";
+    char code[KVM_SLOTS + 1];
+    memcpy(code, b, KVM_SLOTS);
+    code[KVM_SLOTS] = '\0';
+    if (strcmp(code, shown) == 0) return;
+    memcpy(shown, code, sizeof code);
     lv_label_set_text(state_code_label, code);
 }
 
@@ -760,7 +747,7 @@ static void create_status_screen(void) {
         primary,
         LV_TEXT_ALIGN_CENTER
     );
-    update_state_code(current_kvm_state);
+    update_state_code(controls::View{}.b);
 }
 
 // The state code card covers the volume panel while it is shown.
@@ -1232,8 +1219,8 @@ extern "C" void app_main(void) {
             core_seen = true;
             view = core_state;
             menu::refresh(view, settings);
+            update_state_code(core_state.b);
             if (apply_core_state(core_state, current_kvm_state)) {
-                update_state_code(current_kvm_state);
                 render_current_scenario();
             }
         }
@@ -1244,7 +1231,7 @@ extern "C" void app_main(void) {
         // has an IP are expected, so they aren't logged.
         if ((!core_seen || core_silent) && xTaskGetTickCount() - last_ping >= pdMS_TO_TICKS(STATE_PING_MS)) {
             last_ping = xTaskGetTickCount();
-            network_send_kvm_request(controls::View{}.b);  // all 0xFF: just a STATE
+            network_send_kvm_request(controls::View{}.b);  // all '-': just a STATE
         }
         const bool asleep = core_seen && !core_silent && kvm_asleep(view.b);
         if (expect >= 0 && (asleep == (expect == 1) || xTaskGetTickCount() - expect_at >= pdMS_TO_TICKS(DESK_EXPECT_MS))) {

@@ -107,9 +107,11 @@ Rgb palette_pattern(const Palette &palette, uint32_t now_ms, uint32_t phase_ms) 
     return scale(c, k);
 }
 
+// host: a hub byte (controls::Host).
 Rgb host_pattern(uint8_t host, uint32_t now_ms, uint32_t phase_ms) {
-    if (host > controls::kGuest2) return scale(hex(0xFFFFFF), 0.1f);
-    return palette_pattern(kPalettes[host], now_ms, phase_ms);
+    const uint8_t port = kvm_hub_port(host);
+    if (port > 3) return scale(hex(0xFFFFFF), 0.1f);
+    return palette_pattern(kPalettes[port], now_ms, phase_ms);
 }
 
 // Monitor in standby: a slow, low breath in a cool white, like a sleeping laptop.
@@ -179,7 +181,7 @@ Rgb key_colour(Key key, const Scene &scene, uint32_t now_ms) {
             const uint8_t hub = key == controls::kBottomLeft ? KVM_HUB_HID : KVM_HUB_MEDIA;
             const uint8_t host = scene.view.b[hub];
             // Hub not connected: breathing red, like a missing monitor.
-            if (host > controls::kGuest2) return missing_pattern(now_ms, 1800 + (hub - KVM_HUB_HID) * 900);
+            if (kvm_hub_port(host) > 3) return missing_pattern(now_ms, 1800 + (hub - KVM_HUB_HID) * 900);
             return scale(host_pattern(host, now_ms, 200 + (hub - KVM_HUB_HID) * 400), 0.6f);
         }
         default:

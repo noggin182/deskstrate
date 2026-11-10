@@ -157,7 +157,7 @@ void send_to_core(const void *buf, int len) {
     sendto(g_sock, static_cast<const char *>(buf), len, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
 }
 
-// An empty REQUEST (all 0xFF) changes nothing: the core just answers with its STATE.
+// An empty REQUEST ("KR----") changes nothing: the core just answers with its STATE.
 void ask_for_state() {
     const uint8_t none[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
     const kvm_msg_t req = kvm_msg(KVM_REQUEST, none);
@@ -182,7 +182,7 @@ void on_state(const uint8_t b[KVM_SLOTS], const sockaddr_in &from) {
     if (first || memcmp(b, g_state, KVM_SLOTS) != 0) {
         char ip[INET_ADDRSTRLEN] = "";
         inet_ntop(AF_INET, &from.sin_addr, ip, sizeof ip);
-        trace("STATE %02X %02X %02X %02X from %s: left %s, right %s", b[0], b[1], b[2], b[3], ip,
+        trace("STATE %.4s from %s: left %s, right %s", reinterpret_cast<const char *>(b), ip,
               mon_name(b[KVM_MON_LEFT]), mon_name(b[KVM_MON_RIGHT]));
     }
     memcpy(g_state, b, KVM_SLOTS);
@@ -198,10 +198,10 @@ void on_state(const uint8_t b[KVM_SLOTS], const sockaddr_in &from) {
 }
 
 // The keyboard's Fn+knob, broadcast by the keyboard's ESP for whichever host doesn't
-// have the keyboard: [host, enum kvm_volume, FF, FF].
+// have the keyboard: [host, enum kvm_volume, '-', '-'] ("KVP+--").
 void on_volume(const uint8_t b[KVM_SLOTS]) {
     if (b[0] != KVM_HOST_PC) return;
-    trace("volume %u", b[1]);
+    trace("volume %c", b[1]);
     if (g_mode == Mode::Service) agent::volume(b[1]); else displays::volume(b[1]);
 }
 

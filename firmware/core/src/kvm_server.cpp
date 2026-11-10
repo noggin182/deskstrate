@@ -24,7 +24,7 @@ uint8_t last[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN}; 
 bool sent_once = false;
 TickType_t last_sent = 0;
 
-// The desk's sleep, reported as STATE's standby bit (kvm_proto.h). Kept in RTC memory so an OTA or a crash doesn't
+// The desk's sleep, reported as lower-case monitor bytes in STATE (kvm_proto.h). Kept in RTC memory so an OTA or a crash doesn't
 // wake the desk; a power cycle starts awake.
 constexpr uint32_t kAsleepMagic = 0x5A5EE9A5;
 RTC_NOINIT_ATTR uint32_t asleep_magic;
@@ -79,11 +79,12 @@ void snapshot(uint8_t b[KVM_SLOTS]) {
     for (uint8_t id = KVM_MON_LEFT; id <= KVM_MON_RIGHT; id++) {
         const int i = monitor_index(id);
         const monitors::State m = i >= 0 ? monitors::get(i) : monitors::State{};
-        b[id] = m.online ? host_of_input(m.input) | (asleep() ? KVM_STANDBY : 0) : KVM_UNKNOWN;
+        const uint8_t standby = asleep() ? static_cast<uint8_t>(KVM_STANDBY) : 0;
+        b[id] = m.online ? static_cast<uint8_t>(host_of_input(m.input) | standby) : static_cast<uint8_t>(KVM_UNKNOWN);
     }
     for (int h = 0; h < hubs::kCount; h++) {
         const hubs::State s = hubs::get(h);
-        b[KVM_HUB_HID + h] = s.online ? s.port : KVM_UNKNOWN;
+        b[KVM_HUB_HID + h] = s.online ? kvm_hub_byte(s.port) : static_cast<uint8_t>(KVM_UNKNOWN);
     }
 }
 
@@ -107,7 +108,7 @@ void publish_state() {
     const bool changed = !sent_once || memcmp(b, last, sizeof b) != 0;
     const bool heartbeat = (xTaskGetTickCount() - last_sent) >= pdMS_TO_TICKS(KVM_HEARTBEAT_MS);
     if (!changed && !heartbeat) return;
-    if (changed) ESP_LOGI(TAG, "STATE %02X %02X %02X %02X", b[0], b[1], b[2], b[3]);
+    if (changed) ESP_LOGI(TAG, "STATE %.4s", reinterpret_cast<const char *>(b));
     send_state(b, broadcast_addr());  // fails quietly until Wi-Fi is up
     memcpy(last, b, sizeof b);
     sent_once = true;
@@ -115,11 +116,11 @@ void publish_state() {
 }
 
 void apply_mon(uint8_t mon_id, uint8_t want) {
-    const uint8_t host = want & KVM_HOST_MASK;  // bit 7 (standby) is handle_request's
-    if (want == KVM_UNKNOWN || host == KVM_HOST_KEEP) return;
+    const uint8_t host = kvm_mon_host(want);  // lower case (standby) is handle_request's
+    if (host == KVM_HOST_KEEP) return;
     const uint8_t input = input_of_host(host);
     if (!input) {
-        ESP_LOGW(TAG, "monitor %u: no input for host %u", mon_id, host);
+        ESP_LOGW(TAG, "monitor %u: no input for host %c", mon_id, host);
         return;
     }
     const int i = monitor_index(mon_id);
@@ -154,12 +155,9 @@ void guest_power() {
     }
 }
 
-void apply_hub(int hub, uint8_t port) {
-    if (port == KVM_UNKNOWN) return;
-    if (port > 3) {
-        ESP_LOGW(TAG, "hub %d: no port %u", hub, port);
-        return;
-    }
+void apply_hub(int hub, uint8_t want) {
+    const uint8_t port = kvm_hub_port(want);
+    if (port > 3) return;  // '-': leave alone (kvm_decode has dropped anything else)
     const hubs::State h = hubs::get(hub);
     if (h.online && h.port == port) return;  // already there
     const esp_err_t err = hubs::set_port(hub, port);
@@ -169,7 +167,7 @@ void apply_hub(int hub, uint8_t port) {
 void handle_request(const kvm_msg_t &req, const sockaddr_in &from) {
     char ip[16];
     inet_ntoa_r(from.sin_addr, ip, sizeof ip);
-    ESP_LOGI(TAG, "REQUEST %02X %02X %02X %02X from %s", req.b[0], req.b[1], req.b[2], req.b[3], ip);
+    ESP_LOGI(TAG, "REQUEST %.4s from %s", reinterpret_cast<const char *>(req.b), ip);
     const int sleep = kvm_request_sleep(req.b);
     if (sleep >= 0) {
         if (!sleep && asleep()) woke = true;

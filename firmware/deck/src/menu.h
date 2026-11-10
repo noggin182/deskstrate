@@ -13,7 +13,7 @@ enum class Command : uint8_t {
     None,
     Close,
     Monitor,     // a = kvm_slot (monitor), b = monitor byte (enum kvm_host)
-    Usb,         // a = kvm_slot (hub), b = port (controls::Host)
+    Usb,         // a = kvm_slot (hub), b = hub byte (controls::Host)
     Swap,        // swap the two monitors' inputs
     Sleep,       // put the desk to sleep (monitors to standby; any key wakes it)
     Lights,      // a = new key light level (0 high, 1 low, 2 off)

@@ -28,7 +28,7 @@ enum host_power { HOST_POWER_NONE = 0, HOST_POWER_STANDBY = 1, HOST_POWER_ON = 2
 #define HOST_POWER_EVERY 3u  /* STATEs: about 6 s at the 2 s heartbeat */
 
 typedef struct {
-    uint8_t my_host;    /* enum kvm_host: KVM_HOST_PC or KVM_HOST_MAC (also my hub port) */
+    uint8_t my_host;    /* enum kvm_host: KVM_HOST_PC or KVM_HOST_MAC (also my hub byte) */
     uint8_t started;    /* a STATE has been seen */
     uint8_t visible;    /* bit per monitor slot: showing my input, awake */
     uint8_t keyboard;   /* the HID hub is on me */

@@ -16,7 +16,7 @@ namespace kvm_client {
 // Call once Wi-Fi has been started.
 esp_err_t start();
 
-// Asks the core for this state (kvm_proto REQUEST bytes; 0xFF = leave alone). Replaces
+// Asks the core for this state (kvm_proto REQUEST bytes; '-' = leave alone). Replaces
 // any request still pending. Safe from any task.
 void request(const uint8_t b[4]);
 

@@ -37,7 +37,7 @@
 #define KB_LINK_ACK_MS       50u
 #define KB_LINK_TRIES        5u
 #define KB_LINK_STATUS_MS    2000u  /* keyboard -> ESP status heartbeat */
-#define KB_LINK_VERSION      2u   /* 2: KR_KVM_ACTION replaced KR_KVM_REQUEST */
+#define KB_LINK_VERSION      3u   /* 2: KR_KVM_ACTION replaced KR_KVM_REQUEST; 3: EK_KVM_STATE is ASCII */
 
 /* keyboard -> ESP */
 enum kb_link_kr_type {
@@ -64,7 +64,7 @@ enum kb_link_action {
 /* ESP -> keyboard */
 enum kb_link_ek_type {
     EK_ACK          = 0x81, /* 1 byte: the seq being acknowledged */
-    EK_KVM_STATE    = 0x82, /* 4 bytes: the core's latest kvm_proto STATE */
+    EK_KVM_STATE    = 0x82, /* 4 bytes: the core's latest kvm_proto STATE (ASCII, e.g. "PMPM") */
     EK_TEXT         = 0x83, /* text; the keyboard echoes it back as KR_TEXT "echo: ..." */
 };
 
