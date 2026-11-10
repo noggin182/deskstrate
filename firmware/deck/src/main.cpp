@@ -20,6 +20,10 @@
 #include "status_led.h"
 #include "lvgl.h"
 
+extern "C" {
+LV_FONT_DECLARE(font_mono_22);  // font_mono_22.c: JetBrains Mono, for the debug state code
+}
+
 // Adafruit Feather ESP32-S3 TFT pinout
 #define PIN_POWER_TFT_I2C  GPIO_NUM_21
 #define PIN_TFT_BACKLIGHT  GPIO_NUM_45
@@ -743,7 +747,7 @@ static void create_status_screen(void) {
         23,
         117,
         28,
-        &lv_font_montserrat_22,
+        &font_mono_22,
         primary,
         LV_TEXT_ALIGN_CENTER
     );
