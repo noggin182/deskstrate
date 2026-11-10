@@ -17,7 +17,11 @@
 //   GET /api/tls       {"name","domain","https","cert":{"subject","issuer","not_after"}|null,
 //                       "fetch":{"result","ago_s"}}
 //   GET /api/tls/csr   this board's CSR, PEM
-// which are on the plain server (port 80) as well. Port 80 keeps working as before.
+// which are on the plain server (port 80) as well. While HTTPS is up, every request to the
+// plain server is redirected (307, same method, path and query) to
+// https://<name>.<CONFIG_DESKSTRATE_TLS_DOMAIN>/...; without a certificate, or if HTTPS fails
+// to start, port 80 serves everything as before. For that the plain server must be started
+// with cfg.uri_match_fn = web_tls::uri_match.
 #pragma once
 
 #include <cstdint>
@@ -30,11 +34,16 @@ namespace web_tls {
 inline constexpr uint32_t kFirstFetchMs = 30 * 1000;
 inline constexpr uint32_t kFetchMs = 12 * 60 * 60 * 1000;
 inline constexpr uint32_t kMinGapMs = 60 * 1000;  // between fetches, doorbell or not
-inline constexpr int kUriHandlers = 2;  // handlers start() adds to each server
+inline constexpr int kUriHandlers = 2;  // handlers start() adds to the HTTPS server
+inline constexpr int kHttpUriHandlers = kUriHandlers + 5;  // and to the plain server
 
 // Registers the app's own handlers on a server. Called for the HTTPS server each time it
 // (re)starts, so it must be safe to call more than once.
 using RegisterFn = esp_err_t (*)(httpd_handle_t server);
+
+// URI matcher for the plain server: exact match (the httpd default) while HTTPS is down,
+// and only the redirect handler while it is up.
+bool uri_match(const char *tmpl, const char *uri, size_t len);
 
 // name: short board name ("core", "kb"), used for the CSR and certificate file names.
 // http: the running plain server, which gets /api/tls and /api/tls/csr.

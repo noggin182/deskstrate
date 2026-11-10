@@ -252,7 +252,8 @@ esp_err_t register_handlers(httpd_handle_t server) {
 esp_err_t web_start(const char *hostname) {
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.lru_purge_enable = true;  // phones keep idle sockets open; don't run out
-    cfg.max_uri_handlers = 16;    // ours (7) + web_tls's
+    cfg.max_uri_handlers = 16;    // ours (7) + web_tls::kHttpUriHandlers (7)
+    cfg.uri_match_fn = web_tls::uri_match;  // redirects everything to HTTPS once it's up
     httpd_handle_t server = nullptr;
     ESP_RETURN_ON_ERROR(httpd_start(&server, &cfg), TAG, "httpd start");
     ESP_RETURN_ON_ERROR(register_handlers(server), TAG, "handlers");
