@@ -6,10 +6,8 @@
 #include "kvm_proto.h"
 
 esp_err_t network_start(void);
-esp_err_t network_broadcast_update(const char *json_message);
 
 // kvm_proto client: the core is the server and the source of truth.
-// Unauthenticated for now (tags sent as zeros, not checked).
 
 // True if a STATE from the core arrived since the last call; copies its 4 bytes into out.
 bool network_take_kvm_state(uint8_t out[KVM_SLOTS]);

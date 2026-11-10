@@ -16,8 +16,7 @@ comes up first, showing "Starting up", so it never holds the old image.
 
 ## Networking
 
-The deck joins a 2.4 GHz Wi-Fi network in station mode and sends UDP
-broadcast datagrams to `255.255.255.255:3333`, with the DHCP hostname
+The deck joins a 2.4 GHz Wi-Fi network in station mode with the DHCP hostname
 `deskstrate-deck`. The Wi-Fi credentials live in the deck's NVS. To provision a
 new board (or one whose NVS was erased), set the SSID and password with
 PlatformIO's `menuconfig` target (`pio run -d firmware/deck -t menuconfig`)
@@ -30,14 +29,7 @@ The ESP-IDF console is routed over the Feather's native USB Serial/JTAG port,
 so `printf()` and ESP-IDF log messages appear in PlatformIO's monitor on that
 USB port (115200 baud).
 
-After connecting or reconnecting, the deck broadcasts this JSON status
-datagram:
-
-```json
-{"type":"status","event":"online"}
-```
-
-The deck is also a `kvm_proto` client of the core on UDP port 18200
+The deck is a `kvm_proto` client of the core on UDP port 18200
 (`KVM_PORT`). It renders every `STATE` the core broadcasts and sends each key
 press to the core as one `REQUEST` carrying the whole state it wants (to the
 sender of the last `STATE`, or broadcast until one has been seen). UDP can drop
@@ -48,15 +40,8 @@ step. Packets are unauthenticated. Until a `STATE` arrives (at boot, or after
 core answers every request with its current `STATE`, so the screen fills in as
 soon as Wi-Fi is up.
 
-This JSON broadcast is temporary and will be dropped in favour of `kvm_proto`.
-Receivers should listen on UDP port `3333` on all local interfaces. Other
-deck updates can be sent from firmware code with
-`network_broadcast_update()` in `src/network.h`. Pass a JSON string; each call
-sends it as one UDP datagram, up to 1400 bytes. The function returns
-`ESP_ERR_INVALID_STATE` when Wi-Fi/UDP is not ready and reports socket send
-errors in the ESP-IDF log. UDP broadcast is limited to the local network;
-router client isolation or firewall rules may prevent devices from receiving
-each other's broadcasts.
+UDP broadcast only reaches the local network, and router client isolation can
+block it.
 
 The NeoKey switches use Feather D5 (top left), D6 (bottom left), D10 (top right),
 and D11 (bottom right), configured as active-low inputs with internal pull-ups.

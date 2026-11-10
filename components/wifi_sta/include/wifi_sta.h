@@ -21,6 +21,3 @@ esp_err_t wifi_sta_start(const char *hostname);
 
 // True while associated with an IP address.
 bool wifi_sta_connected();
-
-// Blocks until connected or timeout. Returns true if connected.
-bool wifi_sta_wait_connected(TickType_t timeout);

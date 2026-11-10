@@ -16,10 +16,6 @@ namespace kvm_client {
 // Call once Wi-Fi has been started.
 esp_err_t start();
 
-// Asks the core for this state (kvm_proto REQUEST bytes; '-' = leave alone). Replaces
-// any request still pending. Safe from any task.
-void request(const uint8_t b[4]);
-
 // A KVM key pressed on the keyboard (enum kb_link_action). Safe from any task.
 void action(uint8_t act);
 

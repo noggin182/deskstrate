@@ -21,15 +21,9 @@
 namespace {
 
 constexpr EventBits_t WIFI_CONNECTED_BIT = BIT0;
-constexpr EventBits_t UDP_SOCKET_READY_BIT = BIT1;
-constexpr EventBits_t WIFI_ANNOUNCE_BIT = BIT2;
-constexpr uint16_t UDP_BROADCAST_PORT = 3333;
-constexpr size_t MAX_UDP_MESSAGE_SIZE = 1400;
 
 const char *TAG = "deck_network";
 EventGroupHandle_t network_events;
-SemaphoreHandle_t socket_mutex;
-int broadcast_socket = -1;
 
 // kvm_proto client state, guarded by kvm_mutex.
 SemaphoreHandle_t kvm_mutex;
@@ -154,7 +148,7 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, v
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         const auto *disconnected = static_cast<wifi_event_sta_disconnected_t *>(event_data);
         ESP_LOGW(TAG, "Wi-Fi disconnected (reason %d); reconnecting", disconnected->reason);
-        xEventGroupClearBits(network_events, WIFI_CONNECTED_BIT | UDP_SOCKET_READY_BIT);
+        xEventGroupClearBits(network_events, WIFI_CONNECTED_BIT);
         const esp_err_t err = esp_wifi_connect();
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to reconnect to Wi-Fi: %s", esp_err_to_name(err));
@@ -162,44 +156,7 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, v
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         const auto *event = static_cast<ip_event_got_ip_t *>(event_data);
         ESP_LOGI(TAG, "Connected; IP address: " IPSTR, IP2STR(&event->ip_info.ip));
-        xEventGroupSetBits(network_events, WIFI_CONNECTED_BIT | WIFI_ANNOUNCE_BIT);
-    }
-}
-
-void udp_socket_task(void *) {
-    int socket_fd = -1;
-    while (socket_fd < 0) {
-        socket_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-        if (socket_fd < 0) {
-            ESP_LOGE(TAG, "Failed to create UDP socket: errno %d", errno);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
-    }
-
-    const int enable_broadcast = 1;
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_BROADCAST, &enable_broadcast, sizeof(enable_broadcast)) < 0) {
-        ESP_LOGE(TAG, "Failed to enable UDP broadcast: errno %d", errno);
-        close(socket_fd);
-        vTaskDelete(nullptr);
-        return;
-    }
-
-    xSemaphoreTake(socket_mutex, portMAX_DELAY);
-    broadcast_socket = socket_fd;
-    xSemaphoreGive(socket_mutex);
-
-    while (true) {
-        xEventGroupWaitBits(network_events, WIFI_ANNOUNCE_BIT, pdTRUE, pdFALSE, portMAX_DELAY);
-        if ((xEventGroupGetBits(network_events) & WIFI_CONNECTED_BIT) == 0) {
-            continue;
-        }
-
-        xEventGroupSetBits(network_events, UDP_SOCKET_READY_BIT);
-        ESP_LOGI(TAG, "UDP broadcast ready on port %u", UDP_BROADCAST_PORT);
-        const esp_err_t announce_err = network_broadcast_update("{\"type\":\"status\",\"event\":\"online\"}");
-        if (announce_err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to broadcast online announcement: %s", esp_err_to_name(announce_err));
-        }
+        xEventGroupSetBits(network_events, WIFI_CONNECTED_BIT);
     }
 }
 
@@ -228,9 +185,8 @@ esp_err_t network_start(void) {
     ESP_RETURN_ON_ERROR(esp_wifi_init(&wifi_init_config), TAG, "failed to initialize Wi-Fi");
 
     network_events = xEventGroupCreate();
-    socket_mutex = xSemaphoreCreateMutex();
-    if (network_events == nullptr || socket_mutex == nullptr) {
-        ESP_LOGE(TAG, "failed to allocate Wi-Fi event group or UDP socket mutex");
+    if (network_events == nullptr) {
+        ESP_LOGE(TAG, "failed to allocate Wi-Fi event group");
         return ESP_ERR_NO_MEM;
     }
 
@@ -248,10 +204,6 @@ esp_err_t network_start(void) {
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "failed to set Wi-Fi station mode");
     // This build's menuconfig credentials, or the ones stored in NVS (see wifi_sta.h).
     ESP_RETURN_ON_ERROR(wifi_sta_apply_credentials(), TAG, "no usable Wi-Fi credentials");
-    if (xTaskCreate(udp_socket_task, "udp_broadcast", 4096, nullptr, 5, nullptr) != pdPASS) {
-        ESP_LOGE(TAG, "failed to create UDP broadcast task");
-        return ESP_ERR_NO_MEM;
-    }
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "failed to start Wi-Fi");
     ESP_RETURN_ON_ERROR(start_kvm_client(), TAG, "failed to start kvm_proto client");
 
@@ -307,54 +259,5 @@ esp_err_t network_send_kvm_request(const uint8_t want[KVM_SLOTS]) {
         ESP_LOGE(TAG, "kvm_proto request failed: errno %d", send_errno);
         return ESP_FAIL;
     }
-    return ESP_OK;
-}
-
-esp_err_t network_broadcast_update(const char *json_message) {
-    if (json_message == nullptr || network_events == nullptr || socket_mutex == nullptr) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    const size_t message_length = strnlen(json_message, MAX_UDP_MESSAGE_SIZE + 1);
-    if (message_length == 0 || message_length > MAX_UDP_MESSAGE_SIZE) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    if ((xEventGroupGetBits(network_events) & UDP_SOCKET_READY_BIT) == 0) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    xSemaphoreTake(socket_mutex, portMAX_DELAY);
-    const int socket_fd = broadcast_socket;
-    if (socket_fd < 0) {
-        xSemaphoreGive(socket_mutex);
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    sockaddr_in destination = {};
-    destination.sin_family = AF_INET;
-    destination.sin_port = htons(UDP_BROADCAST_PORT);
-    destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-
-    const ssize_t sent = sendto(
-        socket_fd,
-        json_message,
-        message_length,
-        0,
-        reinterpret_cast<sockaddr *>(&destination),
-        sizeof(destination)
-    );
-    const int send_errno = errno;
-    xSemaphoreGive(socket_mutex);
-
-    if (sent < 0) {
-        ESP_LOGE(TAG, "UDP broadcast failed: errno %d", send_errno);
-        return ESP_FAIL;
-    }
-    if (static_cast<size_t>(sent) != message_length) {
-        ESP_LOGE(TAG, "UDP broadcast sent %d of %u bytes", static_cast<int>(sent), static_cast<unsigned>(message_length));
-        return ESP_FAIL;
-    }
-
     return ESP_OK;
 }
