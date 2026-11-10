@@ -78,9 +78,9 @@ Target plan_side(const View &view, bool left) {
 
 Target plan_leave_split(const View &view) {
     if (!is_split(view)) return Target{};
-    // Everything follows the keyboard; a guest can't fill both screens.
-    uint8_t host = view.b[KVM_HUB_HID];
-    if (!is_pc_or_mac(host)) host = view.b[KVM_HUB_MEDIA];
+    // Everything follows the media hub, else the keyboard; a guest can't fill both screens.
+    uint8_t host = view.b[KVM_HUB_MEDIA];
+    if (!is_pc_or_mac(host)) host = view.b[KVM_HUB_HID];
     if (!is_pc_or_mac(host)) host = kPc;
     return everything_to(host);
 }

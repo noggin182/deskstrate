@@ -67,12 +67,15 @@ static void test_toggle_split() {
     EXPECT(split(kMac, kPc), MAC, PC, HP, HM);
     // Nothing known: nothing.
     CHECK(is_empty(plan_toggle_split(View{})));
-    // Leave: everything follows the HID hub, else the media hub, else the PC.
-    EXPECT(plan_toggle_split(v(PC, MAC, HM, HP)), MAC, MAC, HM, HM);
-    EXPECT(plan_toggle_split(v(MAC, PC, HP, HM)), PC, PC, HP, HP);
+    // Leave: everything follows the media hub, else the HID hub, else the PC.
+    EXPECT(plan_toggle_split(v(PC, MAC, HM, HP)), PC, PC, HP, HP);
+    EXPECT(plan_toggle_split(v(MAC, PC, HP, HM)), MAC, MAC, HM, HM);
     EXPECT(plan_toggle_split(v(GUEST, MAC, G1, HM)), MAC, MAC, HM, HM);
+    EXPECT(plan_toggle_split(v(GUEST, MAC, HM, G1)), MAC, MAC, HM, HM);
     EXPECT(plan_toggle_split(v(GUEST, GUEST, G1, G2)), PC, PC, HP, HP);
-    EXPECT(plan_leave_split(v(PC, MAC, HM, HP)), MAC, MAC, HM, HM);
+    EXPECT(plan_leave_split(v(PC, MAC, HM, HP)), PC, PC, HP, HP);
+    // Fn+Up twice comes back to where it started.
+    EXPECT(plan_toggle_split(v(PC, MAC, HM, HP)), PC, PC, HP, HP);
     CHECK(is_empty(plan_leave_split(v(PC, PC, HP, HP))));
 }
 

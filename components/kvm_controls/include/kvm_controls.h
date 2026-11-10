@@ -6,7 +6,8 @@
 //   plan_side          deck bottom-left/right, keyboard Fn+Left/Right: everything to the
 //                      PC / Mac; in split mode only the HID hub moves, to the left /
 //                      right screen's host
-//   plan_leave_split   deck top-right tap: everything follows the HID hub's host
+//   plan_leave_split   deck top-right tap: everything follows the media hub's host
+//                      (else the HID hub's, else the PC)
 //   plan_toggle_split  keyboard Fn+Up: leave split as above, or enter it keeping the left
 //                      monitor, with the right monitor and the HID hub on the other host
 //                      and the media hub on the left monitor's host (as split())

@@ -109,7 +109,7 @@ the deck: it is whenever the two monitors show different hosts.
 | Bottom right | everything to the Mac | keyboard/mouse hub to the right screen's host |
 | Hold top right, tap bottom left | split: PC left with the media hub, Mac right with the keyboard/mouse hub | same |
 | Hold top left, tap bottom right | split: Mac left with the media hub, PC right with the keyboard/mouse hub | same |
-| Tap top right | nothing | leave split: everything to the keyboard hub's host |
+| Tap top right | nothing | leave split: everything to the media hub's host |
 | Tap top left | open the menu | open the menu |
 
 Top keys act on release, and only when no bottom key was tapped while they were
