@@ -56,11 +56,15 @@ static void test_side() {
 }
 
 static void test_toggle_split() {
-    // Enter: left and hubs stay, right gets the other host.
-    EXPECT(plan_toggle_split(v(PC, PC, HP, HP)), X, MAC, X, X);
-    EXPECT(plan_toggle_split(v(MAC, MAC, HM, HM)), X, PC, X, X);
-    EXPECT(plan_toggle_split(v(MAC, MAC, HP, HM)), X, PC, X, X);
-    EXPECT(plan_toggle_split(v(GUEST, X, G1, G1)), X, PC, X, X);
+    // Enter: left stays with the media hub; right and the HID hub get the other host.
+    EXPECT(plan_toggle_split(v(PC, PC, HP, HP)), X, MAC, HM, HP);
+    EXPECT(plan_toggle_split(v(MAC, MAC, HM, HM)), X, PC, HP, HM);
+    EXPECT(plan_toggle_split(v(MAC, MAC, HP, HP)), X, PC, HP, HM);
+    EXPECT(plan_toggle_split(v(GUEST, X, G1, G1)), X, PC, HP, G1);
+    EXPECT(plan_toggle_split(v(PC | SB, PC | SB, HP, HP)), X, MAC, HM, HP);
+    // Deck chords.
+    EXPECT(split(kPc, kMac), PC, MAC, HM, HP);
+    EXPECT(split(kMac, kPc), MAC, PC, HP, HM);
     // Nothing known: nothing.
     CHECK(is_empty(plan_toggle_split(View{})));
     // Leave: everything follows the HID hub, else the media hub, else the PC.

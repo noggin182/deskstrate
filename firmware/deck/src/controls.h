@@ -9,8 +9,8 @@
 // Normal mode:
 //   BottomLeft / BottomRight   everything to the PC / Mac; in split mode only the HID
 //                              hub moves, to the left / right screen's host
-//   hold TopRight + BottomLeft split: PC left, Mac right, both hubs on the PC
-//   hold TopLeft + BottomRight split: Mac left, PC right, both hubs on the Mac
+//   hold TopRight + BottomLeft split: PC left (media hub), Mac right (HID hub)
+//   hold TopLeft + BottomRight split: Mac left (media hub), PC right (HID hub)
 //   tap TopRight               leave split mode: everything to the HID hub's host
 //   tap TopLeft                open the menu
 // Top keys act on release, and only if no bottom key was pressed while they were held.

@@ -49,11 +49,11 @@ uint8_t Gestures::update(uint8_t pressed, uint32_t now_ms, bool menu, Event out[
 bool plan(const Event &event, const View &view, Target &out) {
     if (event.type == EventType::Chord) {
         if (event.modifier == kTopRight && event.key == kBottomLeft) {
-            out = split(kPc, kMac, kPc);
+            out = split(kPc, kMac);
             return true;
         }
         if (event.modifier == kTopLeft && event.key == kBottomRight) {
-            out = split(kMac, kPc, kMac);
+            out = split(kMac, kPc);
             return true;
         }
         return false;
