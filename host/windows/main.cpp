@@ -4,8 +4,9 @@
 // extend or duplicate the displays, and wake them when a monitor comes back to the PC or
 // the keyboard moves to it, and DDC standby / on for the monitors showing the PC while the
 // desk is asleep / awake (standby in STATE). A KV VOLUME message for the PC presses its
-// volume keys (the keyboard's Fn+knob while the keyboard is on the Mac). It only ever
-// sends the core an empty REQUEST, to get a STATE.
+// volume keys (the keyboard's Fn+knob while the keyboard is on the Mac). It sends the core
+// only REQUESTs without slots: an empty one, to get a STATE, and the PC's own volume
+// ("KR ---- 42% ---", host/common/level_report.h) so the deck can show it.
 //
 // One exe, three ways to run:
 //   --service    the normal install: a LocalSystem service started at boot, so it works
@@ -38,9 +39,11 @@
 #include <string>
 
 #include "agent.h"
+#include "audio.h"
 #include "displays.h"
 #include "host_policy.h"
 #include "kvm_proto.h"
+#include "level_report.h"
 #include "log.h"
 
 namespace {
@@ -51,8 +54,10 @@ constexpr UINT WM_APP_DISPLAY = WM_APP + 3;  // wParam: GUID_CONSOLE_DISPLAY_STA
 constexpr UINT WM_APP_POWER = WM_APP + 4;    // wParam: PBT_APMSUSPEND / PBT_APMRESUMEAUTOMATIC
 constexpr UINT WM_APP_SESSION = WM_APP + 5;  // wParam: WTS_* session change
 constexpr UINT WM_APP_STOP = WM_APP + 6;     // wParam: 1 = the PC is shutting down
+constexpr UINT WM_APP_AUDIO = WM_APP + 7;    // the output device's volume, mute or the device changed
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kTimerMs = 1000;
+constexpr UINT_PTR kLevelTimerId = 2;
 constexpr UINT kMenuOpenLog = 1;
 constexpr UINT kMenuExit = 2;
 const wchar_t kServiceName[] = L"deskstrate-host";
@@ -72,6 +77,7 @@ ULONGLONG g_last_state_ms = 0;    // GetTickCount64() of the last STATE, 0 = nev
 host_policy_t g_policy;
 uint8_t g_state[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
 bool g_displays_on = true;
+level_report_t g_level;           // the PC's volume, as reported to the core
 
 SERVICE_STATUS_HANDLE g_svc = nullptr;
 SERVICE_STATUS g_svc_status = {};
@@ -157,11 +163,37 @@ void send_to_core(const void *buf, int len) {
     sendto(g_sock, static_cast<const char *>(buf), len, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
 }
 
-// An empty REQUEST ("KR----") changes nothing: the core just answers with its STATE.
+void send_msg(const kvm_msg_t &msg) {
+    uint8_t raw[KVM_MAX_LEN];
+    const unsigned len = kvm_encode(&msg, raw);
+    send_to_core(raw, static_cast<int>(len));
+}
+
+// An empty REQUEST ("KR ---- --- ---") changes nothing: the core just answers with its STATE.
 void ask_for_state() {
     const uint8_t none[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
-    const kvm_msg_t req = kvm_msg(KVM_REQUEST, none);
-    send_to_core(&req, sizeof req);
+    send_msg(kvm_msg(KVM_REQUEST, none));
+}
+
+// state_field: the PC's field in a STATE just received, or null.
+void check_level(const uint8_t *state_field) {
+    const ULONGLONG now = GetTickCount64();
+    if (!level_report_due(&g_level, now, state_field)) return;
+    send_msg(level_report_msg(&g_level, KVM_LEVEL_PC));
+    level_report_sent(&g_level, now);
+}
+
+void on_audio() {
+    int level = -1;
+    bool muted = false;
+    if (!audio::read(level, muted)) level = -1;
+    uint8_t before[KVM_LEVEL_LEN];
+    memcpy(before, g_level.mine, sizeof before);
+    level_report_set(&g_level, level, muted);
+    if (memcmp(before, g_level.mine, sizeof before) != 0) {
+        trace("volume %.3s", reinterpret_cast<const char *>(g_level.mine));
+    }
+    check_level(nullptr);
 }
 
 const char *mon_name(uint8_t b) {
@@ -175,7 +207,8 @@ const char *mon_name(uint8_t b) {
     }
 }
 
-void on_state(const uint8_t b[KVM_SLOTS], const sockaddr_in &from) {
+void on_state(const kvm_msg_t &msg, const sockaddr_in &from) {
+    const uint8_t *b = msg.b;
     const bool first = !g_last_state_ms;
     g_core = from.sin_addr;
     g_last_state_ms = GetTickCount64();
@@ -195,20 +228,22 @@ void on_state(const uint8_t b[KVM_SLOTS], const sockaddr_in &from) {
     wchar_t tip[64];
     swprintf(tip, 64, L"left %hs, right %hs", mon_name(b[KVM_MON_LEFT]), mon_name(b[KVM_MON_RIGHT]));
     set_tip(tip);
+
+    check_level(msg.level[KVM_LEVEL_PC]);
 }
 
 // The keyboard's Fn+knob, broadcast by the keyboard's ESP for whichever host doesn't
-// have the keyboard: [host, enum kvm_volume, '-', '-'] ("KVP+--").
-void on_volume(const uint8_t b[KVM_SLOTS]) {
-    if (b[0] != KVM_HOST_PC) return;
-    trace("volume %c", b[1]);
-    if (g_mode == Mode::Service) agent::volume(b[1]); else displays::volume(b[1]);
+// have the keyboard ("KV P+"). The resulting change comes back through on_audio().
+void on_volume(uint8_t host, uint8_t action) {
+    if (host != KVM_HOST_PC) return;
+    trace("volume key %c", action);
+    if (g_mode == Mode::Service) agent::volume(action); else displays::volume(action);
 }
 
 void on_datagram(const uint8_t *buf, int n, const sockaddr_in &from) {
     kvm_msg_t msg;
-    if (kvm_decode(buf, n, KVM_STATE, &msg)) on_state(msg.b, from);
-    else if (kvm_decode(buf, n, KVM_VOLUME, &msg)) on_volume(msg.b);
+    if (kvm_decode(buf, n, KVM_STATE, &msg)) on_state(msg, from);
+    else if (kvm_decode(buf, n, KVM_VOLUME, &msg)) on_volume(msg.host, msg.action);
 }
 
 void on_socket() {
@@ -257,6 +292,10 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_TIMER:
             if (wp == kTimerId) on_timer();
+            if (wp == kLevelTimerId) check_level(nullptr);
+            return 0;
+        case WM_APP_AUDIO:
+            on_audio();
             return 0;
         case WM_APP_TRAY:
             if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_LBUTTONUP) show_menu();
@@ -329,6 +368,7 @@ bool open_socket() {
 // Window, socket, timer, then the message loop until the window goes. 0 on a clean exit.
 int run_protocol(HINSTANCE inst) {
     host_policy_init(&g_policy, KVM_HOST_PC);
+    level_report_init(&g_level);
     trace("deskstrate-host starting (%s, topology %s)", g_mode == Mode::Service ? "service" : "standalone",
           g_topology_enabled ? "on" : "off");
 
@@ -347,6 +387,9 @@ int run_protocol(HINSTANCE inst) {
         RegisterPowerSettingNotification(g_hwnd, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
     }
     SetTimer(g_hwnd, kTimerId, kTimerMs, nullptr);
+    SetTimer(g_hwnd, kLevelTimerId, LEVEL_REPORT_TICK_MS, nullptr);
+    const bool com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+    if (!com || !audio::start(g_hwnd, WM_APP_AUDIO)) trace("volume: not reported");
     ask_for_state();
     // Only now: the SCM's handler posts controls to g_hwnd.
     if (g_mode == Mode::Service) report(SERVICE_RUNNING);
@@ -356,6 +399,8 @@ int run_protocol(HINSTANCE inst) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    audio::stop();
+    if (com) CoUninitialize();
     closesocket(g_sock);
     WSACleanup();
     return 0;

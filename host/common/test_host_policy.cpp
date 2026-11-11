@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "host_policy.h"
+#include "level_report.h"
 
 static int failures = 0;
 #define CHECK(cond)                                                       \
@@ -130,16 +131,51 @@ static void test_keyboard(void) {
     CHECK(!b.wake_displays && !b.set_topology);
 }
 
+static int encodes_to(const kvm_msg_t &m, const char *want) {
+    uint8_t raw[KVM_MAX_LEN];
+    const unsigned n = kvm_encode(&m, raw);
+    return n == strlen(want) && memcmp(raw, want, n) == 0;
+}
+
 static void test_wire(void) {
     const uint8_t want[KVM_SLOTS] = {PC, NC, NC, NC};
-    const kvm_msg_t m = kvm_msg(KVM_REQUEST, want);
-    uint8_t raw[KVM_MSG_LEN];
-    memcpy(raw, &m, sizeof raw);
-    CHECK(memcmp(raw, "KRP---", KVM_MSG_LEN) == 0);
+    kvm_msg_t m = kvm_msg(KVM_REQUEST, want);
+    CHECK(encodes_to(m, "KR P--- --- ---"));
     kvm_msg_t out;
-    CHECK(kvm_decode(raw, KVM_MSG_LEN, KVM_REQUEST, &out));
-    CHECK(!kvm_decode(raw, KVM_MSG_LEN, KVM_STATE, &out));
-    CHECK(!kvm_decode(raw, KVM_MSG_LEN - 1, KVM_REQUEST, &out));
+    CHECK(kvm_decode("KR P--- --- ---", KVM_STATE_LEN, KVM_REQUEST, &out));
+    CHECK(memcmp(out.b, want, KVM_SLOTS) == 0 && kvm_level_get(out.level[KVM_LEVEL_PC]) < 0);
+    CHECK(!kvm_decode("KR P--- --- ---", KVM_STATE_LEN, KVM_STATE, &out));
+    CHECK(!kvm_decode("KR P--- --- ---", KVM_STATE_LEN - 1, KVM_REQUEST, &out));
+    CHECK(!kvm_decode("KRP---", 6, KVM_REQUEST, &out));   /* the old 6-byte format */
+    CHECK(!kvm_decode("KSPPPP", 6, KVM_STATE, &out));
+
+    /* Volume fields round trip. */
+    kvm_level_set(m.level[KVM_LEVEL_PC], 42, 0);
+    kvm_level_set(m.level[KVM_LEVEL_MAC], 100, 1);
+    m.type = KVM_STATE;
+    m.b[1] = MAC; m.b[2] = MAC; m.b[3] = MAC;
+    CHECK(encodes_to(m, "KS PMMM 42% **/"));
+    CHECK(kvm_decode("KS PMMM 42% **/", KVM_STATE_LEN, KVM_STATE, &out));
+    CHECK(kvm_level_get(out.level[KVM_LEVEL_PC]) == 42 && !kvm_level_muted(out.level[KVM_LEVEL_PC]));
+    CHECK(kvm_level_get(out.level[KVM_LEVEL_MAC]) == 100 && kvm_level_muted(out.level[KVM_LEVEL_MAC]));
+    kvm_level_set(m.level[KVM_LEVEL_PC], 0, 0);
+    kvm_level_set(m.level[KVM_LEVEL_MAC], -1, 1);
+    CHECK(encodes_to(m, "KS PMMM 00% ---"));
+    kvm_level_set(m.level[KVM_LEVEL_PC], 7, 1);
+    kvm_level_set(m.level[KVM_LEVEL_MAC], 250, 0);
+    CHECK(encodes_to(m, "KS PMMM 07/ **%"));
+    CHECK(kvm_level_from_scalar(0.0f) == 0 && kvm_level_from_scalar(0.424f) == 42 && kvm_level_from_scalar(0.425f) == 43);
+    CHECK(kvm_level_from_scalar(0.994f) == 99 && kvm_level_from_scalar(0.995f) == 100 && kvm_level_from_scalar(1.0f) == 100);
+    CHECK(kvm_level_from_scalar(-0.1f) == 0 && kvm_level_from_scalar(1.5f) == 100 && kvm_level_from_scalar(0.0625f) == 6);
+
+    /* VOLUME. */
+    CHECK(encodes_to(kvm_volume_msg(PC, KVM_VOL_UP), "KV P+"));
+    CHECK(kvm_decode("KV M/", KVM_VOLUME_LEN, KVM_VOLUME, &out) && out.host == MAC && out.action == KVM_VOL_MUTE);
+
+    /* A volume-only report neither sleeps nor wakes the desk. */
+    CHECK(kvm_decode("KR ---- --- 42%", KVM_STATE_LEN, KVM_REQUEST, &out));
+    CHECK(kvm_request_sleep(out.b) < 0);
+
     CHECK(kvm_mon_host('m') == MAC && kvm_mon_standby('m'));
     CHECK(kvm_mon_host('X') == KVM_HOST_KEEP && !kvm_mon_standby('X'));
     CHECK(kvm_mon_host(NC) == KVM_HOST_KEEP && !kvm_mon_standby(NC) && !kvm_mon_connected(NC));
@@ -152,28 +188,78 @@ static void test_wire(void) {
     CHECK(kvm_hub_port(NC) > 3 && kvm_hub_byte(2) == '1' && kvm_hub_byte(0xFF) == NC);
 }
 
-/* Any byte outside the table drops the whole datagram. */
+/* Any byte outside the table, or out of place, drops the whole datagram. */
 static void test_valid(void) {
     kvm_msg_t out;
-    const char *good[] = {"KSPPPP", "KSMMMM", "KSpmPM", "KSP^12", "KSxX--", "KSgG-M", "KS^^--", "KS~~P-",
-                          "KS~mPM", "KR----", "KRxx--", "KRXX--", "KRP---", "KVP+--", "KVM---", "KVM/--"};
+    const char *good[] = {"KS PPPP --- ---", "KS MMMM 42% **%", "KS pmPM 00/ 99%", "KS P^12 --- ---",
+                          "KS xX-- --- ---", "KS gG-M --- ---", "KS ^^-- --- ---", "KS ~~P- **/ 07%",
+                          "KS ~mPM --- ---", "KR ---- --- ---", "KR xx-- --- ---", "KR XX-- --- ---",
+                          "KR P--- --- ---", "KR ---- 42% ---", "KR ---- --- **/", "KV P+", "KV M-", "KV M/"};
     for (const char *g : good) {
-        CHECK(kvm_decode(g, KVM_MSG_LEN, (uint8_t)g[1], &out));
+        if (!kvm_decode(g, (int)strlen(g), (uint8_t)g[1], &out)) {
+            fprintf(stderr, "rejected %s\n", g);
+            failures++;
+        }
     }
-    const char *bad[] = {"KSAPPP", "KSPP3P", "KSPPpP", "KSP?PP", "KS\xFFPPP", "KR0---", "KR--G-", "KR---x",
-                         "KVG+--", "KVPx--", "KVP+P-", "KVP+-?", "KXPPPP", "kSPPPP", "KS1PPP",
-                         "KS-PPP", "KSP-PP", "KR^---", "KR-~--", "KSPP^P", "KSPP~-", "KS`PPP", "KS@PPP"};
+    const char *bad[] = {"KS APPP --- ---", "KS PP3P --- ---", "KS PPpP --- ---", "KS P?PP --- ---",
+                         "KS \xFFPPP --- ---", "KR 0--- --- ---", "KR --G- --- ---", "KR ---x --- ---",
+                         "KX PPPP --- ---", "kS PPPP --- ---", "KS 1PPP --- ---", "KS -PPP --- ---",
+                         "KS P-PP --- ---", "KR ^--- --- ---", "KR -~-- --- ---", "KS PP^P --- ---",
+                         "KS PP~- --- ---", "KS `PPP --- ---", "KS @PPP --- ---",
+                         /* volume fields */
+                         "KS PPPP 100 ---", "KS PPPP 4% ---", "KS PPPP 42 ---", "KS PPPP 42x ---",
+                         "KS PPPP *2% ---", "KS PPPP 4*% ---", "KS PPPP --% ---", "KS PPPP -- ---",
+                         "KS PPPP --- 4a%", "KS PPPP ---  42", "KS PPPP 42%-42%",
+                         /* spaces */
+                         "KSPPPP 42% 42% ", "KS PPPP_42% 42%", "KS PPPP 42%_42%", "KS_PPPP --- ---",
+                         /* VOLUME */
+                         "KV G+", "KV Px", "KVP+ ", "KV P+-", "KV P"};
     for (const char *b : bad) {
-        if (kvm_decode(b, KVM_MSG_LEN, (uint8_t)b[1], &out)) {
-            fprintf(stderr, "accepted %.6s\n", b);
+        if (kvm_decode(b, (int)strlen(b), (uint8_t)b[1], &out)) {
+            fprintf(stderr, "accepted %s\n", b);
             failures++;
         }
     }
     /* A type the receiver didn't ask for is not a match either. */
-    CHECK(!kvm_decode("KVP+--", KVM_MSG_LEN, KVM_STATE, &out));
+    CHECK(!kvm_decode("KV P+", KVM_VOLUME_LEN, KVM_STATE, &out));
+}
+
+static void test_level_report(void) {
+    level_report_t r;
+    level_report_init(&r);
+    CHECK(!level_report_due(&r, 1000, nullptr));            /* no reading yet */
+    level_report_set(&r, 42, 0);
+    CHECK(level_report_due(&r, 1000, nullptr));             /* first reading */
+    level_report_sent(&r, 1000);
+    CHECK(!level_report_due(&r, 1050, nullptr));
+    uint8_t raw[KVM_MAX_LEN];
+    kvm_msg_t m = level_report_msg(&r, KVM_LEVEL_MAC);
+    CHECK(kvm_encode(&m, raw) == KVM_STATE_LEN && memcmp(raw, "KR ---- --- 42%", KVM_STATE_LEN) == 0);
+    m = level_report_msg(&r, KVM_LEVEL_PC);
+    CHECK(kvm_encode(&m, raw) == KVM_STATE_LEN && memcmp(raw, "KR ---- 42% ---", KVM_STATE_LEN) == 0);
+    /* A knob turning: held back to one per LEVEL_REPORT_MIN_MS, the last one still goes. */
+    level_report_set(&r, 44, 0);
+    CHECK(!level_report_due(&r, 1050, nullptr));
+    CHECK(level_report_due(&r, 1100, nullptr));
+    level_report_sent(&r, 1100);
+    /* Same reading: nothing until the keepalive. */
+    const uint8_t shown[KVM_LEVEL_LEN] = {'4', '4', '%'};
+    CHECK(!level_report_due(&r, 5000, shown));
+    CHECK(level_report_due(&r, 1100 + KVM_LEVEL_REPORT_MS, shown));
+    /* A STATE that shows it wrong (the core rebooted): fixed, at most once a second. */
+    const uint8_t lost[KVM_LEVEL_LEN] = {'-', '-', '-'};
+    CHECK(!level_report_due(&r, 1500, lost));
+    CHECK(level_report_due(&r, 2100, lost));
+    /* Mute is a change. */
+    level_report_set(&r, 44, 1);
+    CHECK(level_report_due(&r, 1300, nullptr));
+    /* No output device: silent. */
+    level_report_set(&r, -1, 0);
+    CHECK(!level_report_due(&r, 99999, lost));
 }
 
 int main(void) {
+    test_level_report();
     test_topology();
     test_standby();
     test_power();

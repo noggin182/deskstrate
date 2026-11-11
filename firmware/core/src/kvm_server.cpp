@@ -21,8 +21,24 @@ const char *TAG = "kvm";
 
 int sock = -1;
 uint8_t last[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};  // last STATE sent
+uint8_t last_levels[KVM_LEVELS][KVM_LEVEL_LEN];  // their volume fields
 bool sent_once = false;
 TickType_t last_sent = 0;
+
+// Each host's volume as it last reported it ("---" if never, or not for
+// KVM_LEVEL_EXPIRE_MS). The host owns the real value; the core only passes it on.
+uint8_t levels[KVM_LEVELS][KVM_LEVEL_LEN] = {{KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN},
+                                              {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN}};
+TickType_t level_at[KVM_LEVELS] = {};
+
+void expire_levels() {
+    const TickType_t now = xTaskGetTickCount();
+    for (int h = 0; h < KVM_LEVELS; h++) {
+        if (levels[h][0] == KVM_UNKNOWN || now - level_at[h] < pdMS_TO_TICKS(KVM_LEVEL_EXPIRE_MS)) continue;
+        ESP_LOGI(TAG, "%s volume expired", h == KVM_LEVEL_PC ? "PC" : "Mac");
+        memset(levels[h], KVM_UNKNOWN, KVM_LEVEL_LEN);
+    }
+}
 
 // The desk's sleep, reported as lower-case monitor bytes in STATE (kvm_proto.h). Kept in RTC memory so an OTA or a crash doesn't
 // wake the desk; a power cycle starts awake.
@@ -88,9 +104,12 @@ void snapshot(uint8_t b[KVM_SLOTS]) {
     }
 }
 
-void send_state(const uint8_t b[KVM_SLOTS], const sockaddr_in &to) {
-    const kvm_msg_t msg = kvm_msg(KVM_STATE, b);
-    sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<const sockaddr *>(&to), sizeof to);
+void send_state(const uint8_t b[KVM_SLOTS], const uint8_t lv[KVM_LEVELS][KVM_LEVEL_LEN], const sockaddr_in &to) {
+    kvm_msg_t msg = kvm_msg(KVM_STATE, b);
+    memcpy(msg.level, lv, sizeof msg.level);
+    uint8_t raw[KVM_MAX_LEN];
+    const unsigned n = kvm_encode(&msg, raw);
+    sendto(sock, raw, n, 0, reinterpret_cast<const sockaddr *>(&to), sizeof to);
 }
 
 sockaddr_in broadcast_addr() {
@@ -105,12 +124,17 @@ sockaddr_in broadcast_addr() {
 void publish_state() {
     uint8_t b[KVM_SLOTS];
     snapshot(b);
-    const bool changed = !sent_once || memcmp(b, last, sizeof b) != 0;
+    expire_levels();
+    const bool changed = !sent_once || memcmp(b, last, sizeof b) != 0 || memcmp(levels, last_levels, sizeof levels) != 0;
     const bool heartbeat = (xTaskGetTickCount() - last_sent) >= pdMS_TO_TICKS(KVM_HEARTBEAT_MS);
     if (!changed && !heartbeat) return;
-    if (changed) ESP_LOGI(TAG, "STATE %.4s", reinterpret_cast<const char *>(b));
-    send_state(b, broadcast_addr());  // fails quietly until Wi-Fi is up
+    if (changed) {
+        ESP_LOGI(TAG, "STATE %.4s %.3s %.3s", reinterpret_cast<const char *>(b),
+                 reinterpret_cast<const char *>(levels[KVM_LEVEL_PC]), reinterpret_cast<const char *>(levels[KVM_LEVEL_MAC]));
+    }
+    send_state(b, levels, broadcast_addr());  // fails quietly until Wi-Fi is up
     memcpy(last, b, sizeof b);
+    memcpy(last_levels, levels, sizeof levels);
     sent_once = true;
     last_sent = xTaskGetTickCount();
 }
@@ -165,11 +189,17 @@ void apply_hub(int hub, uint8_t want) {
 }
 
 void handle_request(const kvm_msg_t &req, const sockaddr_in &from) {
-    char ip[16];
-    inet_ntoa_r(from.sin_addr, ip, sizeof ip);
-    ESP_LOGI(TAG, "REQUEST %.4s from %s", reinterpret_cast<const char *>(req.b), ip);
-    const int sleep = kvm_request_sleep(req.b);
+    // A host reporting its volume: keep it, and restart its expiry.
+    for (int h = 0; h < KVM_LEVELS; h++) {
+        if (req.level[h][0] == KVM_UNKNOWN) continue;
+        memcpy(levels[h], req.level[h], KVM_LEVEL_LEN);
+        level_at[h] = xTaskGetTickCount();
+    }
+    const int sleep = kvm_request_sleep(req.b);  // -1: no slots (a volume report or a STATE query)
     if (sleep >= 0) {
+        char ip[16];
+        inet_ntoa_r(from.sin_addr, ip, sizeof ip);
+        ESP_LOGI(TAG, "REQUEST %.4s from %s", reinterpret_cast<const char *>(req.b), ip);
         if (!sleep && asleep()) woke = true;
         set_asleep(sleep);
         for (auto &t : guest_power_at) t = 0;  // act on the change straight away
@@ -183,7 +213,7 @@ void handle_request(const kvm_msg_t &req, const sockaddr_in &from) {
     // Broadcast any change, then send the current STATE straight back so the requester
     // sees its answer (or that nothing changed) without waiting for a heartbeat.
     publish_state();
-    send_state(last, from);
+    send_state(last, last_levels, from);
 }
 
 void server_task(void *) {

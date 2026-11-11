@@ -36,7 +36,7 @@ sender of the last `STATE`, or broadcast until one has been seen). UDP can drop
 a packet, so the deck resends the request every 300 ms until a `STATE` shows it,
 for up to 3 s; a repeat is harmless because a request is the state wanted, not a
 step. Packets are unauthenticated. Until a `STATE` arrives (at boot, or after
-10 s of silence) it sends an empty request (`KR----`) once a second; the
+10 s of silence) it sends an empty request (`KR ---- --- ---`) once a second; the
 core answers every request with its current `STATE`, so the screen fills in as
 soon as Wi-Fi is up.
 
@@ -62,8 +62,10 @@ anti-aliased alpha masks tinted on the device (`src/icons.h`), rendered from
 `icons/*.svg` by `tools/render_icons.py`; rerun it after changing an SVG or size.
 Matching monitor-to-hub assignments are shown with routes; mismatched
 assignments remain unconnected. Hub names are represented by keyboard and
-camera icons rather than labels. Companion-app volume data is not connected yet, so volume
-readings remain `--%`. The diagram shows the state reported by the core. Until
+camera icons rather than labels. The VOLUME card shows the PC's and the Mac's volume from
+the core's `STATE` (each host reports its own): a speaker icon and a bar per host; muted
+shows the muted-speaker icon with the bar dimmed, and unknown (`---`: no report for 30 s)
+a dimmed speaker with an empty bar. The diagram shows the state reported by the core. Until
 the first `STATE` arrives, and whenever none has come for 10 s, a spinner
 covers the screen ("Waiting for the core" / "Lost the core") so the deck never
 shows a state it hasn't been told.

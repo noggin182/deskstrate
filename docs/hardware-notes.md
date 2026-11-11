@@ -101,5 +101,5 @@ wiring and protocols live with their code (`firmware/*/README.md`, `kvm_proto.h`
 | Stacked dual HDMI PCB (Foxconn QJ11191-DFB2-4H, ~£43 for 5) | The panel-mount breakout taps work |
 | Pi Zero W or Arduino Uno R4 WiFi as the core | ESP32-S3 chosen for shared code with the deck and OTA |
 | Ethernet core (T-ETH-Lite, ESP32-POE-ISO) | Wi-Fi is fine where the core sits |
-| HMAC-authenticated binary protocol | Chose a LAN-only, unauthenticated 6-byte ASCII protocol (`kvm_proto.h`) |
+| HMAC-authenticated binary protocol | Chose a LAN-only, unauthenticated short ASCII protocol (`kvm_proto.h`) |
 | Harvesting the switches' USB audio chips for desk audio | A switched hub attaches to one host only; bought a mixer instead |

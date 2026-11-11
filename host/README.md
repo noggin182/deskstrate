@@ -30,10 +30,13 @@ daemons), with tests in `common/test_host_policy.cpp`:
 c++ -std=c++17 -I components/kvm_proto/include -I host/common host/common/test_host_policy.cpp && ./a.out
 ```
 
-The daemons only listen. The one thing they send is an empty `REQUEST`
-(`KR----`), broadcast until a `STATE` comes back so they find the core
-without waiting for its heartbeat; `--core <ipv4>` sends it to that address
-instead.
+The daemons send only `REQUEST`s without slots: an empty one
+(`KR ---- --- ---`), broadcast until a `STATE` comes back so they find the core
+without waiting for its heartbeat (`--core <ipv4>` sends it to that address
+instead), and their own volume (`KR ---- 42% ---`, see `common/level_report.h`) on
+every change, every 10 s, and whenever a `STATE` shows it wrong. The core passes it on
+in `STATE` for the deck's VOLUME card. Only the PC reports for now: the Mac can't send
+to the LAN, so its report waits for the serial bridge.
 
 ## Windows (PC)
 

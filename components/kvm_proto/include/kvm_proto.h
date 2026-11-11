@@ -2,23 +2,25 @@
  * kvm_proto.h - wire format shared by the core, the deck, the keyboard's ESP and the
  * PC/Mac daemons. C++ only (the Mac daemon imports it through Swift's C++ interop).
  *
- * The core is the source of truth; everyone else asks. UDP, KVM_PORT on every node,
- * and every datagram is 6 printable ASCII bytes: 'K', a type letter, then 4 bytes.
+ * The core is the source of truth; everyone else asks. UDP, KVM_PORT on every node.
+ * Every datagram is printable ASCII: 'K', a type letter, then fields separated by single
+ * spaces. The length is fixed per type.
  *
- *   "KS" STATE    core -> all. Broadcast on every change and every KVM_HEARTBEAT_MS,
- *                 and sent straight back to whoever sent a REQUEST.
- *   "KR" REQUEST  deck/keyboard/hosts -> core. The state wanted; '-' bytes are left
- *                 alone, so "KR----" changes nothing and just asks for a STATE.
- *   "KV" VOLUME   keyboard ESP -> hosts, broadcast. [host, action, '-', '-']: host 'P'
- *                 or 'M', action '+' up, '-' down, '/' mute toggle. Only the daemon on
- *                 that host acts on it; the core ignores it. Broadcast because the Mac's
- *                 VPN keeps it from receiving unicast from the LAN. Not resent: a lost
- *                 one is a missed step (resending a mute toggle could undo it).
+ *   "KS LRHM pcv mcv"  STATE, 15 bytes. Core -> all. Broadcast on every change and every
+ *                      KVM_HEARTBEAT_MS, and sent straight back to whoever sent a REQUEST.
+ *   "KR LRHM pcv mcv"  REQUEST, 15 bytes. Deck/keyboard/hosts -> core. The state wanted;
+ *                      '-' bytes are left alone, so "KR ---- --- ---" changes nothing and
+ *                      just asks for a STATE. A host reports its own volume in its field.
+ *   "KV hA"            VOLUME, 5 bytes. Keyboard ESP -> hosts, broadcast. Host 'P' or 'M',
+ *                      action '+' up, '-' down, '/' mute toggle. Only the daemon on that
+ *                      host acts on it (pressing its real volume key); the core ignores it.
+ *                      Broadcast because the Mac can't receive unicast from the LAN. Not
+ *                      resent: a lost one is a missed step (resending a toggle could undo it).
  *
  * A REQUEST is idempotent: a sender that doesn't see its change in a STATE simply sends
  * it again.
  *
- * State bytes, indexed by enum kvm_slot:
+ * LRHM, indexed by enum kvm_slot:
  *   monitors  'P' PC (DisplayPort), 'M' Mac (USB-C), 'G' guest (HDMI),
  *             'X' input unreadable (STATE) / keep the input (REQUEST),
  *             lower case = standby (below): 'p' 'm' 'g' 'x'
@@ -27,18 +29,29 @@
  *   hubs      the selected port: 'P' PC (0), 'M' Mac (1), '1' guest 1 (2, on the left
  *             monitor's HDMI), '2' guest 2 (3, on the right monitor's HDMI),
  *             '-' not connected (STATE) / leave alone (REQUEST)
+ *
+ * pcv, mcv: the PC's and the Mac's volume, 3 bytes each (enum kvm_level_host):
+ *   "00%".."99%"  level 0-99, "**%" level 100 (the host's 0.0-1.0 volume x 100, rounded)
+ *   "42/"         muted, at that level
+ *   "---"         unknown (STATE) / leave alone (REQUEST)
+ * Each host owns its own volume: it reports it with a REQUEST on every change, every
+ * KVM_LEVEL_REPORT_MS, and whenever a STATE shows it wrong. The core keeps the last report
+ * and drops it to "---" after KVM_LEVEL_EXPIRE_MS without one. Nobody sets a volume from
+ * a STATE; KV is the only way to change one.
+ *
  * Any other byte, in any message type, makes kvm_decode() drop the whole datagram.
  *
- * Examples: everything on the PC = "KSPPPP", everything on the Mac = "KSMMMM", split and
- * asleep = "KSpmPM", "KRP---" moves only the left monitor to the PC.
+ * Examples: everything on the PC = "KS PPPP 42% ---", split and asleep with the Mac
+ * muted at 42% = "KS pmPM 42% 42/", "KR P--- --- ---" moves only the left monitor to the PC,
+ * "KR ---- --- 42%" is the Mac reporting 42%.
  *
  * Standby is the desk's sleep: what the core has been asked for, not the monitors' power
  * read back (the core's DDC comes in over HDMI, which a Dell ignores for standby unless
  * HDMI is showing, so it can't put a monitor showing DP or USB-C into standby). The core
  * lower-cases every monitor byte in STATE while the desk is asleep ('^' becomes '~'). A REQUEST with a
- * lower-case monitor byte puts the desk to sleep ("KRxx--": inputs kept); any other
- * REQUEST that isn't "KR----" wakes it ("KRXX--" just wakes), so asking for an input
- * wakes everything. Nobody acts on a change: every listener follows each STATE.
+ * lower-case monitor byte puts the desk to sleep ("KR xx-- --- ---": inputs kept); any other
+ * REQUEST whose slots aren't all '-' wakes it ("KR XX-- --- ---" just wakes), so asking for an input
+ * wakes everything. Volume fields never sleep or wake the desk. Nobody acts on a change: every listener follows each STATE.
  *   hosts     the monitors showing their input go to DDC standby while asleep and back
  *             on while not
  *   core      the same for a monitor showing HDMI (a guest); it wakes one only when the
@@ -56,9 +69,13 @@
 #define KVM_PORT          18200u    /* IANA unassigned (18188-18240) */
 #define KVM_HEARTBEAT_MS  2000u
 #define KVM_TIMEOUT_MS    5000u     /* no STATE for this long: the core is gone */
+#define KVM_LEVEL_REPORT_MS  10000u /* a host re-reports its volume this often */
+#define KVM_LEVEL_EXPIRE_MS  30000u /* the core forgets a host's volume after this long */
 
 #define KVM_MAGIC         0x4Bu     /* 'K' */
-#define KVM_MSG_LEN       6u
+#define KVM_STATE_LEN     15u       /* STATE and REQUEST */
+#define KVM_VOLUME_LEN    5u
+#define KVM_MAX_LEN       KVM_STATE_LEN
 
 enum kvm_type {
     KVM_STATE   = 'S',
@@ -80,6 +97,13 @@ enum kvm_slot {
     KVM_SLOTS     = 4,
 };
 
+/* The volume fields of a STATE / REQUEST, in wire order. */
+enum kvm_level_host {
+    KVM_LEVEL_PC  = 0,
+    KVM_LEVEL_MAC = 1,
+    KVM_LEVELS    = 2,
+};
+
 /* Monitor bytes (upper case: awake), and the PC / Mac in a hub byte or a VOLUME. */
 enum kvm_host {
     KVM_HOST_PC    = 'P',  /* monitor: DisplayPort; hub port 0 */
@@ -96,22 +120,101 @@ enum {
     KVM_STANDBY    = 0x20, /* monitor byte: lower case = the desk is asleep (STATE) / sleep it (REQUEST) */
     KVM_MON_NC     = '^',  /* monitor byte, STATE only: not connected */
     KVM_MON_NC_ASLEEP = '~',  /* monitor byte, STATE only: not connected, desk asleep (KVM_MON_NC | KVM_STANDBY) */
+    KVM_LEVEL_LEN  = 3,    /* bytes in a volume field */
+    KVM_LEVEL_MAX  = '*',  /* volume field digits "**": level 100 */
+    KVM_LEVEL_ON   = '%',  /* volume field status: not muted */
+    KVM_LEVEL_MUTED = '/', /* volume field status: muted */
 };
 
+/* A decoded message. Not the wire layout: kvm_encode() / kvm_decode() convert. */
 typedef struct {
-    uint8_t magic;              /* KVM_MAGIC */
-    uint8_t type;               /* enum kvm_type */
-    uint8_t b[KVM_SLOTS];       /* enum kvm_slot */
+    uint8_t type;                              /* enum kvm_type */
+    uint8_t b[KVM_SLOTS];                      /* STATE / REQUEST: enum kvm_slot */
+    uint8_t level[KVM_LEVELS][KVM_LEVEL_LEN];  /* STATE / REQUEST: enum kvm_level_host */
+    uint8_t host;                              /* VOLUME: KVM_HOST_PC / KVM_HOST_MAC */
+    uint8_t action;                            /* VOLUME: enum kvm_volume */
 } kvm_msg_t;
 
-static_assert(sizeof(kvm_msg_t) == KVM_MSG_LEN, "kvm_msg_t layout");
-
+/* A STATE or REQUEST with both volume fields "---". */
 static inline kvm_msg_t kvm_msg(uint8_t type, const uint8_t b[KVM_SLOTS]) {
     kvm_msg_t m;
-    m.magic = (uint8_t)KVM_MAGIC;
+    memset(&m, 0, sizeof m);
     m.type = type;
     memcpy(m.b, b, KVM_SLOTS);
+    memset(m.level, KVM_UNKNOWN, sizeof m.level);
     return m;
+}
+
+static inline kvm_msg_t kvm_volume_msg(uint8_t host, uint8_t action) {
+    kvm_msg_t m;
+    memset(&m, 0, sizeof m);
+    m.type = KVM_VOLUME;
+    memset(m.b, KVM_UNKNOWN, sizeof m.b);
+    memset(m.level, KVM_UNKNOWN, sizeof m.level);
+    m.host = host;
+    m.action = action;
+    return m;
+}
+
+/* Writes the wire bytes (no terminator) and returns their count, 0 for an unknown type. */
+static inline unsigned kvm_encode(const kvm_msg_t *m, uint8_t out[KVM_MAX_LEN]) {
+    out[0] = (uint8_t)KVM_MAGIC;
+    out[1] = m->type;
+    out[2] = ' ';
+    if (m->type == KVM_VOLUME) {
+        out[3] = m->host;
+        out[4] = m->action;
+        return KVM_VOLUME_LEN;
+    }
+    if (m->type != KVM_STATE && m->type != KVM_REQUEST) return 0;
+    memcpy(out + 3, m->b, KVM_SLOTS);
+    out[7] = ' ';
+    memcpy(out + 8, m->level[KVM_LEVEL_PC], KVM_LEVEL_LEN);
+    out[11] = ' ';
+    memcpy(out + 12, m->level[KVM_LEVEL_MAC], KVM_LEVEL_LEN);
+    return KVM_STATE_LEN;
+}
+
+/* ---- volume fields ---------------------------------------------------------------- */
+
+/* A volume field: level 0-100 (clamped), or < 0 for "---". */
+static inline void kvm_level_set(uint8_t f[KVM_LEVEL_LEN], int level, int muted) {
+    if (level < 0) {
+        memset(f, KVM_UNKNOWN, KVM_LEVEL_LEN);
+        return;
+    }
+    if (level >= 100) {
+        f[0] = f[1] = (uint8_t)KVM_LEVEL_MAX;
+    } else {
+        f[0] = (uint8_t)('0' + level / 10);
+        f[1] = (uint8_t)('0' + level % 10);
+    }
+    f[2] = (uint8_t)(muted ? KVM_LEVEL_MUTED : KVM_LEVEL_ON);
+}
+
+/* A host's 0.0-1.0 volume as a level 0-100, rounded. */
+static inline int kvm_level_from_scalar(float v) {
+    if (!(v > 0.0f)) return 0;  /* also NaN */
+    if (v >= 1.0f) return 100;
+    return (int)(v * 100.0f + 0.5f);
+}
+
+/* The level 0-100 of a valid field, or -1 for "---". */
+static inline int kvm_level_get(const uint8_t f[KVM_LEVEL_LEN]) {
+    if (f[0] == KVM_UNKNOWN) return -1;
+    if (f[0] == KVM_LEVEL_MAX) return 100;
+    return (f[0] - '0') * 10 + (f[1] - '0');
+}
+
+static inline int kvm_level_muted(const uint8_t f[KVM_LEVEL_LEN]) {
+    return f[2] == KVM_LEVEL_MUTED;
+}
+
+static inline int kvm_level_valid(const uint8_t f[KVM_LEVEL_LEN]) {
+    if (f[0] == KVM_UNKNOWN) return f[1] == KVM_UNKNOWN && f[2] == KVM_UNKNOWN;
+    const int digits = (f[0] >= '0' && f[0] <= '9' && f[1] >= '0' && f[1] <= '9') ||
+                       (f[0] == KVM_LEVEL_MAX && f[1] == KVM_LEVEL_MAX);
+    return digits && (f[2] == KVM_LEVEL_ON || f[2] == KVM_LEVEL_MUTED);
 }
 
 /* A monitor byte for a monitor the core can see (not '^' / '~', nor '-'). */
@@ -150,13 +253,8 @@ static inline int kvm_connected(unsigned slot, uint8_t b) {
     return slot <= KVM_MON_RIGHT ? kvm_mon_connected(b) : b != KVM_UNKNOWN;
 }
 
-/* True if every byte is valid for that message type (the table at the top). */
-static inline int kvm_valid(uint8_t type, const uint8_t b[KVM_SLOTS]) {
-    if (type == KVM_VOLUME) {
-        return (b[0] == KVM_HOST_PC || b[0] == KVM_HOST_MAC) &&
-               (b[1] == KVM_VOL_UP || b[1] == KVM_VOL_DOWN || b[1] == KVM_VOL_MUTE) &&
-               b[2] == KVM_UNKNOWN && b[3] == KVM_UNKNOWN;
-    }
+/* True if every slot byte is valid for a STATE / REQUEST (the table at the top). */
+static inline int kvm_slots_valid(uint8_t type, const uint8_t b[KVM_SLOTS]) {
     if (type != KVM_STATE && type != KVM_REQUEST) return 0;
     for (unsigned i = KVM_MON_LEFT; i <= KVM_MON_RIGHT; i++) {
         if (type == KVM_STATE && (b[i] == KVM_MON_NC || b[i] == KVM_MON_NC_ASLEEP)) continue;
@@ -174,11 +272,27 @@ static inline int kvm_valid(uint8_t type, const uint8_t b[KVM_SLOTS]) {
 }
 
 /* Decodes a received datagram: 1 if it is a valid kvm_proto message of that type. A
- * datagram with any byte out of the table is dropped whole. */
+ * datagram of the wrong length, or with any byte out of the table, is dropped whole. */
 static inline int kvm_decode(const void *buf, int len, uint8_t type, kvm_msg_t *out) {
-    if (len != (int)KVM_MSG_LEN) return 0;
-    memcpy(out, buf, KVM_MSG_LEN);
-    return out->magic == KVM_MAGIC && out->type == type && kvm_valid(type, out->b);
+    const uint8_t *p = (const uint8_t *)buf;
+    if (len < 3 || p[0] != KVM_MAGIC || p[1] != type || p[2] != ' ') return 0;
+    memset(out, 0, sizeof *out);
+    memset(out->b, KVM_UNKNOWN, sizeof out->b);
+    memset(out->level, KVM_UNKNOWN, sizeof out->level);
+    out->type = type;
+    if (type == KVM_VOLUME) {
+        if (len != (int)KVM_VOLUME_LEN) return 0;
+        out->host = p[3];
+        out->action = p[4];
+        return (out->host == KVM_HOST_PC || out->host == KVM_HOST_MAC) &&
+               (out->action == KVM_VOL_UP || out->action == KVM_VOL_DOWN || out->action == KVM_VOL_MUTE);
+    }
+    if (len != (int)KVM_STATE_LEN || p[7] != ' ' || p[11] != ' ') return 0;
+    memcpy(out->b, p + 3, KVM_SLOTS);
+    memcpy(out->level[KVM_LEVEL_PC], p + 8, KVM_LEVEL_LEN);
+    memcpy(out->level[KVM_LEVEL_MAC], p + 12, KVM_LEVEL_LEN);
+    return kvm_slots_valid(type, out->b) && kvm_level_valid(out->level[KVM_LEVEL_PC]) &&
+           kvm_level_valid(out->level[KVM_LEVEL_MAC]);
 }
 
 /* STATE: the desk is asleep. */

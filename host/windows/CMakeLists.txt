@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Static runtime: one .exe, no Visual C++ redistributable needed.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-add_executable(deskstrate-host WIN32 main.cpp agent.cpp displays.cpp log.cpp)
+add_executable(deskstrate-host WIN32 main.cpp agent.cpp audio.cpp displays.cpp log.cpp)
 target_include_directories(deskstrate-host PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
     ${CMAKE_CURRENT_SOURCE_DIR}/../../components/kvm_proto/include)

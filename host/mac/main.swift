@@ -246,16 +246,18 @@ func sendToCore(_ message: kvm_msg_t) {
     addr.sin_port = in_port_t(KVM_PORT).bigEndian
     addr.sin_addr.s_addr = lastState != nil ? core : (coreFixed != 0 ? coreFixed : 0xFFFF_FFFF)
     var m = message
-    withUnsafeBytes(of: &m) { bytes in
+    var raw = [UInt8](repeating: 0, count: 16)  // >= KVM_MAX_LEN
+    let len = Int(kvm_encode(&m, &raw))
+    raw.withUnsafeBytes { bytes in
         withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                _ = sendto(sock, bytes.baseAddress, bytes.count, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                _ = sendto(sock, bytes.baseAddress, len, 0, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
     }
 }
 
-/// An empty REQUEST ("KR----") changes nothing: the core just answers with its STATE.
+/// An empty REQUEST ("KR ---- --- ---") changes nothing: the core just answers with its STATE.
 func askForState() {
     let none = [UInt8](repeating: UInt8(KVM_UNKNOWN), count: Int(KVM_SLOTS.rawValue))
     sendToCore(kvm_msg(UInt8(KVM_REQUEST.rawValue), none))
@@ -358,11 +360,11 @@ func setVolumeDirectly(_ action: UInt8) {
     if err != noErr { log("volume: set failed (\(err))") }
 }
 
-// KV VOLUME: [host, enum kvm_volume, '-', '-'] ("KVM+--"), broadcast by the keyboard's ESP.
-func onVolume(_ b: [UInt8]) {
-    guard b[0] == UInt8(KVM_HOST_MAC.rawValue) else { return }
-    log("volume \(Character(UnicodeScalar(b[1])))")
-    if !pressVolumeKey(b[1]) { setVolumeDirectly(b[1]) }
+// KV VOLUME ("KV M+"), broadcast by the keyboard's ESP.
+func onVolume(host: UInt8, action: UInt8) {
+    guard host == UInt8(KVM_HOST_MAC.rawValue) else { return }
+    log("volume key \(Character(UnicodeScalar(action)))")
+    if !pressVolumeKey(action) { setVolumeDirectly(action) }
 }
 
 func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
@@ -371,7 +373,7 @@ func onDatagram(_ buf: UnsafeRawBufferPointer, from: in_addr_t) {
     if kvm_decode(base, Int32(buf.count), UInt8(KVM_STATE.rawValue), &msg) != 0 {
         onState([msg.b.0, msg.b.1, msg.b.2, msg.b.3], from: from)
     } else if kvm_decode(base, Int32(buf.count), UInt8(KVM_VOLUME.rawValue), &msg) != 0 {
-        onVolume([msg.b.0, msg.b.1, msg.b.2, msg.b.3])
+        onVolume(host: msg.host, action: msg.action)
     }
 }
 
