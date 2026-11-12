@@ -32,25 +32,32 @@ is marked offline.
 
 ## UDP (kvm_proto)
 
-The core binds `KVM_PORT` (18200) and broadcasts a 6-byte ASCII `STATE` ("KS" + 4
-bytes: left monitor, right monitor, HID hub, media hub) on every change and every 2 s
-(`KVM_HEARTBEAT_MS`), e.g. `KSPMPM`. A monitor byte is the host on it (`P` PC/DP, `M`
+The core binds `KVM_PORT` (18200) and broadcasts a 15-byte ASCII `STATE` on every change
+and every 2 s (`KVM_HEARTBEAT_MS`), e.g. `KS PMPM 42% ---`: "KS", then 4 slot bytes (left
+monitor, right monitor, HID hub, media hub), then the PC's and the Mac's volume, each field
+separated by a space. A monitor byte is the host on it (`P` PC/DP, `M`
 Mac/USB-C, `G` guest/HDMI, `X` unreadable, `^` not connected), lower case while the
 desk is asleep (`^` becomes `~`, so the sleep shows even with both monitors off); a hub
 byte is its port (`P`, `M`, `1` guest 1, `2` guest 2) or `-` if not connected. Monitors
 are left/right by EDID serial. The full table is in
-`components/kvm_proto/include/kvm_proto.h`; a datagram with any byte outside it is
-dropped whole.
+`components/kvm_proto/include/kvm_proto.h`; a datagram of the wrong length, or with any
+byte outside it, is dropped whole.
 
-A `REQUEST` ("KR" + 4 bytes) is the state wanted; `-` bytes, and a monitor `X`, are
+A volume field is `00%` to `99%`, `**%` for 100, `/` in place of `%` when muted, or `---`
+when unknown. The hosts own their volume: each daemon reports its own with a `REQUEST`
+(`KR ---- 42% ---`) on every change and every 10 s, and the core keeps the last report
+and passes it on in `STATE`, dropping it to `---` after 30 s without one. A volume-only
+request never sleeps or wakes the desk.
+
+A `REQUEST` ("KR" + the same fields) is the state wanted; `-` bytes, and a monitor `X`, are
 left alone. The core switches whatever differs, skips what's already there or not
 connected, and sends its current `STATE` straight back to the requester (as well as
-broadcasting any change). So `KR----` just asks for a `STATE`, and a repeated request
-is harmless. A monitor in standby is woken to switch it.
+broadcasting any change). So `KR ---- --- ---` just asks for a `STATE`, and a repeated
+request is harmless. A monitor in standby is woken to switch it.
 
 Lower case is the desk's sleep, as asked for, not the monitors' power read back: a
-request with a lower-case monitor byte (`KRxx--`) puts the desk to sleep, and any other
-request that isn't `KR----` wakes it. The core can't put a monitor showing DP or USB-C
+request with a lower-case monitor byte (`KR xx-- --- ---`) puts the desk to sleep, and any
+other request whose slots aren't all `-` wakes it. The core can't put a monitor showing DP or USB-C
 into standby (a Dell ignores it from HDMI, where the core's DDC comes in), so the PC and
 Mac daemons do that for their own input. The core does it for a monitor showing HDMI:
 standby while asleep, and on once when the desk wakes. The flag survives an OTA or crash

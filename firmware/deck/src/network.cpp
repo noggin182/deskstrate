@@ -31,6 +31,8 @@ int kvm_socket = -1;
 sockaddr_in core_addr = {};
 bool core_known = false;
 uint8_t latest_state[KVM_SLOTS] = {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN};
+uint8_t latest_levels[KVM_LEVELS][KVM_LEVEL_LEN] = {{KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN},
+                                                     {KVM_UNKNOWN, KVM_UNKNOWN, KVM_UNKNOWN}};
 bool state_fresh = false;
 
 // The state asked for and not yet seen in a STATE ('-' = nothing asked). UDP can drop
@@ -54,8 +56,10 @@ bool send_request_locked(const uint8_t b[KVM_SLOTS]) {
         destination.sin_addr.s_addr = htonl(INADDR_BROADCAST);
     }
     const kvm_msg_t msg = kvm_msg(KVM_REQUEST, b);
-    const ssize_t sent = sendto(kvm_socket, &msg, sizeof(msg), 0, reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
-    return sent == static_cast<ssize_t>(sizeof(msg));
+    uint8_t raw[KVM_MAX_LEN];
+    const unsigned len = kvm_encode(&msg, raw);
+    const ssize_t sent = sendto(kvm_socket, raw, len, 0, reinterpret_cast<sockaddr *>(&destination), sizeof(destination));
+    return sent == static_cast<ssize_t>(len);
 }
 
 
@@ -93,6 +97,7 @@ void kvm_task(void *) {
         xSemaphoreTake(kvm_mutex, portMAX_DELAY);
         if (state) {
             memcpy(latest_state, msg.b, sizeof(latest_state));
+            memcpy(latest_levels, msg.level, sizeof(latest_levels));
             state_fresh = true;
             if (!core_known || core_addr.sin_addr.s_addr != from.sin_addr.s_addr) {
                 ESP_LOGI(TAG, "Core found at " IPSTR, IP2STR(reinterpret_cast<esp_ip4_addr_t *>(&from.sin_addr)));
@@ -211,7 +216,7 @@ esp_err_t network_start(void) {
     return ESP_OK;
 }
 
-bool network_take_kvm_state(uint8_t out[KVM_SLOTS]) {
+bool network_take_kvm_state(uint8_t out[KVM_SLOTS], uint8_t levels[KVM_LEVELS][KVM_LEVEL_LEN]) {
     if (kvm_mutex == nullptr) {
         return false;
     }
@@ -219,6 +224,7 @@ bool network_take_kvm_state(uint8_t out[KVM_SLOTS]) {
     const bool fresh = state_fresh;
     if (fresh) {
         memcpy(out, latest_state, KVM_SLOTS);
+        memcpy(levels, latest_levels, sizeof(latest_levels));
         state_fresh = false;
     }
     xSemaphoreGive(kvm_mutex);

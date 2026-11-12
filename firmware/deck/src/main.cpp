@@ -703,6 +703,48 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     }
 }
 
+// The VOLUME card: per host a speaker icon and a bar, from the volume fields of the
+// core's STATE (each host reports its own; kvm_proto.h). Muted: the muted-speaker icon and
+// a dimmed bar. Unknown ("---"): a dimmed speaker and an empty bar.
+struct VolumeRow {
+    lv_obj_t *icon = nullptr;
+    lv_obj_t *bar = nullptr;
+    uint8_t shown[KVM_LEVEL_LEN] = {0, 0, 0};
+};
+static VolumeRow volume_rows[KVM_LEVELS];
+
+static void create_volume_row(lv_obj_t *card, int host, const char *name, lv_coord_t y) {
+    create_status_label(card, name, 8, y, 34, 16, &lv_font_montserrat_14, lv_color_hex(0x91A3B8));
+    VolumeRow &row = volume_rows[host];
+    row.icon = create_status_label(card, LV_SYMBOL_VOLUME_MAX, 42, y, 18, 16, &lv_font_montserrat_14,
+                                   lv_color_hex(0x91A3B8), LV_TEXT_ALIGN_CENTER);
+    row.bar = lv_bar_create(card);
+    lv_obj_set_pos(row.bar, 64, y + 4);
+    lv_obj_set_size(row.bar, 46, 8);
+    lv_bar_set_range(row.bar, 0, 100);
+    lv_obj_set_style_bg_color(row.bar, lv_color_hex(0x24364A), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(row.bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(row.bar, 4, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(row.bar, lv_color_hex(0x55E6D2), LV_PART_INDICATOR);
+    lv_obj_set_style_radius(row.bar, 4, LV_PART_INDICATOR);
+    lv_bar_set_value(row.bar, 0, LV_ANIM_OFF);
+}
+
+static void update_volume(const uint8_t levels[KVM_LEVELS][KVM_LEVEL_LEN]) {
+    for (int h = 0; h < KVM_LEVELS; h++) {
+        VolumeRow &row = volume_rows[h];
+        if (row.bar == nullptr || memcmp(row.shown, levels[h], KVM_LEVEL_LEN) == 0) continue;
+        memcpy(row.shown, levels[h], KVM_LEVEL_LEN);
+        const int level = kvm_level_get(levels[h]);
+        const bool muted = level >= 0 && kvm_level_muted(levels[h]);
+        lv_label_set_text(row.icon, muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
+        lv_obj_set_style_text_color(row.icon, lv_color_hex(level >= 0 ? 0xE6EDF5 : 0x91A3B8), 0);
+        lv_obj_set_style_text_opa(row.icon, level >= 0 ? LV_OPA_COVER : LV_OPA_50, 0);
+        lv_obj_set_style_bg_opa(row.bar, muted ? LV_OPA_40 : LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_bar_set_value(row.bar, level >= 0 ? level : 0, LV_ANIM_OFF);
+    }
+}
+
 static void create_status_screen(void) {
     const lv_color_t primary = lv_color_hex(0xE6EDF5);
     const lv_color_t muted = lv_color_hex(0x91A3B8);
@@ -724,10 +766,9 @@ static void create_status_screen(void) {
     create_status_label(screen, "VOLUME", 8, 178, 60, 16, &lv_font_montserrat_14, accent);
     create_status_label(screen, "APP", 82, 178, 45, 16, &lv_font_montserrat_14, muted, LV_TEXT_ALIGN_RIGHT);
     lv_obj_t *volume_card = create_status_card(screen, 193, 40);
-    create_status_label(volume_card, "PC", 10, 5, 45, 16, &lv_font_montserrat_14, muted);
-    create_status_label(volume_card, "--%", 10, 21, 45, 17, &lv_font_montserrat_14, primary);
-    create_status_label(volume_card, "MAC", 65, 5, 43, 16, &lv_font_montserrat_14, muted);
-    create_status_label(volume_card, "--%", 65, 21, 43, 17, &lv_font_montserrat_14, primary);
+    lv_obj_clear_flag(volume_card, LV_OBJ_FLAG_SCROLLABLE);
+    create_volume_row(volume_card, KVM_LEVEL_PC, "PC", 2);
+    create_volume_row(volume_card, KVM_LEVEL_MAC, "MAC", 20);
 
     state_code_card = create_status_card(screen, 178, 55);
     create_status_label(
@@ -1219,12 +1260,14 @@ extern "C" void app_main(void) {
         }
 
         controls::View core_state;
-        if (network_take_kvm_state(core_state.b)) {
+        uint8_t core_levels[KVM_LEVELS][KVM_LEVEL_LEN];
+        if (network_take_kvm_state(core_state.b, core_levels)) {
             last_core_state = xTaskGetTickCount();
             core_seen = true;
             view = core_state;
             menu::refresh(view, settings);
             update_state_code(core_state.b);
+            update_volume(core_levels);
             if (apply_core_state(core_state, current_kvm_state)) {
                 render_current_scenario();
             }

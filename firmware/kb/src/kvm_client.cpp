@@ -43,7 +43,9 @@ void send_locked() {
         to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
     }
     const kvm_msg_t msg = kvm_msg(KVM_REQUEST, wanted);
-    sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
+    uint8_t raw[KVM_MAX_LEN];
+    const unsigned len = kvm_encode(&msg, raw);
+    sendto(sock, raw, len, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
     sent_at = xTaskGetTickCount();
     sends++;
 }
@@ -55,9 +57,10 @@ void send_volume_locked(uint8_t host, uint8_t vol) {
     to.sin_family = AF_INET;
     to.sin_port = htons(KVM_PORT);
     to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-    const uint8_t b[KVM_SLOTS] = {host, vol, KVM_UNKNOWN, KVM_UNKNOWN};
-    const kvm_msg_t msg = kvm_msg(KVM_VOLUME, b);
-    sendto(sock, &msg, sizeof msg, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
+    const kvm_msg_t msg = kvm_volume_msg(host, vol);
+    uint8_t raw[KVM_MAX_LEN];
+    const unsigned len = kvm_encode(&msg, raw);
+    sendto(sock, raw, len, 0, reinterpret_cast<sockaddr *>(&to), sizeof to);
 }
 
 // Call with mutex held.

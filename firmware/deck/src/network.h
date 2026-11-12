@@ -9,8 +9,9 @@ esp_err_t network_start(void);
 
 // kvm_proto client: the core is the server and the source of truth.
 
-// True if a STATE from the core arrived since the last call; copies its 4 bytes into out.
-bool network_take_kvm_state(uint8_t out[KVM_SLOTS]);
+// True if a STATE from the core arrived since the last call; copies its slots into out
+// and the hosts' volume fields into levels.
+bool network_take_kvm_state(uint8_t out[KVM_SLOTS], uint8_t levels[KVM_LEVELS][KVM_LEVEL_LEN]);
 
 // Asks the core for a state (REQUEST bytes, '-' = leave alone): to the sender of the last
 // STATE, or broadcast until one has been seen. Resent until a STATE shows it (up to 3 s);
