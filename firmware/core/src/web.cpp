@@ -13,6 +13,7 @@
 #include "monitors.h"
 #include "ota.h"
 #include "web_tls.h"
+#include "wol.h"
 
 namespace {
 
@@ -163,6 +164,12 @@ void set_error_status(httpd_req_t *req, esp_err_t err) {
     }
 }
 
+// A web UI switch to the PC, as a request for it, so it goes the same way as one from the deck.
+void wake_pc() {
+    const uint8_t want[KVM_SLOTS] = {KVM_HOST_PC, KVM_HOST_KEEP, KVM_UNKNOWN, KVM_UNKNOWN};
+    wol::wake_pc_if_wanted(want);
+}
+
 esp_err_t send_state(httpd_req_t *req, const char *error) {
     char buf[1024];
     const int n = state_json(buf, sizeof buf, error);
@@ -189,7 +196,9 @@ esp_err_t mon_post(httpd_req_t *req) {
 
     esp_err_t err = ESP_ERR_INVALID_ARG;
     if (httpd_query_key_value(query, "input", val, sizeof val) == ESP_OK) {
-        err = monitors::set_input(mon, (uint8_t)strtoul(val, nullptr, 0));
+        const uint8_t input = (uint8_t)strtoul(val, nullptr, 0);
+        err = monitors::set_input(mon, input);
+        if (err == ESP_OK && input == ddc::kInputDp) wake_pc();
     } else if (httpd_query_key_value(query, "power", val, sizeof val) == ESP_OK) {
         err = monitors::set_power(mon, (uint8_t)strtoul(val, nullptr, 0));
     }
@@ -209,7 +218,9 @@ esp_err_t hub_post(httpd_req_t *req) {
         httpd_resp_set_status(req, "400 Bad Request");
         return send_state(req, "missing port");
     }
-    const esp_err_t err = hubs::set_port(hub, (uint8_t)strtoul(val, nullptr, 0));
+    const uint8_t port = (uint8_t)strtoul(val, nullptr, 0);
+    const esp_err_t err = hubs::set_port(hub, port);
+    if (err == ESP_OK && kvm_hub_byte(port) == KVM_HOST_PC) wake_pc();
     if (err != ESP_OK) set_error_status(req, err);
     return send_state(req, err == ESP_OK ? nullptr : error_text(err));
 }
