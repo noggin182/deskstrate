@@ -1289,6 +1289,7 @@ extern "C" void app_main(void) {
         if (dim != dimmed) {
             dimmed = dim;
             backlight_fade(dimmed ? DIM_BACKLIGHT_DUTY : 255);
+            status_led::set_dim(dimmed);
         }
         show_waiting(!core_seen ? Waiting::ForCore : (core_silent ? Waiting::LostCore : Waiting::Hidden));
         update_ota_panel();
