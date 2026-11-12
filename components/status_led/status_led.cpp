@@ -34,10 +34,22 @@ constexpr Rgb kPurple = {100, 0, 140};
 constexpr Rgb kRed = {120, 0, 0};
 constexpr Rgb kOrange = {255, 80, 0};
 
+// Brightness in 1/256ths: full, or 1/kDimDivisor while dimmed, stepped each tick so a
+// change fades over kDimFadeMs.
+constexpr uint32_t kFullLevel = 256;
+constexpr uint32_t kDimLevel = kFullLevel / kDimDivisor;
+constexpr uint32_t kDimStep = (kFullLevel - kDimLevel + kDimFadeMs / kTickMs - 1) / (kDimFadeMs / kTickMs);
+
+Rgb scaled(Rgb c, uint32_t level) {
+    auto ch = [level](uint8_t v) { return static_cast<uint8_t>((v * level + kFullLevel / 2) / kFullLevel); };
+    return {ch(c.r), ch(c.g), ch(c.b)};
+}
+
 std::atomic<bool> ready{false};
 std::atomic<uint32_t> faults{0};
 std::atomic<uint32_t> activity{0};
 std::atomic<bool> core_silent{false};
+std::atomic<bool> dimmed{false};
 std::atomic<bool> started{false};
 std::atomic<bool> going_dark{false};
 std::atomic<bool> dark{false};
@@ -95,6 +107,7 @@ void task(void *arg) {
     bool joined = false;
     bool shown = false;
     Rgb last = kOff;
+    uint32_t level = kFullLevel;
     for (;;) {
         if (going_dark) {
             // Dark, then stop for good: nothing changes it again before the board sleeps.
@@ -127,7 +140,13 @@ void task(void *arg) {
         }
 
         if (led.kind == Kind::kWs2812) {
-            const Rgb c = colour(s, now);
+            const uint32_t target = dimmed ? kDimLevel : kFullLevel;
+            if (level > target) {
+                level = level - target > kDimStep ? level - kDimStep : target;
+            } else if (level < target) {
+                level = target - level > kDimStep ? level + kDimStep : target;
+            }
+            const Rgb c = scaled(colour(s, now), level);
             if (!shown || !(c == last)) {
                 if (led_strip_set_pixel(led.strip, 0, c.r, c.g, c.b) == ESP_OK &&
                     led_strip_refresh(led.strip) == ESP_OK) {
@@ -201,6 +220,8 @@ void set_fault(uint32_t f, bool on) { set_bits(faults, f, on); }
 void set_activity(uint32_t a, bool on) { set_bits(activity, a, on); }
 
 void set_core_silent(bool silent) { core_silent = silent; }
+
+void set_dim(bool dim) { dimmed = dim; }
 
 bool turn_off(uint32_t timeout_ms) {
     if (!started) return true;
