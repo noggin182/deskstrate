@@ -12,6 +12,7 @@
 #include "kvm_proto.h"
 #include "lwip/sockets.h"
 #include "monitors.h"
+#include "wol.h"
 
 namespace kvm_server {
 
@@ -196,14 +197,24 @@ void handle_request(const kvm_msg_t &req, const sockaddr_in &from) {
         level_at[h] = xTaskGetTickCount();
     }
     const int sleep = kvm_request_sleep(req.b);  // -1: no slots (a volume report or a STATE query)
+    uint8_t pc[KVM_SLOTS];  // what asks for the PC: the request, plus monitors already on it if this wakes the desk
+    memcpy(pc, req.b, sizeof pc);
     if (sleep >= 0) {
         char ip[16];
         inet_ntoa_r(from.sin_addr, ip, sizeof ip);
         ESP_LOGI(TAG, "REQUEST %.4s from %s", reinterpret_cast<const char *>(req.b), ip);
-        if (!sleep && asleep()) woke = true;
+        if (!sleep && asleep()) {
+            woke = true;
+            uint8_t now[KVM_SLOTS];
+            snapshot(now);
+            for (uint8_t id = KVM_MON_LEFT; id <= KVM_MON_RIGHT; id++) {
+                if (kvm_mon_host(now[id]) == KVM_HOST_PC) pc[id] = KVM_HOST_PC;
+            }
+        }
         set_asleep(sleep);
         for (auto &t : guest_power_at) t = 0;  // act on the change straight away
     }
+    if (sleep != 1) wol::wake_pc_if_wanted(pc);  // first, so the PC boots while the switches happen
     apply_mon(KVM_MON_LEFT, req.b[KVM_MON_LEFT]);
     apply_mon(KVM_MON_RIGHT, req.b[KVM_MON_RIGHT]);
     for (int h = 0; h < hubs::kCount; h++) apply_hub(h, req.b[KVM_HUB_HID + h]);

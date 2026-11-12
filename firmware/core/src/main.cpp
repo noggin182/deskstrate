@@ -20,6 +20,7 @@
 #include "status_led.h"
 #include "web.h"
 #include "wifi_sta.h"
+#include "wol.h"
 
 #if CONFIG_DESKSTRATE_SWD_BRINGUP
 #include "hub_swd.h"
@@ -72,6 +73,7 @@ extern "C" void app_main(void) {
 
     monitors::start();
     hubs::start();
+    wol::start();
     if (err == ESP_OK) kvm_server::start();
 
     if (err == ESP_OK) {

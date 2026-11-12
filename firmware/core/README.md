@@ -65,6 +65,26 @@ standby while asleep, and on once when the desk wakes. The flag survives an OTA 
 
 Unauthenticated: treat it as bench-only on a trusted LAN.
 
+## Wake-on-LAN
+
+The core broadcasts a Wake-on-LAN magic packet for the PC (UDP 255.255.255.255:9, sent
+twice) when:
+
+- a request (deck, keyboard, a daemon) asks for `P` in any slot: either monitor on DP, or
+  either hub on the PC, even if it is already there;
+- a request wakes the desk while a monitor is showing the PC;
+- the web UI switches a monitor to DP or a hub to the PC.
+
+A sleep request never sends one, and an awake PC ignores it. The Mac gets nothing (it
+isn't reachable from the LAN through its VPN).
+
+The PC's MAC is `DESKSTRATE_PC_MAC` (menuconfig, Deskstrate core), stored in NVS like
+the OTA token: blank keeps the stored one, `off` clears it. With none stored, WoL is off.
+It needs a wired network card on the PC; USB Wi-Fi adapters don't wake on a magic packet.
+PC side: in Device Manager, the card's Power Management tab ("Allow this device to wake
+the computer", "Only allow a magic packet") and "Wake on Magic Packet" under Advanced.
+Waking from shut down also needs WoL in the BIOS, ErP off and Fast Startup off.
+
 ## Build
 
 Board: diymore ESP32-S3 Mini (S3-Zero layout), env `s3_mini`. Chip is an
@@ -76,7 +96,7 @@ pio run -d firmware/core -t upload
 pio run -d firmware/core -t menuconfig   # Deskstrate Wi-Fi / Deskstrate core
 ```
 
-Wi-Fi credentials and the OTA token are stored in the core's NVS. A build with
+Wi-Fi credentials, the OTA token and the PC's MAC are stored in the core's NVS. A build with
 them set in `sdkconfig.s3_mini` (gitignored, never commit it) writes them there;
 a build with them blank, like CI's, keeps the stored ones. So a new board needs
 one USB flash of a build with both set, and nothing after that does.

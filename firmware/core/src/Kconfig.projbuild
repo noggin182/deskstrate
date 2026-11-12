@@ -25,4 +25,14 @@ menu "Deskstrate core"
             the stored one (CI and OTA builds do). With no token stored at all, OTA
             uploads are refused.
 
+    config DESKSTRATE_PC_MAC
+        string "PC MAC for Wake-on-LAN"
+        default ""
+        help
+            The PC's wired network card, as aa:bb:cc:dd:ee:ff. The core sends it a magic
+            packet when a monitor or hub is switched to the PC, or the desk is woken with
+            a monitor on the PC. Stored in NVS on boot; leave blank to keep the stored one
+            (CI and OTA builds do), or set "off" to clear it. With none stored, nothing
+            is sent.
+
 endmenu
