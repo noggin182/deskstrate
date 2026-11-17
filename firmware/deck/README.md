@@ -50,7 +50,7 @@ screen and controls.
 
 The Feather's built-in NeoPixel (GPIO33) is the status LED: see Status LED in the
 top README. It turns bright orange when no `STATE` has come from the core for 10 s. While the desk
-is asleep it shows its colour at an eighth of the usual brightness.
+is asleep it shows its colour at 1/16 of the usual brightness.
 
 ## Status screen and controls
 
@@ -132,8 +132,8 @@ white. Which NeoPixel sits under which key is set in `kPixelForKey` in
 `src/neokeys.cpp`.
 
 While the desk is asleep (standby in the core's `STATE`: the keyboard's Sleep key, or
-Sleep in the menu) the deck dims: the TFT backlight fades to about 3%, and the key lights
-and the status LED to an eighth of their level. Any deck key press wakes the desk, and still does what it
+Sleep in the menu) the deck dims: the TFT backlight fades to about 3%, the key lights to an
+eighth of their level, and the status LED to 1/16. Any deck key press wakes the desk, and still does what it
 normally does.
 
 A debug code overlay (on by default; Debug code in the menu)
