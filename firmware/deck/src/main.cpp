@@ -60,6 +60,15 @@ LV_FONT_DECLARE(font_mono_22);  // font_mono_22.c: JetBrains Mono, for the debug
 #define DIM_NEOKEY_DIVISOR 8
 #define DIM_FADE_MS 400
 #define DESK_EXPECT_MS 2000
+// Across a restart (an update, or a rollback): the key lights fade in over
+// LIGHTS_FADE_MS once the main loop starts, and out over the same time when the
+// updater shows Restarting, so they are dark before the reset (they keep the last
+// colour they were sent until the new firmware drives them). The TFT backlight is a
+// quick transition, SCREEN_FADE_MS: in once the first frame is drawn, and out at the
+// very end of the Restarting screen, finishing SCREEN_DARK_BEFORE_MS before the reset.
+#define LIGHTS_FADE_MS 1000
+#define SCREEN_FADE_MS 200
+#define SCREEN_DARK_BEFORE_MS 100
 
 static lv_disp_drv_t disp_drv;
 
@@ -1010,7 +1019,7 @@ static void backlight_start() {
     channel.speed_mode = LEDC_LOW_SPEED_MODE;
     channel.channel = LEDC_CHANNEL_0;
     channel.timer_sel = LEDC_TIMER_0;
-    channel.duty = 255;
+    channel.duty = 0;  // faded in once the first frame is drawn
     if (ledc_timer_config(&timer) != ESP_OK || ledc_channel_config(&channel) != ESP_OK
         || ledc_fade_func_install(0) != ESP_OK) {
         printf("Backlight PWM not started; full brightness only\n");
@@ -1019,8 +1028,8 @@ static void backlight_start() {
     }
 }
 
-static void backlight_fade(uint32_t duty) {
-    ledc_set_fade_time_and_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty, DIM_FADE_MS, LEDC_FADE_NO_WAIT);
+static void backlight_fade(uint32_t duty, uint32_t ms = DIM_FADE_MS) {
+    ledc_set_fade_time_and_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty, ms, LEDC_FADE_NO_WAIT);
 }
 
 // extern "C" is mandatory so the FreeRTOS bootloader can find the entry point
@@ -1143,10 +1152,12 @@ extern "C" void app_main(void) {
 
     // The screen comes up first so a restart (after an update) never leaves the last
     // image on it. Then three seconds for the USB console to attach before the boot
-    // log, with LVGL running so the spinner turns.
+    // log, with LVGL running so the spinner turns. The backlight fades up once the
+    // first frame is on the panel.
     for (int i = 0; i < 300; ++i) {
         lv_tick_inc(10);
         lv_timer_handler();
+        if (i == 0) backlight_fade(255, SCREEN_FADE_MS);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
@@ -1199,6 +1210,10 @@ extern "C" void app_main(void) {
         expect_at = xTaskGetTickCount();
     };
     float neokey_scale = 1.0f;  // eases between 1 and 1/DIM_NEOKEY_DIVISOR
+    float lights_ramp = 0.0f;   // key lights' fade in (to 1) or out before a restart (to 0)
+    bool restarting = false;
+    TickType_t restarting_at = 0;
+    bool screen_out = false;    // backlight faded out for the restart
 
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
@@ -1288,8 +1303,22 @@ extern "C" void app_main(void) {
         const bool dim = expect >= 0 ? expect == 1 : asleep;
         if (dim != dimmed) {
             dimmed = dim;
-            backlight_fade(dimmed ? DIM_BACKLIGHT_DUTY : 255);
+            if (!screen_out) backlight_fade(dimmed ? DIM_BACKLIGHT_DUTY : 255);
             status_led::set_dim(dimmed);
+        }
+        // About to restart: the lights fade out now, the screen at the very end.
+        const bool restart_now = ota_pull::progress().phase == ota_pull::Phase::Restarting;
+        if (restart_now != restarting) {
+            restarting = restart_now;
+            restarting_at = xTaskGetTickCount();
+        }
+        const bool want_screen_out = restarting
+            && xTaskGetTickCount() - restarting_at
+                   >= pdMS_TO_TICKS(ota_pull::kRebootDelayMs - SCREEN_FADE_MS - SCREEN_DARK_BEFORE_MS);
+        if (want_screen_out != screen_out) {
+            // Back on too, if the restart didn't happen (a rollback with nothing to go back to).
+            screen_out = want_screen_out;
+            backlight_fade(screen_out ? 0 : (dimmed ? DIM_BACKLIGHT_DUTY : 255), SCREEN_FADE_MS);
         }
         show_waiting(!core_seen ? Waiting::ForCore : (core_silent ? Waiting::LostCore : Waiting::Hidden));
         update_ota_panel();
@@ -1305,6 +1334,10 @@ extern "C" void app_main(void) {
             neokey_scale += (target - neokey_scale) * (float(NEOKEY_FRAME_MS) / DIM_FADE_MS * 3.0f);
             if (fabsf(target - neokey_scale) < 0.005f) neokey_scale = target;
             scene.brightness = static_cast<uint8_t>(menu::light_brightness(settings.light_level) * neokey_scale + 0.5f);
+            // Fade in from boot, out before a restart: a straight ramp, eased at both ends.
+            const float step = float(NEOKEY_FRAME_MS) / LIGHTS_FADE_MS;
+            lights_ramp = restarting ? fmaxf(0.0f, lights_ramp - step) : fminf(1.0f, lights_ramp + step);
+            scene.level = lights_ramp * lights_ramp * (3.0f - 2.0f * lights_ramp);
             neokeys::render(scene, now_ms);
         }
 
