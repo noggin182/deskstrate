@@ -65,6 +65,7 @@ extern "C" void app_main(void) {
 #endif
 
     esp_err_t err = wifi_sta_start(kHostname);
+    if (err == ESP_OK) wifi_sta_no_power_save();  // on USB power: answer REQUESTs promptly
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Wi-Fi not started: %s", esp_err_to_name(err));
         status_led::set_fault(status_led::kFaultStartup, true);

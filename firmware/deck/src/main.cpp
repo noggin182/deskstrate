@@ -714,13 +714,15 @@ struct VolumeRow {
 static VolumeRow volume_rows[KVM_LEVELS];
 
 static void create_volume_row(lv_obj_t *card, int host, const char *name, lv_coord_t y) {
-    create_status_label(card, name, 8, y, 34, 16, &lv_font_montserrat_14, lv_color_hex(0x91A3B8));
+    create_status_label(card, name, 6, y, 34, 16, &lv_font_montserrat_14, lv_color_hex(0x91A3B8));
     VolumeRow &row = volume_rows[host];
-    row.icon = create_status_label(card, LV_SYMBOL_VOLUME_MAX, 42, y, 18, 16, &lv_font_montserrat_14,
+    row.icon = create_status_label(card, LV_SYMBOL_VOLUME_MAX, 40, y, 18, 16, &lv_font_montserrat_14,
                                    lv_color_hex(0x91A3B8), LV_TEXT_ALIGN_CENTER);
     row.bar = lv_bar_create(card);
-    lv_obj_set_pos(row.bar, 64, y + 4);
-    lv_obj_set_size(row.bar, 46, 8);
+    // 50 px for 0-100: every 2% (one Windows volume step) is exactly one more pixel. At
+    // 46 px some steps rounded to no visible change.
+    lv_obj_set_pos(row.bar, 60, y + 4);
+    lv_obj_set_size(row.bar, 50, 8);
     lv_bar_set_range(row.bar, 0, 100);
     lv_obj_set_style_bg_color(row.bar, lv_color_hex(0x24364A), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(row.bar, LV_OPA_COVER, LV_PART_MAIN);

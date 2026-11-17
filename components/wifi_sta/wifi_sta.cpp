@@ -92,6 +92,10 @@ esp_err_t wifi_sta_start(const char *hostname) {
     return ESP_OK;
 }
 
+esp_err_t wifi_sta_no_power_save() {
+    return esp_wifi_set_ps(WIFI_PS_NONE);
+}
+
 bool wifi_sta_connected() {
     return events && (xEventGroupGetBits(events) & kConnectedBit);
 }
