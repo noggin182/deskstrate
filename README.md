@@ -84,8 +84,8 @@ when all is well.
 | Red | A fault: a service didn't start, no Wi-Fi, or the last update check failed |
 | Orange, bright | Deck only: no `STATE` from the core for 10 s |
 
-On the deck, whichever colour is showing fades to an eighth of its brightness while the
-desk is asleep, like the key lights.
+On the deck, whichever colour is showing fades to 1/16 of its brightness while the
+desk is asleep, fading with the key lights.
 
 ## CI workflows
 

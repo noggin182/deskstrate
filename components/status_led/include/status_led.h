@@ -8,7 +8,7 @@
 //   green                booting: not ready yet, or ready and still joining Wi-Fi
 //   orange, bright       deck only: the core has gone quiet (set_core_silent)
 //   blue, dim            all good
-// set_dim() scales whichever colour is showing to 1/8, e.g. on the deck while the desk
+// set_dim() scales whichever colour is showing to 1/16, e.g. on the deck while the desk
 // sleeps, fading over 400 ms like the deck's NeoKeys.
 // A single-colour LED (Kind::kSingleActiveLow, e.g. the XIAO ESP32S3's user LED) shows
 // the same states as patterns:
@@ -60,7 +60,7 @@ void set_core_silent(bool silent);
 
 // Dims the colour to kDimDivisor of its brightness (fading over kDimFadeMs), or brings
 // it back. A single-colour LED ignores it.
-inline constexpr uint32_t kDimDivisor = 8;
+inline constexpr uint32_t kDimDivisor = 16;
 inline constexpr uint32_t kDimFadeMs = 400;
 void set_dim(bool dim);
 
