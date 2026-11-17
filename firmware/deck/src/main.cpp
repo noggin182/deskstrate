@@ -712,7 +712,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
     }
 }
 
-// The VOLUME card: per host a speaker icon and a bar, from the volume fields of the
+// The VOLUME card: per host its logo (as on the monitors, re-rendered small), a speaker icon and a bar, from the volume fields of the
 // core's STATE (each host reports its own; kvm_proto.h). Muted: the muted-speaker icon and
 // a dimmed bar. Unknown ("---"): a dimmed speaker and an empty bar.
 struct VolumeRow {
@@ -722,15 +722,19 @@ struct VolumeRow {
 };
 static VolumeRow volume_rows[KVM_LEVELS];
 
-static void create_volume_row(lv_obj_t *card, int host, const char *name, lv_coord_t y) {
-    create_status_label(card, name, 6, y, 34, 16, &lv_font_montserrat_14, lv_color_hex(0x91A3B8));
+static void create_volume_row(lv_obj_t *card, int host, lv_coord_t y) {
+    if (host == KVM_LEVEL_PC) {
+        create_logo_icon(card, &icon_windows_small, 9, y + 2, lv_color_hex(0x58B9FF));
+    } else {
+        create_logo_icon(card, &icon_apple_small, 10, y + 1, lv_color_hex(0xDCEBFF));
+    }
     VolumeRow &row = volume_rows[host];
-    row.icon = create_status_label(card, LV_SYMBOL_VOLUME_MAX, 40, y, 18, 16, &lv_font_montserrat_14,
+    row.icon = create_status_label(card, LV_SYMBOL_VOLUME_MAX, 28, y, 18, 16, &lv_font_montserrat_14,
                                    lv_color_hex(0x91A3B8), LV_TEXT_ALIGN_CENTER);
     row.bar = lv_bar_create(card);
     // 50 px for 0-100: every 2% (one Windows volume step) is exactly one more pixel. At
     // 46 px some steps rounded to no visible change.
-    lv_obj_set_pos(row.bar, 60, y + 4);
+    lv_obj_set_pos(row.bar, 56, y + 4);
     lv_obj_set_size(row.bar, 50, 8);
     lv_bar_set_range(row.bar, 0, 100);
     lv_obj_set_style_bg_color(row.bar, lv_color_hex(0x24364A), LV_PART_MAIN);
@@ -778,8 +782,8 @@ static void create_status_screen(void) {
     create_status_label(screen, "APP", 82, 178, 45, 16, &lv_font_montserrat_14, muted, LV_TEXT_ALIGN_RIGHT);
     lv_obj_t *volume_card = create_status_card(screen, 193, 40);
     lv_obj_clear_flag(volume_card, LV_OBJ_FLAG_SCROLLABLE);
-    create_volume_row(volume_card, KVM_LEVEL_PC, "PC", 2);
-    create_volume_row(volume_card, KVM_LEVEL_MAC, "MAC", 20);
+    create_volume_row(volume_card, KVM_LEVEL_PC, 2);
+    create_volume_row(volume_card, KVM_LEVEL_MAC, 20);
 
     state_code_card = create_status_card(screen, 178, 55);
     create_status_label(
