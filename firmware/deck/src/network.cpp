@@ -210,6 +210,8 @@ esp_err_t network_start(void) {
     // This build's menuconfig credentials, or the ones stored in NVS (see wifi_sta.h).
     ESP_RETURN_ON_ERROR(wifi_sta_apply_credentials(), TAG, "no usable Wi-Fi credentials");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "failed to start Wi-Fi");
+    // On USB power: no modem sleep, so STATE broadcasts aren't held until a DTIM beacon.
+    ESP_RETURN_ON_ERROR(wifi_sta_no_power_save(), TAG, "failed to turn off Wi-Fi power save");
     ESP_RETURN_ON_ERROR(start_kvm_client(), TAG, "failed to start kvm_proto client");
 
     ESP_LOGI(TAG, "Wi-Fi station started");

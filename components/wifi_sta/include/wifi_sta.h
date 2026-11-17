@@ -21,3 +21,9 @@ esp_err_t wifi_sta_start(const char *hostname);
 
 // True while associated with an IP address.
 bool wifi_sta_connected();
+
+// After the station has started: turns modem power save off, for a board on USB power
+// that must hear kvm_proto broadcasts promptly. With the default power save the radio
+// sleeps between beacons, so the router holds broadcasts until a DTIM beacon and unicast
+// until the next beacon: a few hundred ms of lag on every STATE and REQUEST.
+esp_err_t wifi_sta_no_power_save();
