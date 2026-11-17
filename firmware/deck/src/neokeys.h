@@ -28,8 +28,14 @@ struct Scene {
     uint8_t held = 0;         // bit n = controls::Key n is down
     controls::View view;
     uint8_t brightness = 255; // overall scale, 0 = off
+    // Fades every key in and out, separately from what it shows (0 = dark, 1 = full):
+    // in after boot, out before a restart. Applied before the brightness curve, so
+    // the fade doesn't step at the dim end.
+    float level = 1.0f;
 };
 
+// Starts the strip and turns all four off, so whatever the last firmware left on them
+// (or a crash froze) doesn't linger.
 esp_err_t start(gpio_num_t pin);
 void flash(controls::Key key, uint32_t now_ms);
 // Call every frame (~30 ms).

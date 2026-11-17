@@ -219,6 +219,7 @@ esp_err_t start(gpio_num_t pin) {
         rmt_config.flags.with_dma = false;
         err = led_strip_new_rmt_device(&strip_config, &rmt_config, &strip);
     }
+    if (err == ESP_OK) led_strip_clear(strip);
     return err;
 }
 
@@ -258,6 +259,7 @@ void render(const Scene &scene, uint32_t now_ms) {
                 c = mix(c, hex(0xFFFFFF), 1.0f - static_cast<float>(age) / kFlashMs);
             }
         }
+        c = scale(c, scene.level);
         led_strip_set_pixel(strip, kPixelForKey[k], to_byte(c.r, scene.brightness),
                             to_byte(c.g, scene.brightness), to_byte(c.b, scene.brightness));
     }

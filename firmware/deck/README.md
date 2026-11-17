@@ -131,6 +131,14 @@ the first `STATE` arrives all four breathe amber. Each press flashes its key
 white. Which NeoPixel sits under which key is set in `kPixelForKey` in
 `src/neokeys.cpp`.
 
+Across a restart (after an update, or a rollback) the key lights fade out over
+about a second when the Restarting screen appears, so they are dark through the
+reset, and fade back in over about a second once the new firmware's main loop runs.
+That brightness fade is separate from what the keys show, so they fade up into the
+amber breath and then crossfade to the hosts as usual. The TFT backlight does a
+quick fade (a fifth of a second) out at the end of the Restarting screen and in
+once the first frame is drawn at boot.
+
 While the desk is asleep (standby in the core's `STATE`: the keyboard's Sleep key, or
 Sleep in the menu) the deck dims: the TFT backlight fades to about 3%, and the key lights
 and the status LED to an eighth of their level. Any deck key press wakes the desk, and still does what it
