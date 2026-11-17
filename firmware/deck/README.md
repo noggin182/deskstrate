@@ -67,7 +67,7 @@ camera icons rather than labels. The VOLUME card shows the PC's and the Mac's vo
 the core's `STATE` (each host reports its own): per host its logo (Windows, Apple; small
 renders, `icons/windows_small.svg` redraws the Windows logo on a 13 px grid), a speaker icon
 and a bar; muted
-shows the muted-speaker icon with the bar dimmed, and unknown (`---`: no report for 30 s)
+shows the speaker with a slash through it (a gap cut around the slash) and the bar dimmed, and unknown (`---`: no report for 30 s)
 a dimmed speaker with an empty bar. The diagram shows the state reported by the core. Until
 the first `STATE` arrives, and whenever none has come for 10 s, a spinner
 covers the screen ("Waiting for the core" / "Lost the core") so the deck never
