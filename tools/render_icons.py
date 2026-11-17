@@ -5,7 +5,8 @@ img_recolor, so one mask serves any colour and the edges stay anti-aliased.
 
 Each SVG is rendered at 8x its on-screen size and box-filtered down, so every pixel's
 alpha is the fraction of it the shape covers. Sizes are picked to keep straight edges
-on pixel boundaries (the Windows panes are 9 px with a 1 px gap).
+on pixel boundaries (the Windows panes are 9 px with a 1 px gap; windows_small.svg is
+the same logo drawn on a 13 px grid, 6 px panes, for the VOLUME card).
 
     pip install cairosvg pillow
     tools/render_icons.py
@@ -25,6 +26,9 @@ SUPERSAMPLE = 8
 SIZES = {
     "windows": ("windows.svg", 19, 19),
     "apple": ("apple.svg", 18, 22),
+    # The VOLUME card's host marks, sized for its 16 px rows.
+    "windows_small": ("windows_small.svg", 13, 13),
+    "apple_small": ("apple.svg", 11, 14),
 }
 
 
