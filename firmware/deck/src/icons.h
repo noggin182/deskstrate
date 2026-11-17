@@ -13,6 +13,8 @@ extern const lv_img_dsc_t icon_windows;  // 19 x 19
 extern const lv_img_dsc_t icon_apple;    // 18 x 22
 extern const lv_img_dsc_t icon_windows_small;  // 13 x 13, VOLUME card
 extern const lv_img_dsc_t icon_apple_small;    // 11 x 14, VOLUME card
+extern const lv_img_dsc_t icon_speaker;        // 16 x 14, VOLUME card
+extern const lv_img_dsc_t icon_speaker_muted;  // 16 x 14, VOLUME card: slashed
 
 #ifdef __cplusplus
 }

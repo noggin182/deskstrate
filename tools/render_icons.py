@@ -29,6 +29,9 @@ SIZES = {
     # The VOLUME card's host marks, sized for its 16 px rows.
     "windows_small": ("windows_small.svg", 13, 13),
     "apple_small": ("apple.svg", 11, 14),
+    # The VOLUME card's speaker, and muted: a slash with a clear gap cut around it.
+    "speaker": ("speaker.svg", 16, 14),
+    "speaker_muted": ("speaker_muted.svg", 16, 14),
 }
 
 

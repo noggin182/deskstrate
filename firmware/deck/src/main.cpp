@@ -713,7 +713,7 @@ static void create_routing_diagram(lv_obj_t *parent, const KvmState &state) {
 }
 
 // The VOLUME card: per host its logo (as on the monitors, re-rendered small), a speaker icon and a bar, from the volume fields of the
-// core's STATE (each host reports its own; kvm_proto.h). Muted: the muted-speaker icon and
+// core's STATE (each host reports its own; kvm_proto.h). Muted: the slashed speaker and
 // a dimmed bar. Unknown ("---"): a dimmed speaker and an empty bar.
 struct VolumeRow {
     lv_obj_t *icon = nullptr;
@@ -729,8 +729,11 @@ static void create_volume_row(lv_obj_t *card, int host, lv_coord_t y) {
         create_logo_icon(card, &icon_apple_small, 10, y + 1, lv_color_hex(0xDCEBFF));
     }
     VolumeRow &row = volume_rows[host];
-    row.icon = create_status_label(card, LV_SYMBOL_VOLUME_MAX, 28, y, 18, 16, &lv_font_montserrat_14,
-                                   lv_color_hex(0x91A3B8), LV_TEXT_ALIGN_CENTER);
+    row.icon = lv_img_create(card);
+    lv_img_set_src(row.icon, &icon_speaker);
+    lv_obj_set_pos(row.icon, 30, y + 1);
+    lv_obj_set_style_img_recolor(row.icon, lv_color_hex(0x91A3B8), 0);
+    lv_obj_set_style_img_recolor_opa(row.icon, LV_OPA_COVER, 0);
     row.bar = lv_bar_create(card);
     // 50 px for 0-100: every 2% (one Windows volume step) is exactly one more pixel. At
     // 46 px some steps rounded to no visible change.
@@ -752,9 +755,9 @@ static void update_volume(const uint8_t levels[KVM_LEVELS][KVM_LEVEL_LEN]) {
         memcpy(row.shown, levels[h], KVM_LEVEL_LEN);
         const int level = kvm_level_get(levels[h]);
         const bool muted = level >= 0 && kvm_level_muted(levels[h]);
-        lv_label_set_text(row.icon, muted ? LV_SYMBOL_MUTE : LV_SYMBOL_VOLUME_MAX);
-        lv_obj_set_style_text_color(row.icon, lv_color_hex(level >= 0 ? 0xE6EDF5 : 0x91A3B8), 0);
-        lv_obj_set_style_text_opa(row.icon, level >= 0 ? LV_OPA_COVER : LV_OPA_50, 0);
+        lv_img_set_src(row.icon, muted ? &icon_speaker_muted : &icon_speaker);
+        lv_obj_set_style_img_recolor(row.icon, lv_color_hex(level >= 0 ? 0xE6EDF5 : 0x91A3B8), 0);
+        lv_obj_set_style_img_opa(row.icon, level >= 0 ? LV_OPA_COVER : LV_OPA_50, 0);
         lv_obj_set_style_bg_opa(row.bar, muted ? LV_OPA_40 : LV_OPA_COVER, LV_PART_INDICATOR);
         lv_bar_set_value(row.bar, level >= 0 ? level : 0, LV_ANIM_OFF);
     }
