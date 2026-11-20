@@ -113,11 +113,16 @@ esp_err_t status_get(httpd_req_t *req) {
 // Registers the page, API and WebSocket on a server: the plain one, and the HTTPS one
 // each time web_tls (re)starts it.
 esp_err_t register_handlers(httpd_handle_t server) {
-    const httpd_uri_t uris[] = {
-        {.uri = "/", .method = HTTP_GET, .handler = page_get, .user_ctx = nullptr},
-        {.uri = "/api/status", .method = HTTP_GET, .handler = status_get, .user_ctx = nullptr},
-    };
-    for (const httpd_uri_t &u : uris) {
+    // Not aggregate-initialised: with WebSockets on, httpd_uri_t has more fields.
+    const struct {
+        const char *uri;
+        esp_err_t (*handler)(httpd_req_t *);
+    } pages[] = {{"/", page_get}, {"/api/status", status_get}};
+    for (const auto &p : pages) {
+        httpd_uri_t u = {};
+        u.uri = p.uri;
+        u.method = HTTP_GET;
+        u.handler = p.handler;
         ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &u), TAG, "register %s", u.uri);
     }
     return mirror::register_handler(server);
