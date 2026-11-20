@@ -1,4 +1,4 @@
-// Pull updates from GitHub Releases, shared by core, deck and kb. A board only ever installs
+// Pull updates from GitHub Releases, shared by core, deck, kb and bridge. A board only ever installs
 // an image it fetched itself from the fixed release URL below, over certificate-checked
 // HTTPS. Nothing is pushed into it from outside.
 //
@@ -8,6 +8,7 @@
 //     deskstrate_core=<app version>
 //     deskstrate_deck=<app version>
 //     deskstrate_kb=<app version>
+//     deskstrate_bridge=<app version>
 //   <kReleases>/download/<tag>/<project name>.bin
 // A check reads the manifest. If the version listed for this board's project (the
 // project() name in its CMakeLists) differs from the running one, the board downloads
@@ -39,6 +40,7 @@ inline constexpr uint8_t kDoorbellMagic[4] = {'D', 'S', 'U', 'P'};
 inline constexpr uint16_t kCorePort = 18210;  // doorbell port, UDP
 inline constexpr uint16_t kDeckPort = 18211;
 inline constexpr uint16_t kKbPort = 18212;
+inline constexpr uint16_t kBridgePort = 18213;
 
 inline constexpr uint32_t kFirstPollMs = 2 * 60 * 1000;
 inline constexpr uint32_t kPollMs = 60 * 60 * 1000;

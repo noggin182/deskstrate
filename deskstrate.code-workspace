@@ -3,6 +3,7 @@
         { "name": "core", "path": "firmware/core" },
         { "name": "deck", "path": "firmware/deck" },
         { "name": "kb", "path": "firmware/kb" },
+        { "name": "bridge", "path": "firmware/bridge" },
         { "name": "deskstrate", "path": "." }
     ]
 }
