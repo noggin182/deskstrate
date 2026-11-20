@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Linked into deskstrate-host (__TEXT,__info_plist). It gives the bare binary a bundle
-     identity, and macOS needs NSLocalNetworkUsageDescription to ask for (and remember)
-     Local Network access for a LaunchAgent; without it the core's broadcasts can be
-     silently dropped. -->
+     identity, which Accessibility (the volume keys) is granted to. No Local Network
+     entry: the daemon talks only to the serial bridge, never the network. -->
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
@@ -16,8 +15,6 @@
     <string>6.0</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>Deskstrate host listens for the Deskstrate core's KVM state on the local network.</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>Deskstrate host presses the volume keys so macOS shows its volume overlay.</string>
 </dict>

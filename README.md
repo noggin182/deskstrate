@@ -9,8 +9,9 @@ USB hubs switch over SWD.
 | `firmware/core` | Central box (ESP32-S3 Mini). Headless source of truth: DDC, SWD, UDP server. `deskstrate` |
 | `firmware/deck` | Desk unit (Feather ESP32-S3 TFT + NeoKeys). Screen and keys; client of the core. `deskstrate-deck` |
 | `firmware/kb` | XIAO ESP32S3 Plus inside the keyboard: Wi-Fi and a UART to the keyboard's STM32, asleep off USB. `deskstrate-kb` |
+| `firmware/bridge` | S3 Super Mini on the Mac's dock: passes `kvm_proto` between the Mac's USB serial port and UDP 18200 (the Mac's VPN blocks the LAN). `deskstrate-bridge` |
 | `firmware/keyboard` | QMK for the Keychron Q3 Max (UK ISO): our keymap and link code on top of Keychron's fork, plus the VIA definition |
-| `host` | Host daemons for the PC (Windows service) and the Mac (LaunchAgent): display layout, wake on switch, the desk's sleep (DDC standby on their own input), and volume from the keyboard's Fn+knob |
+| `host` | Host daemons for the PC (Windows service) and the Mac (LaunchAgent, through the serial bridge): display layout, wake on switch, the desk's sleep (DDC standby on their own input), volume from the keyboard's Fn+knob, and their own volume for the deck |
 | `components/kvm_proto` | UDP wire format shared by core, deck, kb and the host daemons |
 | `components/kvm_controls` | What a deck key or keyboard Fn key asks the core for; shared by deck and kb, tested on a PC |
 | `components/kb_link_proto` | Framed UART format between the keyboard's STM32 and the kb ESP |
@@ -28,16 +29,16 @@ USB hubs switch over SWD.
 
 Each firmware is an ESP-IDF project (sources in `src/`). CI builds them with plain
 ESP-IDF; `platformio.ini` is kept for flashing on the bench: `pio run -d firmware/core`,
-`firmware/deck` or `firmware/kb`, or open `deskstrate.code-workspace` in VS Code to get all
-three. PlatformIO's debugger works on each over the S3's built-in USB JTAG
+`firmware/deck`, `firmware/kb` or `firmware/bridge`, or open `deskstrate.code-workspace` in
+VS Code to get them all. PlatformIO's debugger works on each over the S3's built-in USB JTAG
 (`debug_tool = esp-builtin`).
 
 ## Deployment
 
 Every push to `main` that changes a board is built by GitHub Actions (`.github/workflows/firmware.yml`)
 and published as a release (`build-<run>.<attempt>`) with `manifest.txt`,
-`deskstrate_core.bin`, `deskstrate_deck.bin` and `deskstrate_kb.bin`. Every release carries all three
-images, so CI keeps only the newest 10. CI then rings each board's
+`deskstrate_core.bin`, `deskstrate_deck.bin`, `deskstrate_kb.bin` and `deskstrate_bridge.bin`.
+Every release carries every board's image, so CI keeps only the newest 10. CI then rings each board's
 doorbell, and the boards download and install their own image from the release
 over HTTPS. Nothing is pushed into the house: the doorbell is a UDP datagram
 starting with `DSUP` that only means "check now", and the boards only ever fetch
@@ -55,6 +56,7 @@ of the release it already runs. Local and branch builds carry `git describe` ins
 | core | 18210 |
 | deck | 18211 |
 | kb | 18212 |
+| bridge | 18213 |
 
 The router forwards those UDP ports from `deskstrate.nogsnet.com` (A record,
 IPv4) to each board. Forward nothing else: the core's web UI (80) and
@@ -62,7 +64,7 @@ IPv4) to each board. Forward nothing else: the core's web UI (80) and
 have no IPv6, so they can't reach an IPv6 pinhole. Set the repo variable
 `DOORBELL_HOST` to ring a different host.
 
-Ring by hand with `python tools/doorbell.py <host> 18210 18211 18212` (on the LAN, use
+Ring by hand with `python tools/doorbell.py <host> 18210 18211 18212 18213` (on the LAN, use
 each board's own address). Checks are rate-limited to one a minute per board.
 Anyone who can push to `main` can deploy, so protect the account (2FA) and the
 branch.
@@ -70,7 +72,7 @@ branch.
 ### Status LED
 
 Each board's built-in WS2812 is its status LED (`components/status_led`): GPIO21
-on the core's S3 Mini, the NeoPixel on the deck's Feather. The keyboard's XIAO
+on the core's S3 Mini, GPIO48 on the bridge's S3 Super Mini, the NeoPixel on the deck's Feather. The keyboard's XIAO
 ESP32S3 has a plain LED (GPIO21, lit when low) instead, which shows the same states as
 blink patterns: 5 Hz updating, 1 Hz booting or busy, on for a fault, a blip every 2 s
 when all is well.
@@ -91,7 +93,7 @@ desk is asleep, fading with the key lights.
 
 | Workflow | File | Runs when | Produces |
 | --- | --- | --- | --- |
-| Firmware: core, deck, kb (release + OTA) | `firmware.yml` | core, deck, kb or `components/` change | On `main`: a `build-<run>.<attempt>` release, then rings the doorbells |
+| Firmware: core, deck, kb, bridge (release + OTA) | `firmware.yml` | core, deck, kb, bridge or `components/` change | On `main`: a `build-<run>.<attempt>` release, then rings the doorbells |
 | Keyboard (QMK) | `keyboard.yml` | `firmware/keyboard` or `kb_link_proto` change | On `main`: the `.bin` and VIA JSON on the `keyboard` prerelease |
 | Host daemons: Windows, Mac | `host.yml` | `host/` or `kvm_proto` change | Policy tests; the daemons as run artifacts |
 | TLS certificates (renew) | `tls.yml` | weekly, or a `tls/*.csr` changes on `main` | Certificates on the `tls` prerelease |

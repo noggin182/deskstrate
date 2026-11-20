@@ -1,6 +1,8 @@
 # Builds deskstrate-host for macOS (Apple Silicon or Intel: whatever this Mac is).
 #   make            build build/deskstrate-host
-#   make install    build, copy to ~/Library/Application Support/Deskstrate and (re)start the LaunchAgent
+#   make install    build, copy to ~/Library/Application Support/Deskstrate and (re)start the LaunchAgent,
+#                   pinned to the serial bridge (bridge-serial.sh: BRIDGE_SERIAL=..., else the one
+#                   installed before, else the only one plugged in)
 #   make uninstall  stop and remove the LaunchAgent
 #   make cert       once: a self-signed signing certificate, so rebuilds keep Accessibility
 
@@ -11,7 +13,7 @@ AGENT := $(HOME)/Library/LaunchAgents/com.deskstrate.host.plist
 LABEL := gui/$(shell id -u)/com.deskstrate.host
 SIGN_ID := Deskstrate Host Signing
 
-$(BIN): main.swift Bridging.h Info.plist ../common/host_policy.h $(ROOT)/components/kvm_proto/include/kvm_proto.h
+$(BIN): main.swift Bridging.h Info.plist ../common/host_policy.h ../common/level_report.h $(ROOT)/components/kvm_proto/include/kvm_proto.h
 	mkdir -p build
 	swiftc -O -cxx-interoperability-mode=default -import-objc-header Bridging.h \
 		-Xcc -I../common -Xcc -I$(ROOT)/components/kvm_proto/include \
@@ -27,13 +29,14 @@ $(BIN): main.swift Bridging.h Info.plist ../common/host_policy.h $(ROOT)/compone
 	fi
 
 install: $(BIN)
+	./bridge-serial.sh $(BIN) "$(AGENT)" > build/bridge-serial
 	-launchctl bootout $(LABEL) 2>/dev/null && sleep 1
 	mkdir -p "$(APP_DIR)" "$(HOME)/Library/Logs/Deskstrate" "$(HOME)/Library/LaunchAgents"
 	rm -f "$(APP_DIR)/deskstrate-host"  # a new file: overwriting a signed binary in place can get it killed at launch
 	cp $(BIN) "$(APP_DIR)/deskstrate-host"
-	sed "s|@HOME@|$(HOME)|g" com.deskstrate.host.plist > "$(AGENT)"
+	sed -e "s|@HOME@|$(HOME)|g" -e "s|@BRIDGE_SERIAL@|$$(cat build/bridge-serial)|g" com.deskstrate.host.plist > "$(AGENT)"
 	launchctl bootstrap gui/$(shell id -u) "$(AGENT)"
-	@echo "Running. Log: ~/Library/Logs/Deskstrate/host.log"
+	@echo "Running, pinned to bridge $$(cat build/bridge-serial). Log: ~/Library/Logs/Deskstrate/host.log"
 
 uninstall:
 	-launchctl bootout $(LABEL)

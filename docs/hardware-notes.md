@@ -51,8 +51,9 @@ wiring and protocols live with their code (`firmware/*/README.md`, `kvm_proto.h`
 - **Windows:** dxva2 `SetVCPFeature` / `GetVCPFeatureAndVCPFeatureReply` work, also while
   the displays are asleep and in Duplicate mode (one HMONITOR, DDC still per monitor).
 - **Mac on the work VPN** (Cisco Secure Client, LAN access locked off): it receives the
-  core's broadcasts but can't send to the LAN. Anything the Mac must hear goes out as a
-  LAN broadcast; nothing may depend on the Mac sending.
+  core's broadcasts but can't send to the LAN. So the Mac's daemon doesn't use the
+  network at all: it talks through a USB serial bridge on its dock (`firmware/bridge`),
+  which also tells it whether it's docked.
 
 ## USB switches
 

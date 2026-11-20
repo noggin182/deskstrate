@@ -8,6 +8,9 @@
     <key>ProgramArguments</key>
     <array>
         <string>@HOME@/Library/Application Support/Deskstrate/deskstrate-host</string>
+        <!-- Keep the serial number at index 2: bridge-serial.sh reads it back on reinstall. -->
+        <string>--bridge-serial</string>
+        <string>@BRIDGE_SERIAL@</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

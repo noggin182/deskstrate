@@ -1,7 +1,8 @@
 # Host daemons
 
 A small program on each host that follows the core's `STATE` broadcasts
-(`components/kvm_proto`, UDP 18200) and does what only the host can do:
+(`components/kvm_proto`, UDP 18200; the Mac hears them through its serial bridge)
+and does what only the host can do:
 
 | Situation (from `STATE`) | What the host does |
 | --- | --- |
@@ -31,12 +32,11 @@ c++ -std=c++17 -I components/kvm_proto/include -I host/common host/common/test_h
 ```
 
 The daemons send only `REQUEST`s without slots: an empty one
-(`KR ---- --- ---`), broadcast until a `STATE` comes back so they find the core
-without waiting for its heartbeat (`--core <ipv4>` sends it to that address
-instead), and their own volume (`KR ---- 42% ---`, see `common/level_report.h`) on
-every change, every 10 s, and whenever a `STATE` shows it wrong. The core passes it on
-in `STATE` for the deck's VOLUME card. Only the PC reports for now: the Mac can't send
-to the LAN, so its report waits for the serial bridge.
+(`KR ---- --- ---`), sent until a `STATE` comes back so they find the core
+without waiting for its heartbeat, and their own volume (`KR ---- 42% ---` from the
+PC, `KR ---- --- 42%` from the Mac, see `common/level_report.h`) on every change,
+every 10 s, and whenever a `STATE` shows it wrong. The core passes it on in `STATE`
+for the deck's VOLUME card, and forgets a host's volume 30 s after its last report.
 
 ## Windows (PC)
 
@@ -79,7 +79,7 @@ keys, with Windows' usual on-screen indicator. DDC goes through dxva2, in the ag
 
 Logs: `%ProgramData%\Deskstrate\service.log` and `agent.log` (service), or
 `%LOCALAPPDATA%\Deskstrate\host.log` (standalone). Options `--no-topology` and
-`--core <ipv4>` go after `--service` in the service's command line.
+`--core <ipv4>` (send to the core instead of broadcasting) go after `--service` in the service's command line.
 
 ## macOS (Mac)
 
@@ -97,11 +97,28 @@ host/mac/build/deskstrate-host --list-displays   # serials, origins, mirroring
 Log: `~/Library/Logs/Deskstrate/host.log`. The Dells are found by EDID serial
 (810562882 left, 810959170 right); if `--list-displays` shows other serials,
 pass `--left-serial` / `--right-serial` (add them to `ProgramArguments` in
-`com.deskstrate.host.plist`). macOS may ask to allow it to find devices on the
-local network: allow it, or it never hears the core. (The binary carries an
-Info.plist, `host/mac/Info.plist`, so macOS can ask; if the log shows no `STATE` lines
-while running it by hand from Terminal does, check System Settings > Privacy & Security >
-Local Network.)
+`com.deskstrate.host.plist`).
+
+### The serial bridge (docked / undocked)
+
+The Mac is on a work VPN that lets LAN broadcasts in but nothing out, so the daemon
+never touches the network. It talks `kvm_proto` through the serial bridge on the dock
+(`firmware/bridge`), one message per line, and the bridge passes the lines to and from
+UDP 18200. The bridge's USB port being there is how the daemon knows it's docked:
+
+- **Docked:** it opens the port, asks for a `STATE`, follows the rules above, reports
+  the Mac's volume and mute (CoreAudio listeners on the default output), and copies the
+  bridge's own logs (lines starting `# `) into host.log as `bridge: ...`.
+- **Undocked** (or the bridge unplugged): it closes the port and does nothing at all:
+  no socket, no timers, no audio listeners. Nothing is sent on the office network.
+
+It only opens the bridge whose USB serial number (the board's MAC) it was installed
+with; any other ESP plugged in is logged and ignored. `make install` finds that number
+in this order: `BRIDGE_SERIAL=...` on the command line, the one the installed
+LaunchAgent already has, or the only Espressif port plugged in. So install once with the
+bridge plugged in, and later installs work undocked too. To see what's plugged in:
+`host/mac/build/deskstrate-host --list-bridges`. No Local Network permission is needed
+any more.
 
 The keyboard's Fn+knob (while the keyboard is on the PC) changes the Mac's volume,
 and it follows the desk's sleep over DDC (above). `deskstrate-host --ddc-list` shows each external display's input and
