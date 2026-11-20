@@ -140,3 +140,8 @@ void matrix_scan_user(void) {
         dip_switch_read(true);  // back to the switch's layout
     }
 }
+
+// Holding Esc while plugging in is QMK bootmagic: it clears the EEPROM and then jumps to
+// the bootloader, so every flash entered that way used to reset the VIA keymap, encoders,
+// macros and lighting. Keep the jump to the bootloader but skip the reset.
+void bootmagic_reset_eeprom(void) {}
