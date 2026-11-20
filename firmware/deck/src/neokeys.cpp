@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "led_strip.h"
+#include "mirror.h"
 
 namespace neokeys {
 
@@ -230,6 +231,7 @@ void flash(Key key, uint32_t now_ms) {
 
 void render(const Scene &scene, uint32_t now_ms) {
     if (strip == nullptr) return;
+    uint8_t sent[controls::kKeyCount][3];
     for (uint8_t k = 0; k < controls::kKeyCount; ++k) {
         const Key key = static_cast<Key>(k);
         Rgb c = key_colour(key, scene, now_ms);
@@ -260,10 +262,13 @@ void render(const Scene &scene, uint32_t now_ms) {
             }
         }
         c = scale(c, scene.level);
-        led_strip_set_pixel(strip, kPixelForKey[k], to_byte(c.r, scene.brightness),
-                            to_byte(c.g, scene.brightness), to_byte(c.b, scene.brightness));
+        sent[k][0] = to_byte(c.r, scene.brightness);
+        sent[k][1] = to_byte(c.g, scene.brightness);
+        sent[k][2] = to_byte(c.b, scene.brightness);
+        led_strip_set_pixel(strip, kPixelForKey[k], sent[k][0], sent[k][1], sent[k][2]);
     }
     led_strip_refresh(strip);
+    mirror::keys(sent);
 }
 
 }  // namespace neokeys

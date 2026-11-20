@@ -40,6 +40,7 @@ struct CertInfo {
 
 const char *board_name = "";
 RegisterFn app_register = nullptr;
+StopFn app_stop = nullptr;
 mbedtls_pk_context key;
 char key_pem[kKeyMax];
 
@@ -212,6 +213,7 @@ esp_err_t register_own(httpd_handle_t server) {
 void restart_https(const char *pem, const CertInfo &info) {
     if (https) {
         https_up = false;
+        if (app_stop) app_stop(https);
         httpd_ssl_stop(https);
         https = nullptr;
     }
@@ -233,7 +235,10 @@ void restart_https(const char *pem, const CertInfo &info) {
     if (err == ESP_OK && app_register) err = app_register(h);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "HTTPS not started: %s", esp_err_to_name(err));
-        if (h) httpd_ssl_stop(h);
+        if (h) {
+            if (app_stop) app_stop(h);
+            httpd_ssl_stop(h);
+        }
         return;
     }
     https = h;
@@ -362,9 +367,10 @@ bool uri_match(const char *tmpl, const char *uri, size_t len) {
     return !is_redirect && strlen(tmpl) == len && strncmp(tmpl, uri, len) == 0;
 }
 
-esp_err_t start(const char *name, httpd_handle_t http, RegisterFn register_fn) {
+esp_err_t start(const char *name, httpd_handle_t http, RegisterFn register_fn, StopFn stop_fn) {
     board_name = name;
     app_register = register_fn;
+    app_stop = stop_fn;
     lock = xSemaphoreCreateMutex();
     if (!lock) return ESP_ERR_NO_MEM;
 

@@ -1,5 +1,5 @@
 // HTTPS for a board's web UI, with a Let's Encrypt certificate that CI renews. Shared by
-// the core and kb.
+// the core, deck and kb.
 //
 // The board makes its own key (ECDSA P-256) on first boot and keeps it in NVS: it never
 // leaves the board. Its certificate signing request is public and lives in the repo
@@ -40,15 +40,18 @@ inline constexpr int kHttpUriHandlers = kUriHandlers + 5;  // and to the plain s
 // Registers the app's own handlers on a server. Called for the HTTPS server each time it
 // (re)starts, so it must be safe to call more than once.
 using RegisterFn = esp_err_t (*)(httpd_handle_t server);
+// Called just before the HTTPS server stops (to restart with a new certificate), so the
+// app can let go of anything that holds its handle or sockets.
+using StopFn = void (*)(httpd_handle_t server);
 
 // URI matcher for the plain server: exact match (the httpd default) while HTTPS is down,
 // and only the redirect handler while it is up.
 bool uri_match(const char *tmpl, const char *uri, size_t len);
 
-// name: short board name ("core", "kb"), used for the CSR and certificate file names.
+// name: short board name ("core", "deck", "kb"), used for the CSR and certificate file names.
 // http: the running plain server, which gets /api/tls and /api/tls/csr.
 // Loads or creates the key, starts HTTPS if a certificate is stored, and starts the fetch
 // task. Call once Wi-Fi has been started and NVS is initialised.
-esp_err_t start(const char *name, httpd_handle_t http, RegisterFn register_fn);
+esp_err_t start(const char *name, httpd_handle_t http, RegisterFn register_fn, StopFn stop_fn = nullptr);
 
 }  // namespace web_tls

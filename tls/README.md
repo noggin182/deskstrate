@@ -1,9 +1,9 @@
 # HTTPS certificates
 
-The core and kb serve their web UI over HTTPS on port 443, with a Let's Encrypt
+The core, deck and kb serve their web pages over HTTPS on port 443, with a Let's Encrypt
 certificate for `*.deskstrate.nogsnet.com` (`components/web_tls`). Once HTTPS is up, plain
 HTTP on port 80 redirects every request (307, so POSTs keep their method and body) to
-`https://core.deskstrate.nogsnet.com/...` or `https://kb.deskstrate.nogsnet.com/...`. A board
+`https://<core|deck|kb>.deskstrate.nogsnet.com/...`. A board
 without a certificate, or whose HTTPS failed to start, serves everything on port 80 as before. Each board makes its own key on first boot and keeps it in NVS.
 Only its certificate signing request (CSR), which is public, comes here.
 
@@ -26,7 +26,7 @@ every 12 hours, and installs it only if it matches its own key.
      and writes the challenge TXT record at deSEC). It must point at a name inside the
      zone, not `acme.nogsnet.com` itself: lego's deSEC plugin can't write at a zone's apex.
    - An A record for each board's LAN address, e.g. `core.deskstrate` → `192.168.4.44`
-     and `kb.deskstrate` → the kb's address. Give both boards DHCP reservations so the
+     and `deck.deskstrate` / `kb.deskstrate` → the deck's and kb's addresses. Give every board a DHCP reservation so the
      addresses don't move. Don't touch the existing `deskstrate` A record: the doorbells
      use it.
 3. Test the DNS side: run the "TLS certificates (renew)" workflow by hand with **staging** ticked. It uses Let's
@@ -44,6 +44,7 @@ Flash firmware with `web_tls`, then save its CSR here and push to `main`:
 ```
 curl -L -o tls/core.csr http://deskstrate.local/api/tls/csr
 curl -L -o tls/kb.csr http://deskstrate-kb.local/api/tls/csr
+curl -L -o tls/deck.csr http://<deck's IP>/api/tls/csr
 ```
 
 The push runs the workflow, which rings the board's doorbell once the certificate is

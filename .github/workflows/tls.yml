@@ -134,6 +134,7 @@ jobs:
           for board in $published; do
             case "$board" in
               core) ports="$ports 18210" ;;
+              deck) ports="$ports 18211" ;;
               kb) ports="$ports 18212" ;;
             esac
           done

@@ -13,11 +13,13 @@
 #include "controls.h"
 #include "icons.h"
 #include "menu.h"
+#include "mirror.h"
 #include "neokeys.h"
 #include "network.h"
 #include "nvs.h"
 #include "ota_pull.h"
 #include "status_led.h"
+#include "web.h"
 #include "lvgl.h"
 
 extern "C" {
@@ -1001,6 +1003,7 @@ static void display_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_
         area->y2 + 1,
         color_map
     ));
+    mirror::flush(area, color_map);  // the web page's copy (mirror.h)
 }
 
 static bool display_color_trans_done_cb(
@@ -1038,6 +1041,7 @@ static void backlight_start() {
 }
 
 static void backlight_fade(uint32_t duty, uint32_t ms = DIM_FADE_MS) {
+    mirror::backlight(static_cast<uint8_t>(duty), ms);
     ledc_set_fade_time_and_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty, ms, LEDC_FADE_NO_WAIT);
 }
 
@@ -1177,6 +1181,9 @@ extern "C" void app_main(void) {
         // Updates itself from GitHub releases: hourly, or on a UDP doorbell (ota_pull.h).
         network_err = ota_pull::start(ota_pull::kDeckPort);
         if (network_err != ESP_OK) printf("updater not started: %s\n", esp_err_to_name(network_err));
+        // The mirror page. Not essential: the deck carries on without it.
+        const esp_err_t web_err = web_start();
+        if (web_err != ESP_OK) printf("web page not started: %s\n", esp_err_to_name(web_err));
     }
     if (network_err != ESP_OK) status_led::set_fault(status_led::kFaultStartup, true);
 
@@ -1227,6 +1234,7 @@ extern "C" void app_main(void) {
     while (true) {
         // LVGL needs to know how much time has passed to handle animations and rendering
         lv_tick_inc(10);
+        mirror::poll();  // a new viewer on the web page gets the whole screen redrawn
         lv_timer_handler(); 
 
         const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());

@@ -30,7 +30,7 @@ COM number alone.
   Deployment in README.md). To push a bench build to the core over Wi-Fi instead: `POST https://core.deskstrate.nogsnet.com/api/ota` with
   `Authorization: Bearer <CONFIG_DESKSTRATE_OTA_TOKEN from sdkconfig.s3_mini>`. Never
   print the token or the Wi-Fi credentials. Once a board has HTTPS up, port 80 answers
-  everything with a 307 to `https://<core|kb>.deskstrate.nogsnet.com/...`: use that URL,
+  everything with a 307 to `https://<core|deck|kb>.deskstrate.nogsnet.com/...`: use that URL,
   since `curl -L` drops the Authorization header when it follows a redirect to another host.
 
 ## ESP32-S3 USB Serial/JTAG quirks
