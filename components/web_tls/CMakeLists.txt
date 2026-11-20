@@ -1,5 +1,5 @@
-# ESP-IDF builds every component it finds, so the deck compiles this too. Only boards that
-# turn on the HTTPS server and CSR writing (core, kb: see their sdkconfig.defaults) get
+# ESP-IDF builds every component it finds, so every board compiles this. Only boards that
+# turn on the HTTPS server and CSR writing (core, deck, kb: see their sdkconfig.defaults) get
 # the code; for the rest it is an empty component.
 set(srcs "")
 if(CONFIG_ESP_HTTPS_SERVER_ENABLE AND CONFIG_MBEDTLS_X509_CSR_WRITE_C)

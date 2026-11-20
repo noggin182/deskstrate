@@ -16,7 +16,7 @@ USB hubs switch over SWD.
 | `components/kb_link_proto` | Framed UART format between the keyboard's STM32 and the kb ESP |
 | `components/wifi_sta` | Shared Wi-Fi station join (menuconfig: Deskstrate Wi-Fi) |
 | `components/ota_pull` | Shared self-update from GitHub Releases: hourly poll or UDP doorbell, with rollback |
-| `components/web_tls` | Shared HTTPS for the core's and kb's web UI: key made on the board, Let's Encrypt certificate pulled from the `tls` release (see `tls/README.md`) |
+| `components/web_tls` | Shared HTTPS for the core's, deck's and kb's web pages: key made on the board, Let's Encrypt certificate pulled from the `tls` release (see `tls/README.md`) |
 | `components/status_led` | Shared status LED (colours below) |
 | `tls` | The boards' CSRs; `.github/workflows/tls.yml` turns them into certificates |
 | `tools` | `release_manifest.py` (CI), `doorbell.py` (ring the boards' update doorbells), `render_icons.py` (the deck's logos) |

@@ -52,6 +52,26 @@ The Feather's built-in NeoPixel (GPIO33) is the status LED: see Status LED in th
 top README. It turns bright orange when no `STATE` has come from the core for 10 s. While the desk
 is asleep it shows its colour at 1/16 of the usual brightness.
 
+## Web page: live mirror
+
+`https://deck.deskstrate.nogsnet.com/` (or `http://<deck's IP>/` until it has a
+certificate) shows the TFT and the four key lights live, pixel for pixel (`src/web.cpp`,
+`src/mirror.cpp`). It is view only. The page opens a WebSocket at `/ws`; each region LVGL
+flushes to the panel is also copied into a shadow of the screen, and a sender task sends
+the changed rectangle at most 20 times a second as raw RGB565. A slow viewer gets
+redraws merged rather than queued, so the TFT never waits for the network. The key
+colours (the bytes sent to the NeoPixels) and the backlight level go as a small JSON
+frame when they change, so the page dims when the desk sleeps.
+
+The shadow screen takes about 72 KB of internal RAM (there is no PSRAM), allocated
+only while someone is watching and freed when the last viewer leaves. At most two
+viewers at once. `GET /api/status` shows free RAM, the lowest it has been, and the
+viewer count; the boot log prints free RAM once the page is up.
+
+HTTPS is the shared `components/web_tls`, as on the core and kb. One-time setup: a DHCP
+reservation and an A record `deck.deskstrate` for the deck, then commit its CSR
+(`tls/README.md`).
+
 ## Status screen and controls
 
 The TFT status screen is portrait (135 x 240). Its routing diagram shows the
