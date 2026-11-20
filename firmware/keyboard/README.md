@@ -41,6 +41,12 @@ once. Keep a VIA Save + Load backup anyway: the settings live in one flash secto
 losing power while QMK rewrites it (it erases the sector when its write log fills, often
 right after a macro save) still resets everything.
 
+Stock QMK also resets everything when you hold Esc while plugging in (bootmagic), before
+it jumps to the bootloader. The keymap overrides `bootmagic_reset_eeprom()` so Esc only
+enters the bootloader. That only holds once a firmware with the override is on the
+keyboard: entering the bootloader with Esc from an older build (or Keychron's own
+firmware) still resets everything, so use the reset button under the space bar then.
+
 To flash: unplug, set the mode switch to Cable, hold Esc (or the reset button under the
 space bar) while plugging in, then flash the `.bin` with QMK Toolbox or
 `dfu-util -a 0 -d 0483:df11 -s 0x08000000:leave -D <file>.bin`. The STM32 bootloader
